@@ -209,7 +209,9 @@ class RichTextStyleControls(SimpleCardWidget):
         )
         self.glow = self._effect("glow", "#00FFFF", "saved_glow_colors", "blur", 0.10)
         self.blur = self._number("blur", 0, 1, 0, 0.01, 2)
-        self.blur_angle = self._number("blurAngle", -180, 180, 0, 1, 0)
+        # TextStyle normalizes blurAngle into [0, 360); keep the editor in the
+        # same domain so 270° is not clamped to 180° when loading a rule.
+        self.blur_angle = self._number("blurAngle", 0, 360, 0, 1, 0)
         self.kerning = self._number("kerning", -5, 5, 0, 0.05, 2)
         self.pre_kerning = self._number("preKerning", -5, 5, 0, 0.05, 2)
         self.line_kerning = self._number("lineKerning", -5, 5, 0, 0.05, 2)

@@ -140,6 +140,9 @@ class TextStyle:
     # 渐变模糊方向（度）：0=左→右，90=上→下，180=右→左，270=下→上。
     # None 表示均匀模糊（整个文字同一强度）。
     blur_angle: float | None = None
+    # 注音是否继承主体样式。默认 True（与既有行为一致）；False 时使用
+    # 注音 run 自己的样式（通常为空样式）。
+    ruby_inherit: bool = True
 
     def copy(self) -> "TextStyle":
         return copy.deepcopy(self)
@@ -165,6 +168,7 @@ class TextStyle:
                 "glow",
                 "blur",
                 "blurAngle",
+                "rubyInherit",
                 "emphasis",
                 "noTcy",
                 "verticalAdvance",
@@ -178,7 +182,27 @@ class TextStyle:
         )
         font_size = _safe_float(value.get("fontSize"), None)
         blur = _safe_float(value.get("blur"), 0.0)
+        try:
+            blur = float(blur or 0.0)
+        except (TypeError, ValueError):
+            blur = 0.0
+        if not math.isfinite(blur):
+            blur = 0.0
+        # The editor exposes 0..1; clamp hostile project/rule data so the
+        # renderer's blur * font_size * 3 padding cannot explode.
+        blur = min(max(0.0, blur), 1.0)
         blur_angle = _safe_float(value.get("blurAngle"), None)
+        if blur_angle is not None:
+            try:
+                blur_angle = float(blur_angle)
+            except (TypeError, ValueError):
+                blur_angle = None
+            if blur_angle is not None and not math.isfinite(blur_angle):
+                blur_angle = None
+        if blur_angle is not None:
+            # Keep equivalent angles in one domain (e.g. -90 -> 270) so the
+            # direction combo and the renderer agree.
+            blur_angle = float(blur_angle) % 360.0
         return cls(
             bold=bool(value.get("bold", False)),
             italic=_parse_italic(value.get("italic", False)),
@@ -193,6 +217,7 @@ class TextStyle:
             glow=GlowStyle.from_dict(value.get("glow")),
             blur=max(0.0, float(blur or 0.0)),
             blur_angle=blur_angle,
+            ruby_inherit=bool(value.get("rubyInherit", True)),
             emphasis=bool(value.get("emphasis", False)),
             no_tcy=bool(value.get("noTcy", False)),
             vertical_advance=_parse_vertical_advance(value.get("verticalAdvance")),
@@ -221,6 +246,7 @@ class TextStyle:
                 "glow": self.glow.to_dict() if self.glow else None,
                 "blur": self.blur or None,
                 "blurAngle": self.blur_angle,
+                "rubyInherit": None if self.ruby_inherit else False,
                 "emphasis": self.emphasis or None,
                 "noTcy": self.no_tcy or None,
                 "verticalAdvance": self.vertical_advance,
@@ -253,6 +279,24 @@ class TextRun:
 
     def to_dict(self) -> dict:
         return {"type": "text", "text": self.text, "style": self.style.to_dict()}
+
+
+def ruby_text_style_for(span) -> TextStyle:
+    """Return the style used to render a ruby span.
+
+    Ruby inherits the base span style by default (``rubyInherit=True``).
+    With ``rubyInherit=False`` the first ruby run's own style is used; the
+    editor leaves that style empty, so ruby gets the default text style.
+    """
+    base_style = getattr(span, "style", None) or TextStyle()
+    if getattr(base_style, "ruby_inherit", True):
+        return base_style.copy()
+    ruby_runs = getattr(span, "ruby", None) or []
+    if ruby_runs:
+        run_style = getattr(ruby_runs[0], "style", None)
+        if run_style is not None:
+            return run_style.copy()
+    return TextStyle()
 
 
 @dataclass

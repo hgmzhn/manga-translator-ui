@@ -52,17 +52,37 @@ def _map_dst_points_to_screen(dst_points: np.ndarray, transform) -> np.ndarray:
 
 
 def _is_perspective_quad(points) -> bool:
-    """判断 4 点是否构成非平行四边形的透视四边形。"""
+    """判断 4 点是否需要四角透视映射。
+
+    只有旋转矩形（可用原生矩形路径表示）返回 False；对边平行但整体
+    倾斜的平行四边形仍是有效的透视四边形，必须保留四角映射。
+    """
     pts = np.asarray(points, dtype=np.float32).reshape(4, 2)
-    v_top = pts[1] - pts[0]
-    v_left = pts[3] - pts[0]
-    v_bottom = pts[2] - pts[3]
-    v_right = pts[2] - pts[1]
-    tol = max(1.0, 0.01 * max(np.linalg.norm(v_top), np.linalg.norm(v_left)))
-    return bool(
-        np.linalg.norm(v_bottom - v_top) > tol
-        or np.linalg.norm(v_right - v_left) > tol
+    top = pts[1] - pts[0]
+    right = pts[2] - pts[1]
+    bottom = pts[3] - pts[2]
+    left = pts[0] - pts[3]
+    scale = max(
+        1.0,
+        float(
+            max(
+                np.linalg.norm(top),
+                np.linalg.norm(right),
+                np.linalg.norm(bottom),
+                np.linalg.norm(left),
+            )
+        ),
     )
+    tol = 0.01 * scale
+    parallel = (
+        np.linalg.norm(top + bottom) <= tol
+        and np.linalg.norm(right + left) <= tol
+    )
+    top_len = float(np.linalg.norm(top))
+    right_len = float(np.linalg.norm(right))
+    denom = max(top_len * right_len, 1e-6)
+    perpendicular = abs(float(np.dot(top, right))) / denom <= 0.01
+    return not (parallel and perpendicular)
 
 
 def _native_rect_points(center, width: int, height: int, angle: float) -> np.ndarray:

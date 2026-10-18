@@ -2561,17 +2561,37 @@ async def dispatch(
     return img
 
 def _is_perspective_quad(points) -> bool:
-    """判断 4 点是否构成非平行四边形的透视四边形。"""
+    """判断 4 点是否需要四角透视映射。
+
+    只有旋转矩形（可用原生矩形路径表示）返回 False；对边平行但整体
+    倾斜的平行四边形仍是有效的透视四边形，必须保留四角映射。
+    """
     pts = np.asarray(points, dtype=np.float32).reshape(4, 2)
-    v_top = pts[1] - pts[0]
-    v_left = pts[3] - pts[0]
-    v_bottom = pts[2] - pts[3]
-    v_right = pts[2] - pts[1]
-    tol = max(1.0, 0.01 * max(np.linalg.norm(v_top), np.linalg.norm(v_left)))
-    return bool(
-        np.linalg.norm(v_bottom - v_top) > tol
-        or np.linalg.norm(v_right - v_left) > tol
+    top = pts[1] - pts[0]
+    right = pts[2] - pts[1]
+    bottom = pts[3] - pts[2]
+    left = pts[0] - pts[3]
+    scale = max(
+        1.0,
+        float(
+            max(
+                np.linalg.norm(top),
+                np.linalg.norm(right),
+                np.linalg.norm(bottom),
+                np.linalg.norm(left),
+            )
+        ),
     )
+    tol = 0.01 * scale
+    parallel = (
+        np.linalg.norm(top + bottom) <= tol
+        and np.linalg.norm(right + left) <= tol
+    )
+    top_len = float(np.linalg.norm(top))
+    right_len = float(np.linalg.norm(right))
+    denom = max(top_len * right_len, 1e-6)
+    perpendicular = abs(float(np.dot(top, right))) / denom <= 0.01
+    return not (parallel and perpendicular)
 
 
 def _paste_premultiplied_rgba(img, layer, x: int, y: int, render_alpha=None):
@@ -2808,16 +2828,32 @@ def render(
             float(np.dot(quad[:, 0], np.roll(quad[:, 1], -1)))
             - float(np.dot(quad[:, 1], np.roll(quad[:, 0], -1)))
         )
-        if _is_perspective_quad(quad) and quad_area >= 4.0:
+        if quad_area >= 4.0:
             premultiplied = _premultiply_rgba(temp_box)
             src_quad = np.float32([[0, 0], [w, 0], [w, h], [0, h]])
             homography = cv2.getPerspectiveTransform(src_quad, quad)
             min_x, min_y = quad.min(axis=0)
             max_x, max_y = quad.max(axis=0)
-            out_w = max(1, int(math.ceil(float(max_x - min_x))))
-            out_h = max(1, int(math.ceil(float(max_y - min_y))))
-            homography[0, 2] -= float(min_x)
-            homography[1, 2] -= float(min_y)
+            img_h, img_w = img.shape[:2]
+            clip_x1 = max(0, int(math.floor(float(min_x))))
+            clip_y1 = max(0, int(math.floor(float(min_y))))
+            clip_x2 = min(img_w, int(math.ceil(float(max_x))))
+            clip_y2 = min(img_h, int(math.ceil(float(max_y))))
+            if clip_x2 <= clip_x1 or clip_y2 <= clip_y1:
+                return img
+            # 平移必须在齐次坐标下左乘完整平移矩阵；直接改 homography
+            # 的 tx/ty 只对 w=1 的点成立，会把透视文字拉偏。
+            translate = np.array(
+                [
+                    [1.0, 0.0, -float(clip_x1)],
+                    [0.0, 1.0, -float(clip_y1)],
+                    [0.0, 0.0, 1.0],
+                ],
+                dtype=np.float64,
+            )
+            homography = translate @ homography
+            out_w = clip_x2 - clip_x1
+            out_h = clip_y2 - clip_y1
             warped = cv2.warpPerspective(
                 premultiplied,
                 homography,
@@ -2830,8 +2866,8 @@ def render(
             return _paste_premultiplied_rgba(
                 img,
                 warped,
-                int(round(float(min_x))),
-                int(round(float(min_y))),
+                clip_x1,
+                clip_y1,
                 render_alpha,
             )
 

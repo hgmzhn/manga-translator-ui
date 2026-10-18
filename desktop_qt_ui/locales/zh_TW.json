@@ -64,6 +64,8 @@
   "Half Advance": "半格推進",
   "Full Advance": "全形推進",
   "Ruby": "注音",
+  "Inherit": "繼承",
+  "Apply body style to ruby text": "將主體樣式套用到注音文字",
   "Rotation": "局部旋轉",
   "Offset X": "水平偏移",
   "Offset Y": "垂直偏移",

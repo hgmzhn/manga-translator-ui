@@ -64,6 +64,8 @@
   "Half Advance": "半角送り",
   "Full Advance": "全角送り",
   "Ruby": "ルビ",
+  "Inherit": "継承",
+  "Apply body style to ruby text": "本文スタイルをルビに適用",
   "Rotation": "回転",
   "Offset X": "X オフセット",
   "Offset Y": "Y オフセット",

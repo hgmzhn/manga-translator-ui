@@ -433,7 +433,11 @@ def _gradient_blur_canvas(
 
 
 def _apply_style_paint_effects(
-    layer: np.ndarray, style: TextStyle, font_size: int, paint_part: str = "all"
+    layer: np.ndarray,
+    style: TextStyle,
+    font_size: int,
+    paint_part: str = "all",
+    gradient_box: tuple[float, float, float, float] | None = None,
 ):
     """构造同尺寸的特效/正文图层，供渲染器执行全局先特效后正文。"""
     if layer is None or layer.size == 0:
@@ -485,13 +489,43 @@ def _apply_style_paint_effects(
 
     if paint_part != "effects":
         _paste_rgba(canvas, layer, pad, pad)
-        blur_px = max(0.0, float(getattr(style, "blur", 0.0) or 0.0)) * max(
-            float(font_size), 1.0
-        )
-        # 渐变模糊在整块文字画布上统一处理（见 _gradient_blur_canvas），
-        # 这里跳过逐层模糊，避免二次模糊。
-        if blur_px > 0 and getattr(style, "blur_angle", None) is None:
-            canvas = _blur_rgba_layer(canvas, blur_px)
+
+    blur_px = max(0.0, float(getattr(style, "blur", 0.0) or 0.0)) * max(
+        float(font_size), 1.0
+    )
+    if blur_px > 0:
+        blur_angle = getattr(style, "blur_angle", None)
+        if blur_angle is None:
+            # Preserve the existing uniform-blur semantics: only the text
+            # body is blurred, not the separately composited effects layer.
+            if paint_part != "effects":
+                canvas = _blur_rgba_layer(canvas, blur_px)
+        else:
+            # 方向模糊按当前 span/字符图层处理，不能对整张文档画布
+            # 统一模糊，否则会波及没有设置该样式的文字。
+            if gradient_box is None:
+                # The canvas is the text layer grown by ``pad``; gradient
+                # coordinates should span the text itself, while the pad
+                # is where the blurred ink is allowed to spread.
+                box = (
+                    float(pad),
+                    float(pad),
+                    float(max(1, canvas.shape[1] - pad * 2)),
+                    float(max(1, canvas.shape[0] - pad * 2)),
+                )
+            else:
+                box = (
+                    float(gradient_box[0]) + pad,
+                    float(gradient_box[1]) + pad,
+                    float(gradient_box[2]),
+                    float(gradient_box[3]),
+                )
+            canvas = _gradient_blur_canvas(
+                canvas,
+                blur_px,
+                box,
+                float(blur_angle),
+            )
     return canvas
 
 

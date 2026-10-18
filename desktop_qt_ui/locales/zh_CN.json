@@ -85,6 +85,8 @@
   "Font": "字体",
   "TCY": "纵中横",
   "Ruby": "注音",
+  "Inherit": "继承",
+  "Apply body style to ruby text": "将主体样式应用到注音文本",
   "Offset": "偏移",
   "Mirror Horizontal": "水平镜像",
   "Mirror Vertical": "垂直镜像",

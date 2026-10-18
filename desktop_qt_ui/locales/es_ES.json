@@ -64,6 +64,8 @@
   "Half Advance": "Avance de media celda",
   "Full Advance": "Avance de celda completa",
   "Ruby": "Ruby",
+  "Inherit": "Heredar",
+  "Apply body style to ruby text": "Aplicar el estilo del cuerpo al texto ruby",
   "Rotation": "Rotación",
   "Offset X": "Desplazamiento X",
   "Offset Y": "Desplazamiento Y",

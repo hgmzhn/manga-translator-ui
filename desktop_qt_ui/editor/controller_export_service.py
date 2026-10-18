@@ -432,6 +432,8 @@ class EditorControllerExportService:
             return None
         quad = region.get("white_frame_quad_local")
         if not is_quad_like(quad):
+            quad = region.get("render_box_quad_local")
+        if not is_quad_like(quad):
             return None
         center = region.get("center")
         if not (isinstance(center, (list, tuple, np.ndarray)) and len(center) >= 2):

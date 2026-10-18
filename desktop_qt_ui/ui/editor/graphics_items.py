@@ -159,6 +159,36 @@ def _warp_pixmap_to_quad(pixmap: QPixmap, quad) -> tuple[QPixmap, QPointF]:
     return QPixmap.fromImage(out), QPointF(bbox.left(), bbox.top())
 
 
+def _is_valid_quad(quad, min_area: float = 8.0) -> bool:
+    """Return True for a convex, non-degenerate quad in corner order.
+
+    Rejecting self-intersecting / concave candidates keeps the previous valid
+    geometry during a corner drag; ``QTransform.quadToQuad`` and the export
+    homography both need a proper convex quad.
+    """
+    if quad is None or len(quad) != 4:
+        return False
+    try:
+        pts = [(float(p[0]), float(p[1])) for p in quad]
+    except (TypeError, ValueError, IndexError):
+        return False
+
+    signs = []
+    area2 = 0.0
+    for i in range(4):
+        x0, y0 = pts[i]
+        x1, y1 = pts[(i + 1) % 4]
+        x2, y2 = pts[(i + 2) % 4]
+        cross = (x1 - x0) * (y2 - y1) - (y1 - y0) * (x2 - x1)
+        if abs(cross) < 1e-6:
+            return False
+        signs.append(cross > 0)
+        area2 += x0 * y1 - x1 * y0
+    if not (all(signs) or not any(signs)):
+        return False
+    return abs(area2) / 2.0 >= float(min_area)
+
+
 # ======================================================================
 # 辅助类
 # ======================================================================
@@ -216,6 +246,8 @@ class RegionTextItem(QGraphicsItemGroup):
         # 文字 pixmap 子项
         self.text_item = TransparentPixmapItem(self)
         self.text_item.setZValue(-1)
+        # 未透视的原始文字图，用于拖角点时实时刷新预览
+        self._text_source_pixmap = None
 
         # 交互状态
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
@@ -352,7 +384,12 @@ class RegionTextItem(QGraphicsItemGroup):
         """
         if pixmap is None or pixmap.isNull():
             self.text_item.setPixmap(QPixmap())
+            self._text_source_pixmap = None
             return
+
+        # 缓存未变换的文字图：拖动透视角点时从这里重新透视，避免等到
+        # 下一次渲染结果才更新预览。
+        self._text_source_pixmap = pixmap
 
         quad = self.geo.white_frame_quad_local
         if quad is not None:
@@ -1781,10 +1818,16 @@ class RegionTextItem(QGraphicsItemGroup):
         local = self.mapFromScene(event.scenePos())
         quad = [list(p) for p in self._drag_start_white_frame_quad_local]
         quad[idx] = [float(local.x()), float(local.y())]
+        # 自交 / 凹四边形会让 quadToQuad 和导出 homography 失败；无效时
+        # 保留上一次有效状态，拖动不会跳成蝴蝶结。
+        if not _is_valid_quad(quad):
+            return
         old_rect = self.sceneBoundingRect() if self.scene() else None
         self.prepareGeometryChange()
         self._shape_path = None
         self.geo.set_custom_white_frame_quad(quad)
+        if self._text_source_pixmap is not None:
+            self.update_text_pixmap(self._text_source_pixmap, QPointF(0, 0))
         self.update()
         self._invalidate_scene_rect(old_rect)
 

@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 )
 from qfluentwidgets import (
     CaptionLabel,
+    CheckBox,
     DoubleSpinBox,
     LineEdit,
     PushButton,
@@ -143,10 +144,43 @@ def clear_style_patch(key: str) -> dict:
     Top-level style fields clear as ``field: None``; ``transform`` clears its
     individual sub-keys so sibling transform values survive.
     """
-    return {
+    patch = {
         field: ({sub: None for sub in value} if field == "transform" else None)
         for field, value in default_style_patch(key).items()
     }
+    # Removing blur must also remove the direction; otherwise re-enabling BL
+    # silently restores the previous gradient instead of uniform blur.
+    if key == "BL":
+        patch["blurAngle"] = None
+    return patch
+
+
+def _normalized_blur_angle(value):
+    if value is None:
+        return None
+    try:
+        return float(value) % 360.0
+    except (TypeError, ValueError):
+        return None
+
+
+def _select_blur_angle(combo, value) -> None:
+    """Select a blur angle, adding a transient item for non-preset angles.
+
+    The rule editor accepts arbitrary angles; the floating editor only lists
+    the eight presets.  Without a transient item ``findData`` falls back to
+    index 0 and the UI would claim "Uniform" while rendering a gradient.
+    """
+    angle = _normalized_blur_angle(value)
+    index = combo.findData(angle)
+    if index < 0 and angle is not None:
+        combo.addItem(f"{angle:g}°", userData=angle)
+        index = combo.count() - 1
+    combo.blockSignals(True)
+    try:
+        combo.setCurrentIndex(index if index >= 0 else 0)
+    finally:
+        combo.blockSignals(False)
 
 
 class RichTextBodyEdit(TextEdit):
@@ -435,8 +469,9 @@ class RubyEditBar(QWidget):
     editing_finished = pyqtSignal(str)
     editing_started = pyqtSignal()
     text_changed = pyqtSignal(str)
+    inherit_changed = pyqtSignal(bool)
 
-    def __init__(self, text: str = "", parent=None):
+    def __init__(self, text: str = "", inherit: bool = True, parent=None):
         super().__init__(parent)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -446,8 +481,12 @@ class RubyEditBar(QWidget):
         self.input.installEventFilter(self)
         self.apply_button = PushButton(self)
         self.apply_button.setMinimumSize(48, 28)
+        self.inherit_check = CheckBox(self)
+        self.inherit_check.setChecked(bool(inherit))
+        self.inherit_check.setMinimumWidth(64)
         layout.addWidget(self.input, 1)
         layout.addWidget(self.apply_button)
+        layout.addWidget(self.inherit_check)
         self.apply_button.clicked.connect(
             lambda: self.apply_requested.emit(self.input.text())
         )
@@ -458,12 +497,16 @@ class RubyEditBar(QWidget):
             lambda: self.editing_finished.emit(self.input.text())
         )
         self.input.textChanged.connect(self.text_changed)
+        self.inherit_check.toggled.connect(self.inherit_changed.emit)
         self.refresh_ui_texts()
 
     def refresh_ui_texts(self) -> None:
         self.input.setPlaceholderText(_tr("Ruby text"))
         self.apply_button.setText(_tr("Apply"))
         self.apply_button.setAccessibleName(_tr("Apply"))
+        self.inherit_check.setText(_tr("Inherit"))
+        self.inherit_check.setToolTip(_tr("Apply body style to ruby text"))
+        self.inherit_check.setAccessibleName(_tr("Apply body style to ruby text"))
 
     def eventFilter(self, watched, event):
         if watched is self.input and event.type() == QEvent.Type.FocusIn:
@@ -498,8 +541,8 @@ def style_keys_for_segment(
         "OS": bool(style.get("outerStroke")),
         "D": bool(style.get("emphasis")),
         "FA": "verticalAdvance" in style,
-        "T": segment.node_type == "tcy" and segment.start == segment.node_start,
-        "R": segment.node_type == "ruby" and segment.start == segment.node_start,
+        "T": segment.node_type == "tcy",
+        "R": segment.node_type == "ruby",
         "Rot": "rotation" in transform,
         "K": "kerning" in style,
         "PK": "preKerning" in style,
@@ -851,15 +894,7 @@ class StyleRunCard(SimpleCardWidget):
                 ("↗", 315.0),
             ):
                 direction.addItem(label, userData=angle)
-            initial_angle = style.get("blurAngle")
-            direction.setCurrentIndex(
-                max(
-                    0,
-                    direction.findData(
-                        None if initial_angle is None else float(initial_angle)
-                    ),
-                )
-            )
+            _select_blur_angle(direction, style.get("blurAngle"))
             direction.currentIndexChanged.connect(
                 lambda _index: self._emit_patch(
                     key, {"blurAngle": direction.currentData()}
@@ -875,14 +910,7 @@ class StyleRunCard(SimpleCardWidget):
                 key,
                 direction,
                 lambda s, *_: s.get("blurAngle"),
-                lambda value, _combo=direction: _combo.setCurrentIndex(
-                    max(
-                        0,
-                        _combo.findData(
-                            None if value is None else float(value)
-                        ),
-                    )
-                ),
+                lambda value, _combo=direction: _select_blur_angle(_combo, value),
             )
             container = QWidget(self)
             control_layout = QHBoxLayout(container)
@@ -946,7 +974,11 @@ class StyleRunCard(SimpleCardWidget):
             text = (
                 self.segment.ruby_text if ruby_draft_text is None else ruby_draft_text
             )
-            control = RubyEditBar(text, self)
+            control = RubyEditBar(
+                text,
+                inherit=bool(style.get("rubyInherit", True)),
+                parent=self,
+            )
             start, end = self._target_for_key(key)
             control.editing_started.connect(
                 lambda: self.ruby_started.emit(start, end, control.text())
@@ -960,11 +992,22 @@ class StyleRunCard(SimpleCardWidget):
             control.text_changed.connect(
                 lambda value: self.ruby_changed.emit(start, end, value)
             )
+            control.inherit_changed.connect(
+                lambda value: self._emit_patch(
+                    key, {"rubyInherit": bool(value)}
+                )
+            )
             self._register_applier(
                 key,
                 control.input,
                 lambda s, t, seg, draft: str(seg.ruby_text if draft is None else draft),
                 control.input.setText,
+            )
+            self._register_applier(
+                key,
+                control.inherit_check,
+                lambda s, *_: bool(s.get("rubyInherit", True)),
+                control.inherit_check.setChecked,
             )
             return control
         if key == "Rot":

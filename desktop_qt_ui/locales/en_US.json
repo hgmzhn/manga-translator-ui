@@ -85,6 +85,8 @@
   "Font": "Font",
   "TCY": "TCY",
   "Ruby": "Ruby",
+  "Inherit": "Inherit",
+  "Apply body style to ruby text": "Apply body style to ruby text",
   "Offset": "Offset",
   "Mirror Horizontal": "Mirror Horizontal",
   "Mirror Vertical": "Mirror Vertical",

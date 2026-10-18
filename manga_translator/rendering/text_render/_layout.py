@@ -16,7 +16,13 @@ import numpy as np
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFontMetricsF, QPainterPath, QTransform
 
-from ..rich_text import RenderSpan, RichTextDocument, TextStyle, normalize_rich_linebreaks
+from ..rich_text import (
+    RenderSpan,
+    RichTextDocument,
+    TextStyle,
+    normalize_rich_linebreaks,
+    ruby_text_style_for,
+)
 from ._compose import (
     _bitmap_ink_rect,
     _paste_bitmap,
@@ -655,7 +661,7 @@ def _build_horizontal_ruby_plan(
     ruby_text = "".join(item.text for item in (span.ruby or []))
     if not ruby_text:
         return None
-    ruby_style = span.style.copy()
+    ruby_style = ruby_text_style_for(span)
     ruby_style.emphasis = False
     # 注音不继承正文装饰（装饰只作用于正文行）
     ruby_style.underline = False

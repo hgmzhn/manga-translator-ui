@@ -64,6 +64,8 @@
   "Half Advance": "반 칸 전진",
   "Full Advance": "한 칸 전진",
   "Ruby": "루비",
+  "Inherit": "상속",
+  "Apply body style to ruby text": "본문 스타일을 루비 텍스트에 적용",
   "Rotation": "회전",
   "Offset X": "X 오프셋",
   "Offset Y": "Y 오프셋",
