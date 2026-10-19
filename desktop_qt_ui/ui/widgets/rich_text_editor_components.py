@@ -996,18 +996,30 @@ class StyleRunCard(SimpleCardWidget):
                 motion_distance.setValue,
             )
             container = QWidget(self)
-            control_layout = QHBoxLayout(container)
-            control_layout.setContentsMargins(0, 0, 0, 0)
-            control_layout.setSpacing(4)
-            for control in (amount, direction, motion_distance):
+            outer_layout = QVBoxLayout(container)
+            outer_layout.setContentsMargins(0, 0, 0, 0)
+            outer_layout.setSpacing(4)
+            top_row = QHBoxLayout()
+            top_row.setContentsMargins(0, 0, 0, 0)
+            top_row.setSpacing(4)
+            for control in (amount, direction):
                 control.setMinimumWidth(self._PAIR_CONTROL_MIN_WIDTH)
                 control.setMaximumWidth(self._PAIR_CONTROL_MAX_WIDTH)
+            top_row.addWidget(amount, 1)
+            top_row.addWidget(direction, 1)
+            outer_layout.addLayout(top_row)
+
+            bottom_row = QHBoxLayout()
+            bottom_row.setContentsMargins(0, 0, 0, 0)
+            bottom_row.setSpacing(4)
+            distance_label = CaptionLabel(_tr("Shake Distance"), self)
+            bottom_row.addWidget(distance_label)
+            bottom_row.addWidget(motion_distance, 1)
+            outer_layout.addLayout(bottom_row)
+
             set_hover_hint(amount, _tr("Blur Amount"))
             set_hover_hint(direction, _tr("Direction"))
             set_hover_hint(motion_distance, _tr("Shake Distance"))
-            control_layout.addWidget(amount, 1)
-            control_layout.addWidget(direction, 1)
-            control_layout.addWidget(motion_distance, 1)
             return container
         if key in _EFFECT_SPECS:
             source, color_title, color_default, number_key, number_default = (
