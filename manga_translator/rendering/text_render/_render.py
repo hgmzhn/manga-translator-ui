@@ -269,6 +269,21 @@ def _vertical_char_parts(plan: VerticalCharPlan, gradient_box=None):
     )
 
 
+def _document_max_blur_pad(document: RichTextDocument, font_size: int) -> int:
+    """Whole-document blur spread in pixels, so crop bounds keep blur tails."""
+    max_blur = 0.0
+    for block in getattr(document, "blocks", ()):
+        for span in getattr(block, "spans", ()):
+            style = getattr(span, "style", None)
+            if style is None:
+                continue
+            try:
+                max_blur = max(max_blur, float(getattr(style, "blur", 0.0) or 0.0))
+            except (TypeError, ValueError):
+                continue
+    return int(math.ceil(max(0.0, max_blur) * max(float(font_size), 1.0) * 3.0))
+
+
 def _render_rich_text_horizontal(
     font_size: int,
     text: str,
@@ -306,7 +321,8 @@ def _render_rich_text_horizontal(
         [font_size] + [run.font_size for layout in layouts for run in layout.runs]
     )
 
-    padding = int(max(max_font_size * 2.0, 16))
+    blur_pad = _document_max_blur_pad(document, max_font_size)
+    padding = int(max(max_font_size * 2.0, 16, blur_pad))
     canvas_w = geometry["paint_width"] + padding * 2
     canvas_h = geometry["paint_height"] + padding * 2
     canvas = np.zeros((max(canvas_h, 1), max(canvas_w, 1), 4), dtype=np.uint8)
@@ -520,10 +536,10 @@ def _render_rich_text_horizontal(
 
     return _crop_rgba_fixed(
         canvas,
-        padding,
-        padding + geometry["paint_width"],
-        padding,
-        padding + geometry["paint_height"],
+        padding - blur_pad,
+        padding + geometry["paint_width"] + blur_pad,
+        padding - blur_pad,
+        padding + geometry["paint_height"] + blur_pad,
     )
 
 
@@ -549,7 +565,8 @@ def _render_rich_text_vertical(
     )
     geometry = _rich_vertical_layout_geometry(layouts, font_size, line_spacing)
     body_height = geometry["body_height"]
-    padding = int(max(font_size * 2.0, 16))
+    blur_pad = _document_max_blur_pad(document, font_size)
+    padding = int(max(font_size * 2.0, 16, blur_pad))
     canvas = np.zeros(
         (
             int(max(geometry["paint_height"], 1)) + padding * 2,
@@ -778,7 +795,11 @@ def _render_rich_text_vertical(
                 _paste_rgba(canvas, layer, 0, 0)
 
     return _crop_rgba_fixed(
-        canvas, content_left, content_right, content_top, content_bottom
+        canvas,
+        content_left - blur_pad,
+        content_right + blur_pad,
+        content_top - blur_pad,
+        content_bottom + blur_pad,
     )
 
 

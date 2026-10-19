@@ -430,9 +430,15 @@ class EditorControllerExportService:
         """从 region_data 的局部透视四边形计算世界坐标四边形。"""
         if not isinstance(region, dict):
             return None
-        quad = region.get("white_frame_quad_local")
-        if not is_quad_like(quad):
+        quad = None
+        if region.get("has_custom_white_frame") and is_quad_like(
+            region.get("white_frame_quad_local")
+        ):
+            quad = region.get("white_frame_quad_local")
+        elif is_quad_like(region.get("render_box_quad_local")):
             quad = region.get("render_box_quad_local")
+        elif is_quad_like(region.get("white_frame_quad_local")):
+            quad = region.get("white_frame_quad_local")
         if not is_quad_like(quad):
             return None
         center = region.get("center")

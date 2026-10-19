@@ -255,3 +255,30 @@ def test_perspective_quad_scales_with_font_size() -> None:
         [20.0, 20.0],
         [-20.0, 20.0],
     ]
+
+def test_perspective_quad_world_matches_preview_priority() -> None:
+    from desktop_qt_ui.editor.controller_export_service import (
+        EditorControllerExportService,
+    )
+
+    white = [[-10.0, -20.0], [30.0, -20.0], [30.0, 40.0], [-10.0, 40.0]]
+    render = [[0.0, 0.0], [20.0, 0.0], [20.0, 30.0], [0.0, 30.0]]
+    base = {
+        "center": [100.0, 200.0],
+        "angle": 0.0,
+        "white_frame_quad_local": white,
+        "render_box_quad_local": render,
+    }
+
+    # A non-custom white-frame quad must not shadow the render-box quad that
+    # the preview uses.
+    world = EditorControllerExportService._perspective_quad_world(
+        {**base, "has_custom_white_frame": False}
+    )
+    assert world == [[100.0 + x, 200.0 + y] for x, y in render]
+
+    # A custom white-frame quad still wins.
+    world = EditorControllerExportService._perspective_quad_world(
+        {**base, "has_custom_white_frame": True}
+    )
+    assert world == [[100.0 + x, 200.0 + y] for x, y in white]
