@@ -140,6 +140,8 @@ class TextStyle:
     # 渐变模糊方向（度）：0=左→右，90=上→下，180=右→左，270=下→上。
     # None 表示均匀模糊（整个文字同一强度）。
     blur_angle: float | None = None
+    # 径向渐变模糊：以文字块中心为原点，中心清晰、边缘逐渐模糊。
+    blur_radial: bool = False
     # 注音是否继承主体样式。默认 True（与既有行为一致）；False 时使用
     # 注音 run 自己的样式（通常为空样式）。
     ruby_inherit: bool = True
@@ -168,6 +170,7 @@ class TextStyle:
                 "glow",
                 "blur",
                 "blurAngle",
+                "blurRadial",
                 "rubyInherit",
                 "emphasis",
                 "noTcy",
@@ -217,6 +220,7 @@ class TextStyle:
             glow=GlowStyle.from_dict(value.get("glow")),
             blur=max(0.0, float(blur or 0.0)),
             blur_angle=blur_angle,
+            blur_radial=bool(value.get("blurRadial", False)),
             ruby_inherit=bool(value.get("rubyInherit", True)),
             emphasis=bool(value.get("emphasis", False)),
             no_tcy=bool(value.get("noTcy", False)),
@@ -246,6 +250,7 @@ class TextStyle:
                 "glow": self.glow.to_dict() if self.glow else None,
                 "blur": self.blur or None,
                 "blurAngle": self.blur_angle,
+                "blurRadial": self.blur_radial or None,
                 "rubyInherit": None if self.ruby_inherit else False,
                 "emphasis": self.emphasis or None,
                 "noTcy": self.no_tcy or None,

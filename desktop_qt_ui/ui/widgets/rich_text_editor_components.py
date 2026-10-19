@@ -152,6 +152,7 @@ def clear_style_patch(key: str) -> dict:
     # silently restores the previous gradient instead of uniform blur.
     if key == "BL":
         patch["blurAngle"] = None
+        patch["blurRadial"] = None
     return patch
 
 
@@ -164,18 +165,25 @@ def _normalized_blur_angle(value):
         return None
 
 
-def _select_blur_angle(combo, value) -> None:
+def _select_blur_angle(combo, value, radial: bool = False) -> None:
     """Select a blur angle, adding a transient item for non-preset angles.
 
     The rule editor accepts arbitrary angles; the floating editor only lists
     the eight presets.  Without a transient item ``findData`` falls back to
     index 0 and the UI would claim "Uniform" while rendering a gradient.
+    ``radial=True`` selects the radial-gradient item instead.
     """
-    angle = _normalized_blur_angle(value)
-    index = combo.findData(angle)
-    if index < 0 and angle is not None:
-        combo.addItem(f"{angle:g}°", userData=angle)
-        index = combo.count() - 1
+    if radial:
+        index = combo.findData("radial")
+        if index < 0:
+            combo.addItem(_tr("Radial"), userData="radial")
+            index = combo.count() - 1
+    else:
+        angle = _normalized_blur_angle(value)
+        index = combo.findData(angle)
+        if index < 0 and angle is not None:
+            combo.addItem(f"{angle:g}°", userData=angle)
+            index = combo.count() - 1
     combo.blockSignals(True)
     try:
         combo.setCurrentIndex(index if index >= 0 else 0)
@@ -894,12 +902,24 @@ class StyleRunCard(SimpleCardWidget):
                 ("↗", 315.0),
             ):
                 direction.addItem(label, userData=angle)
-            _select_blur_angle(direction, style.get("blurAngle"))
-            direction.currentIndexChanged.connect(
-                lambda _index: self._emit_patch(
-                    key, {"blurAngle": direction.currentData()}
-                )
+            direction.addItem(_tr("Radial"), userData="radial")
+            _select_blur_angle(
+                direction,
+                style.get("blurAngle"),
+                bool(style.get("blurRadial", False)),
             )
+            def _on_direction_changed(_index):
+                data = direction.currentData()
+                if data == "radial":
+                    self._emit_patch(
+                        key, {"blurRadial": True, "blurAngle": 0.0}
+                    )
+                else:
+                    self._emit_patch(
+                        key, {"blurRadial": False, "blurAngle": data}
+                    )
+
+            direction.currentIndexChanged.connect(_on_direction_changed)
             self._register_applier(
                 key,
                 amount,
@@ -909,8 +929,13 @@ class StyleRunCard(SimpleCardWidget):
             self._register_applier(
                 key,
                 direction,
-                lambda s, *_: s.get("blurAngle"),
-                lambda value, _combo=direction: _select_blur_angle(_combo, value),
+                lambda s, *_: (
+                    s.get("blurAngle"),
+                    bool(s.get("blurRadial", False)),
+                ),
+                lambda value, _combo=direction: _select_blur_angle(
+                    _combo, value[0], value[1]
+                ),
             )
             container = QWidget(self)
             control_layout = QHBoxLayout(container)

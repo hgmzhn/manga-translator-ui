@@ -322,3 +322,50 @@ def test_blur_metrics_and_render_size_agree() -> None:
         metrics["width"],
         metrics["height"],
     )
+
+def test_radial_blur_style_and_render() -> None:
+    from manga_translator.rendering import text_render
+    from manga_translator.rendering.rich_text import TextStyle
+
+    style = TextStyle.from_dict({"blur": 0.1, "blurRadial": True})
+    assert style.blur_radial
+    assert style.to_dict()["blurRadial"] is True
+    assert not TextStyle.from_dict({"blurRadial": False}).blur_radial
+
+    document = {
+        "format": "richtext.v1",
+        "blocks": [
+            {
+                "type": "paragraph",
+                "inlines": [
+                    {
+                        "type": "text",
+                        "text": "AB",
+                        "style": {"blur": 0.1, "blurRadial": True},
+                    }
+                ],
+            }
+        ],
+    }
+    horizontal = text_render.put_text_horizontal(
+        40,
+        document,
+        500,
+        200,
+        "center",
+        False,
+        (0, 0, 0),
+        (255, 255, 255),
+        line_spacing=1.0,
+    )
+    vertical = text_render.put_text_vertical(
+        40,
+        document,
+        500,
+        "center",
+        (0, 0, 0),
+        (255, 255, 255),
+        line_spacing=1.0,
+    )
+    assert horizontal is not None and horizontal.shape[2] == 4
+    assert vertical is not None and vertical.shape[2] == 4

@@ -329,9 +329,12 @@ def _style_paint_effect_pad(style: TextStyle, font_size: int) -> int:
     blur_px = max(0.0, float(getattr(style, "blur", 0.0) or 0.0)) * max(
         float(font_size), 1.0
     )
-    if getattr(style, "blur_angle", None) is not None:
-        # Directional blur is applied to the effects layer as well; the glow /
-        # outer-stroke extent alone does not leave room for the blur tail.
+    if (
+        getattr(style, "blur_angle", None) is not None
+        or getattr(style, "blur_radial", False)
+    ):
+        # Directional/radial blur is applied to the effects layer as well; the
+        # glow / outer-stroke extent alone does not leave room for the blur tail.
         pad = max(outer_px + 1.0 if outer_px else 0.0, glow_px * 3.0) + blur_px * 3.0
     else:
         pad = max(outer_px + 1.0 if outer_px else 0.0, glow_px * 3.0, blur_px * 3.0)
@@ -373,11 +376,14 @@ def _gradient_blur_canvas(
     box: tuple[float, float, float, float],
     angle_deg: float,
     levels: int = 5,
+    radial: bool = False,
 ) -> np.ndarray:
     """沿 box 内的一条方向渐变模糊：一端清晰，另一端达到 sigma_max。
 
-    逐像素变 sigma 无法用单次卷积表达，这里用 K 层不同 sigma 的模糊按
-    smoothstep 权重混合；每层算完即累加，避免同时保留所有层。
+    ``radial=True`` 时改为以 box 中心为原点的径向渐变：中心清晰，边缘
+    逐渐达到 sigma_max。逐像素变 sigma 无法用单次卷积表达，这里用 K 层
+    不同 sigma 的模糊按 smoothstep 权重混合；每层算完即累加，避免同时
+    保留所有层。
     """
     if layer is None or layer.size == 0 or sigma_max <= 0:
         return layer
@@ -389,15 +395,20 @@ def _gradient_blur_canvas(
     yy, xx = np.mgrid[0:height, 0:width].astype(np.float32)
     center_x = box_x + box_w / 2.0
     center_y = box_y + box_h / 2.0
-    radians = math.radians(float(angle_deg))
-    cos_a = math.cos(radians)
-    sin_a = math.sin(radians)
-    half_extent = 0.5 * (abs(box_w * cos_a) + abs(box_h * sin_a))
-    if half_extent <= 1e-6:
-        return layer
-    t = 0.5 + ((xx - center_x) * cos_a + (yy - center_y) * sin_a) / (
-        2.0 * half_extent
-    )
+    if radial:
+        dx = (xx - center_x) / max(box_w * 0.5, 1e-6)
+        dy = (yy - center_y) / max(box_h * 0.5, 1e-6)
+        t = np.sqrt(dx * dx + dy * dy)
+    else:
+        radians = math.radians(float(angle_deg))
+        cos_a = math.cos(radians)
+        sin_a = math.sin(radians)
+        half_extent = 0.5 * (abs(box_w * cos_a) + abs(box_h * sin_a))
+        if half_extent <= 1e-6:
+            return layer
+        t = 0.5 + ((xx - center_x) * cos_a + (yy - center_y) * sin_a) / (
+            2.0 * half_extent
+        )
     t = np.clip(t, 0.0, 1.0)
     t = t * t * (3.0 - 2.0 * t)
 
@@ -499,13 +510,14 @@ def _apply_style_paint_effects(
     )
     if blur_px > 0:
         blur_angle = getattr(style, "blur_angle", None)
-        if blur_angle is None:
+        blur_radial = bool(getattr(style, "blur_radial", False))
+        if blur_angle is None and not blur_radial:
             # Preserve the existing uniform-blur semantics: only the text
             # body is blurred, not the separately composited effects layer.
             if paint_part != "effects":
                 canvas = _blur_rgba_layer(canvas, blur_px)
         else:
-            # 方向模糊按当前 span/字符图层处理，不能对整张文档画布
+            # 方向/径向模糊按当前 span/字符图层处理，不能对整张文档画布
             # 统一模糊，否则会波及没有设置该样式的文字。
             if gradient_box is None:
                 # The canvas is the text layer grown by ``pad``; gradient
@@ -528,7 +540,8 @@ def _apply_style_paint_effects(
                 canvas,
                 blur_px,
                 box,
-                float(blur_angle),
+                float(blur_angle or 0.0),
+                radial=blur_radial,
             )
     return canvas
 
