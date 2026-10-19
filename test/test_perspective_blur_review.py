@@ -282,3 +282,43 @@ def test_perspective_quad_world_matches_preview_priority() -> None:
         {**base, "has_custom_white_frame": True}
     )
     assert world == [[100.0 + x, 200.0 + y] for x, y in white]
+
+
+def test_blur_metrics_and_render_size_agree() -> None:
+    from manga_translator.rendering import text_render
+
+    document = {
+        "format": "richtext.v1",
+        "blocks": [
+            {
+                "type": "paragraph",
+                "inlines": [
+                    {
+                        "type": "text",
+                        "text": "AB",
+                        "style": {"blur": 0.2, "blurAngle": 0.0},
+                    }
+                ],
+            }
+        ],
+    }
+    metrics = text_render.measure_rich_text_metrics(
+        40, document, True, 1.0, stroke_width=0.0
+    )
+    image = text_render.put_text_horizontal(
+        40,
+        document,
+        1000,
+        1000,
+        "center",
+        False,
+        (0, 0, 0),
+        (0, 0, 0),
+        line_spacing=1.0,
+        stroke_width=0.0,
+    )
+    assert image is not None
+    assert (image.shape[1], image.shape[0]) == (
+        metrics["width"],
+        metrics["height"],
+    )

@@ -224,6 +224,7 @@ def _rich_vertical_layout_geometry(
     layouts: list[VerticalColumnPlan],
     font_size: int,
     line_spacing: float,
+    blur_pad: int = 0,
 ) -> dict:
     spacing_x = calc_vertical_line_spacing_px(font_size, line_spacing)
     body_width = sum(column.thickness for column in layouts)
@@ -255,6 +256,9 @@ def _rich_vertical_layout_geometry(
         ),
         default=float(layout_width),
     )
+    if blur_pad:
+        paint_left -= blur_pad
+        paint_right += blur_pad
     left_extra = math.ceil(max(0.0, -paint_left))
     right_extra = max(
         layouts[0].annotation_cross_extent if layouts else 0,
@@ -274,6 +278,9 @@ def _rich_vertical_layout_geometry(
         ),
         default=0,
     )
+    if blur_pad:
+        top_extra += blur_pad
+        bottom_extra += blur_pad
     return {
         "spacing_x": int(spacing_x),
         "body_width": int(body_width),
@@ -1043,7 +1050,10 @@ def _build_rich_horizontal_layout(
 
 
 def _rich_horizontal_layout_geometry(
-    layouts: list[HorizontalLinePlan], font_size: int, line_spacing: float
+    layouts: list[HorizontalLinePlan],
+    font_size: int,
+    line_spacing: float,
+    blur_pad: int = 0,
 ) -> dict:
     """Place real line ink boxes and return their normalized render frame."""
     gap = calc_horizontal_line_spacing_px(font_size, line_spacing)
@@ -1116,6 +1126,11 @@ def _rich_horizontal_layout_geometry(
     frame_right = math.ceil(body_width + right_extra)
     frame_top = math.floor(paint_top)
     frame_bottom = math.ceil(paint_bottom)
+    if blur_pad:
+        frame_left -= blur_pad
+        frame_right += blur_pad
+        frame_top -= blur_pad
+        frame_bottom += blur_pad
     body_left = -frame_left
     normalized_baselines = [baseline - frame_top for baseline in baselines]
     return {

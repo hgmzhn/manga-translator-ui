@@ -316,13 +316,15 @@ def _render_rich_text_horizontal(
         profile_stats,
         glyph_geometries,
     )
-    geometry = _rich_horizontal_layout_geometry(layouts, font_size, line_spacing)
     max_font_size = max(
         [font_size] + [run.font_size for layout in layouts for run in layout.runs]
     )
-
     blur_pad = _document_max_blur_pad(document, max_font_size)
-    padding = int(max(max_font_size * 2.0, 16, blur_pad))
+    geometry = _rich_horizontal_layout_geometry(
+        layouts, font_size, line_spacing, blur_pad
+    )
+
+    padding = int(max(max_font_size * 2.0, 16))
     canvas_w = geometry["paint_width"] + padding * 2
     canvas_h = geometry["paint_height"] + padding * 2
     canvas = np.zeros((max(canvas_h, 1), max(canvas_w, 1), 4), dtype=np.uint8)
@@ -536,10 +538,10 @@ def _render_rich_text_horizontal(
 
     return _crop_rgba_fixed(
         canvas,
-        padding - blur_pad,
-        padding + geometry["paint_width"] + blur_pad,
-        padding - blur_pad,
-        padding + geometry["paint_height"] + blur_pad,
+        padding,
+        padding + geometry["paint_width"],
+        padding,
+        padding + geometry["paint_height"],
     )
 
 
@@ -563,10 +565,20 @@ def _render_rich_text_vertical(
     layouts = _build_rich_vertical_layout(
         document, font_size, stroke_ratio, fg, bg, letter_spacing, profile_stats
     )
-    geometry = _rich_vertical_layout_geometry(layouts, font_size, line_spacing)
+    max_font_size = max(
+        [font_size]
+        + [
+            getattr(item, "font_size", 0)
+            for layout in layouts
+            for item in layout.items
+        ]
+    )
+    blur_pad = _document_max_blur_pad(document, max_font_size)
+    geometry = _rich_vertical_layout_geometry(
+        layouts, font_size, line_spacing, blur_pad
+    )
     body_height = geometry["body_height"]
-    blur_pad = _document_max_blur_pad(document, font_size)
-    padding = int(max(font_size * 2.0, 16, blur_pad))
+    padding = int(max(font_size * 2.0, 16))
     canvas = np.zeros(
         (
             int(max(geometry["paint_height"], 1)) + padding * 2,
@@ -795,11 +807,7 @@ def _render_rich_text_vertical(
                 _paste_rgba(canvas, layer, 0, 0)
 
     return _crop_rgba_fixed(
-        canvas,
-        content_left - blur_pad,
-        content_right + blur_pad,
-        content_top - blur_pad,
-        content_bottom + blur_pad,
+        canvas, content_left, content_right, content_top, content_bottom
     )
 
 
@@ -837,7 +845,14 @@ def measure_rich_text_metrics(
         )
         if not layouts:
             return {"width": 0, "height": 0, "n_lines": 0, "body_center": (0.0, 0.0)}
-        geometry = _rich_horizontal_layout_geometry(layouts, base_font, line_spacing)
+        max_font = max(
+            [base_font]
+            + [run.font_size for layout in layouts for run in layout.runs]
+        )
+        blur_pad = _document_max_blur_pad(document, max_font)
+        geometry = _rich_horizontal_layout_geometry(
+            layouts, base_font, line_spacing, blur_pad
+        )
         return {
             "width": int(geometry["paint_width"]),
             "height": int(geometry["paint_height"]),
@@ -854,7 +869,18 @@ def measure_rich_text_metrics(
     )
     if not layouts:
         return {"width": 0, "height": 0, "n_lines": 0, "body_center": (0.0, 0.0)}
-    geometry = _rich_vertical_layout_geometry(layouts, base_font, line_spacing)
+    max_font = max(
+        [base_font]
+        + [
+            getattr(item, "font_size", 0)
+            for layout in layouts
+            for item in layout.items
+        ]
+    )
+    blur_pad = _document_max_blur_pad(document, max_font)
+    geometry = _rich_vertical_layout_geometry(
+        layouts, base_font, line_spacing, blur_pad
+    )
     return {
         "width": int(geometry["paint_width"]),
         "height": int(geometry["paint_height"]),
