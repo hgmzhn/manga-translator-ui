@@ -329,6 +329,9 @@ def _style_paint_effect_pad(style: TextStyle, font_size: int) -> int:
     blur_px = max(0.0, float(getattr(style, "blur", 0.0) or 0.0)) * max(
         float(font_size), 1.0
     )
+    motion_px = max(
+        0.0, float(getattr(style, "blur_motion_distance", 0.0) or 0.0)
+    )
     if (
         getattr(style, "blur_angle", None) is not None
         or getattr(style, "blur_radial", False)
@@ -336,7 +339,9 @@ def _style_paint_effect_pad(style: TextStyle, font_size: int) -> int:
     ):
         # Directional/radial blur is applied to the effects layer as well; the
         # glow / outer-stroke extent alone does not leave room for the blur tail.
-        pad = max(outer_px + 1.0 if outer_px else 0.0, glow_px * 3.0) + blur_px * 3.0
+        pad = max(outer_px + 1.0 if outer_px else 0.0, glow_px * 3.0) + max(
+            blur_px * 3.0, motion_px * 0.5 + 1.0
+        )
     else:
         pad = max(outer_px + 1.0 if outer_px else 0.0, glow_px * 3.0, blur_px * 3.0)
     return math.ceil(pad)
@@ -539,7 +544,12 @@ def _apply_style_paint_effects(
         blur_radial = bool(getattr(style, "blur_radial", False))
         blur_motion = bool(getattr(style, "blur_motion", False))
         if blur_motion:
-            canvas = _motion_blur_canvas(canvas, blur_px * 0.8)
+            motion_distance = float(
+                getattr(style, "blur_motion_distance", 0.0) or 0.0
+            )
+            if motion_distance <= 0:
+                motion_distance = blur_px * 0.8
+            canvas = _motion_blur_canvas(canvas, motion_distance)
         elif blur_angle is None and not blur_radial:
             # Preserve the existing uniform-blur semantics: only the text
             # body is blurred, not the separately composited effects layer.

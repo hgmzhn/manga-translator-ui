@@ -374,9 +374,13 @@ def test_motion_blur_style_and_render() -> None:
     from manga_translator.rendering import text_render
     from manga_translator.rendering.rich_text import TextStyle
 
-    style = TextStyle.from_dict({"blur": 0.04, "blurMotion": True})
+    style = TextStyle.from_dict(
+        {"blur": 0.04, "blurMotion": True, "blurMotionDistance": 12}
+    )
     assert style.blur_motion
+    assert style.blur_motion_distance == 12
     assert style.to_dict()["blurMotion"] is True
+    assert style.to_dict()["blurMotionDistance"] == 12
     assert not TextStyle.from_dict({"blurMotion": False}).blur_motion
 
     document = {
@@ -388,7 +392,11 @@ def test_motion_blur_style_and_render() -> None:
                     {
                         "type": "text",
                         "text": "AB",
-                        "style": {"blur": 0.04, "blurMotion": True},
+                        "style": {
+                            "blur": 0.04,
+                            "blurMotion": True,
+                            "blurMotionDistance": 12,
+                        },
                     }
                 ],
             }

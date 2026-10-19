@@ -144,6 +144,8 @@ class TextStyle:
     blur_radial: bool = False
     # 上下抖动/垂直运动模糊：沿 Y 轴做等强残影拖影。
     blur_motion: bool = False
+    # 上下抖动的垂直位移（px）；0 表示按模糊量/字号自动估算。
+    blur_motion_distance: float = 0.0
     # 注音是否继承主体样式。默认 True（与既有行为一致）；False 时使用
     # 注音 run 自己的样式（通常为空样式）。
     ruby_inherit: bool = True
@@ -174,6 +176,7 @@ class TextStyle:
                 "blurAngle",
                 "blurRadial",
                 "blurMotion",
+                "blurMotionDistance",
                 "rubyInherit",
                 "emphasis",
                 "noTcy",
@@ -209,6 +212,16 @@ class TextStyle:
             # Keep equivalent angles in one domain (e.g. -90 -> 270) so the
             # direction combo and the renderer agree.
             blur_angle = float(blur_angle) % 360.0
+        blur_motion_distance = _safe_float(
+            value.get("blurMotionDistance"), 0.0
+        )
+        try:
+            blur_motion_distance = float(blur_motion_distance or 0.0)
+        except (TypeError, ValueError):
+            blur_motion_distance = 0.0
+        if not math.isfinite(blur_motion_distance):
+            blur_motion_distance = 0.0
+        blur_motion_distance = min(max(0.0, blur_motion_distance), 500.0)
         return cls(
             bold=bool(value.get("bold", False)),
             italic=_parse_italic(value.get("italic", False)),
@@ -225,6 +238,7 @@ class TextStyle:
             blur_angle=blur_angle,
             blur_radial=bool(value.get("blurRadial", False)),
             blur_motion=bool(value.get("blurMotion", False)),
+            blur_motion_distance=blur_motion_distance,
             ruby_inherit=bool(value.get("rubyInherit", True)),
             emphasis=bool(value.get("emphasis", False)),
             no_tcy=bool(value.get("noTcy", False)),
@@ -256,6 +270,7 @@ class TextStyle:
                 "blurAngle": self.blur_angle,
                 "blurRadial": self.blur_radial or None,
                 "blurMotion": self.blur_motion or None,
+                "blurMotionDistance": self.blur_motion_distance or None,
                 "rubyInherit": None if self.ruby_inherit else False,
                 "emphasis": self.emphasis or None,
                 "noTcy": self.no_tcy or None,

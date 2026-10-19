@@ -912,6 +912,20 @@ class StyleRunCard(SimpleCardWidget):
                 direction.addItem(label, userData=angle)
             direction.addItem(_tr("Radial"), userData="radial")
             direction.addItem(_tr("Vertical Shake"), userData="motion")
+            motion_distance = _double_spin_box(
+                float(style.get("blurMotionDistance") or 8.0),
+                0.0,
+                200.0,
+                step=1.0,
+            )
+            motion_distance.setDecimals(1)
+            motion_distance.setSuffix(" px")
+            motion_distance.setEnabled(bool(style.get("blurMotion", False)))
+            motion_distance.valueChanged.connect(
+                lambda value: self._emit_patch(
+                    key, {"blurMotionDistance": float(value)}
+                )
+            )
             _select_blur_angle(
                 direction,
                 style.get("blurAngle"),
@@ -921,6 +935,7 @@ class StyleRunCard(SimpleCardWidget):
             def _on_direction_changed(_index):
                 data = direction.currentData()
                 if data == "radial":
+                    motion_distance.setEnabled(False)
                     self._emit_patch(
                         key,
                         {
@@ -930,15 +945,22 @@ class StyleRunCard(SimpleCardWidget):
                         },
                     )
                 elif data == "motion":
+                    motion_distance.setEnabled(True)
+                    if motion_distance.value() <= 0:
+                        motion_distance.setValue(8.0)
                     self._emit_patch(
                         key,
                         {
                             "blurRadial": False,
                             "blurMotion": True,
+                            "blurMotionDistance": float(
+                                motion_distance.value()
+                            ),
                             "blurAngle": None,
                         },
                     )
                 else:
+                    motion_distance.setEnabled(False)
                     self._emit_patch(
                         key,
                         {
@@ -967,17 +989,25 @@ class StyleRunCard(SimpleCardWidget):
                     _combo, value[0], value[1], value[2]
                 ),
             )
+            self._register_applier(
+                key,
+                motion_distance,
+                lambda s, *_: float(s.get("blurMotionDistance") or 8.0),
+                motion_distance.setValue,
+            )
             container = QWidget(self)
             control_layout = QHBoxLayout(container)
             control_layout.setContentsMargins(0, 0, 0, 0)
             control_layout.setSpacing(4)
-            for control in (amount, direction):
+            for control in (amount, direction, motion_distance):
                 control.setMinimumWidth(self._PAIR_CONTROL_MIN_WIDTH)
                 control.setMaximumWidth(self._PAIR_CONTROL_MAX_WIDTH)
             set_hover_hint(amount, _tr("Blur Amount"))
             set_hover_hint(direction, _tr("Direction"))
+            set_hover_hint(motion_distance, _tr("Shake Distance"))
             control_layout.addWidget(amount, 1)
             control_layout.addWidget(direction, 1)
+            control_layout.addWidget(motion_distance, 1)
             return container
         if key in _EFFECT_SPECS:
             source, color_title, color_default, number_key, number_default = (
