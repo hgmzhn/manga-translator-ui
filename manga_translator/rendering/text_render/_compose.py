@@ -332,6 +332,7 @@ def _style_paint_effect_pad(style: TextStyle, font_size: int) -> int:
     if (
         getattr(style, "blur_angle", None) is not None
         or getattr(style, "blur_radial", False)
+        or getattr(style, "blur_motion", False)
     ):
         # Directional/radial blur is applied to the effects layer as well; the
         # glow / outer-stroke extent alone does not leave room for the blur tail.
@@ -360,6 +361,31 @@ def _blur_rgba_layer(layer: np.ndarray, sigma: float) -> np.ndarray:
     )
     blurred_alpha = cv2.GaussianBlur(
         alpha, (0, 0), sigmaX=float(sigma), sigmaY=float(sigma)
+    )
+    safe_alpha = np.maximum(blurred_alpha, 1e-6)
+    out = np.empty_like(layer)
+    out[:, :, :3] = np.clip(
+        blurred_pre / safe_alpha[..., None], 0, 255
+    ).astype(np.uint8)
+    out[:, :, 3] = np.clip(blurred_alpha * 255.0, 0, 255).astype(np.uint8)
+    return out
+
+
+def _motion_blur_canvas(layer: np.ndarray, distance: float) -> np.ndarray:
+    """Vertical motion blur: average shifted copies along Y for a short trail."""
+    if layer is None or layer.size == 0 or distance < 0.5:
+        return layer
+    radius = max(1, int(round(float(distance) * 0.5)))
+    kernel = np.zeros((radius * 2 + 1, 1), dtype=np.float32)
+    kernel[:, 0] = 1.0 / float(kernel.shape[0])
+    alpha = layer[:, :, 3].astype(np.float32) / 255.0
+    rgb = layer[:, :, :3].astype(np.float32)
+    premultiplied = rgb * alpha[..., None]
+    blurred_pre = cv2.filter2D(
+        premultiplied, -1, kernel, borderType=cv2.BORDER_CONSTANT
+    )
+    blurred_alpha = cv2.filter2D(
+        alpha, -1, kernel, borderType=cv2.BORDER_CONSTANT
     )
     safe_alpha = np.maximum(blurred_alpha, 1e-6)
     out = np.empty_like(layer)
@@ -511,7 +537,10 @@ def _apply_style_paint_effects(
     if blur_px > 0:
         blur_angle = getattr(style, "blur_angle", None)
         blur_radial = bool(getattr(style, "blur_radial", False))
-        if blur_angle is None and not blur_radial:
+        blur_motion = bool(getattr(style, "blur_motion", False))
+        if blur_motion:
+            canvas = _motion_blur_canvas(canvas, blur_px * 0.8)
+        elif blur_angle is None and not blur_radial:
             # Preserve the existing uniform-blur semantics: only the text
             # body is blurred, not the separately composited effects layer.
             if paint_part != "effects":

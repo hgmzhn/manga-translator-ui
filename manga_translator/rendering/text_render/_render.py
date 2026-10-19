@@ -27,6 +27,7 @@ from ._compose import (
     _draw_rgba_disc,
     _glyph_pair_rgba,
     _gradient_blur_canvas,
+    _motion_blur_canvas,
     _paste_rgba,
     _rgba_for_paint_part,
     _stroke_bitmap_from_alpha,
@@ -518,19 +519,23 @@ def _render_rich_text_horizontal(
             for kind, args, style, extra_font_size in blurred_extras:
                 angle = getattr(style, "blur_angle", None)
                 radial = bool(getattr(style, "blur_radial", False))
+                motion = bool(getattr(style, "blur_motion", False))
                 key = (
                     round(float(style.blur), 6),
                     None if angle is None else round(float(angle), 3),
                     radial,
+                    motion,
                     extra_font_size,
                 )
                 groups.setdefault(key, []).append((kind, args))
-            for (blur, angle, radial, extra_font_size), entries in groups.items():
+            for (blur, angle, radial, motion, extra_font_size), entries in groups.items():
                 layer = np.zeros_like(canvas)
                 for kind, args in entries:
                     _draw_decoration(layer, kind, args)
                 sigma = blur * max(float(extra_font_size), 1.0)
-                if angle is None and not radial:
+                if motion:
+                    layer = _motion_blur_canvas(layer, sigma * 0.8)
+                elif angle is None and not radial:
                     layer = _blur_rgba_layer(layer, sigma)
                 else:
                     layer = _gradient_blur_canvas(
@@ -790,19 +795,23 @@ def _render_rich_text_vertical(
             for kind, args, style, extra_font_size in blurred_extras:
                 angle = getattr(style, "blur_angle", None)
                 radial = bool(getattr(style, "blur_radial", False))
+                motion = bool(getattr(style, "blur_motion", False))
                 key = (
                     round(float(style.blur), 6),
                     None if angle is None else round(float(angle), 3),
                     radial,
+                    motion,
                     extra_font_size,
                 )
                 groups.setdefault(key, []).append((kind, args))
-            for (blur, angle, radial, extra_font_size), entries in groups.items():
+            for (blur, angle, radial, motion, extra_font_size), entries in groups.items():
                 layer = np.zeros_like(canvas)
                 for kind, args in entries:
                     _draw_decoration(layer, kind, args)
                 sigma = blur * max(float(extra_font_size), 1.0)
-                if angle is None and not radial:
+                if motion:
+                    layer = _motion_blur_canvas(layer, sigma * 0.8)
+                elif angle is None and not radial:
                     layer = _blur_rgba_layer(layer, sigma)
                 else:
                     layer = _gradient_blur_canvas(

@@ -142,6 +142,8 @@ class TextStyle:
     blur_angle: float | None = None
     # 径向渐变模糊：以文字块中心为原点，中心清晰、边缘逐渐模糊。
     blur_radial: bool = False
+    # 上下抖动/垂直运动模糊：沿 Y 轴做等强残影拖影。
+    blur_motion: bool = False
     # 注音是否继承主体样式。默认 True（与既有行为一致）；False 时使用
     # 注音 run 自己的样式（通常为空样式）。
     ruby_inherit: bool = True
@@ -171,6 +173,7 @@ class TextStyle:
                 "blur",
                 "blurAngle",
                 "blurRadial",
+                "blurMotion",
                 "rubyInherit",
                 "emphasis",
                 "noTcy",
@@ -221,6 +224,7 @@ class TextStyle:
             blur=max(0.0, float(blur or 0.0)),
             blur_angle=blur_angle,
             blur_radial=bool(value.get("blurRadial", False)),
+            blur_motion=bool(value.get("blurMotion", False)),
             ruby_inherit=bool(value.get("rubyInherit", True)),
             emphasis=bool(value.get("emphasis", False)),
             no_tcy=bool(value.get("noTcy", False)),
@@ -251,6 +255,7 @@ class TextStyle:
                 "blur": self.blur or None,
                 "blurAngle": self.blur_angle,
                 "blurRadial": self.blur_radial or None,
+                "blurMotion": self.blur_motion or None,
                 "rubyInherit": None if self.ruby_inherit else False,
                 "emphasis": self.emphasis or None,
                 "noTcy": self.no_tcy or None,
