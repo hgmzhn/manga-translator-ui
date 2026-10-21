@@ -28,7 +28,7 @@ def _is_extension_point_mitigation_disabled() -> bool:
     if val is not None:
         return val.strip().lower() in ('1', 'true', 'yes')
 
-    # 启动极早期尚未初始化服务与全局 .env，在此做轻量读取以支持 .env 配置
+    # 启动极早期尚未初始化服务与全局 .env，使用 python-dotenv 读取以支持 export、引号和行尾注释
     try:
         if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
             env_dir = os.path.dirname(sys.executable)
@@ -36,13 +36,13 @@ def _is_extension_point_mitigation_disabled() -> bool:
             env_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
         env_path = os.path.join(env_dir, '.env')
         if os.path.isfile(env_path):
-            with open(env_path, 'r', encoding='utf-8', errors='ignore') as f:
-                for line in f:
-                    line = line.strip()
-                    if line.startswith('MT_DISABLE_EXTENSION_POINT_MITIGATION'):
-                        parts = line.split('=', 1)
-                        if len(parts) == 2 and parts[1].strip().strip('"\'').lower() in ('1', 'true', 'yes'):
-                            return True
+            from dotenv import dotenv_values
+
+            file_val = dotenv_values(env_path, encoding='utf-8').get(
+                'MT_DISABLE_EXTENSION_POINT_MITIGATION'
+            )
+            if file_val is not None:
+                return str(file_val).strip().lower() in ('1', 'true', 'yes')
     except Exception:
         pass
     return False
