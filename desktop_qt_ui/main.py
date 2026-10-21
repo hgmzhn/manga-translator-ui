@@ -22,17 +22,43 @@ os.environ.setdefault('PYTORCH_ALLOC_CONF', 'expandable_segments:True')
 os.environ.setdefault('QT_IMAGEIO_MAXALLOC', '1024')
 
 
-def _disable_windows_extension_points():
-    """在 Windows 上禁用旧版扩展点与全局钩子注入。
+def _is_extension_point_mitigation_disabled() -> bool:
+    """检查是否通过环境变量或 .env 文件禁用了扩展点缓解策略。"""
+    val = os.environ.get('MT_DISABLE_EXTENSION_POINT_MITIGATION')
+    if val is not None:
+        return val.strip().lower() in ('1', 'true', 'yes')
 
-    防御第三方音效/悬浮窗软件（如 NahimicOSD.dll）通过全局钩子注入到图形渲染进程所导致的 0xC0000005 崩溃。
-    参考 Issue #327: 0xC0000005 (-1073741819) 由 NahimicOSD.dll 注入冲突引发。
+    # 启动极早期尚未初始化服务与全局 .env，在此做轻量读取以支持 .env 配置
+    try:
+        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+            env_dir = os.path.dirname(sys.executable)
+        else:
+            env_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        env_path = os.path.join(env_dir, '.env')
+        if os.path.isfile(env_path):
+            with open(env_path, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith('MT_DISABLE_EXTENSION_POINT_MITIGATION'):
+                        parts = line.split('=', 1)
+                        if len(parts) == 2 and parts[1].strip().strip('"\'').lower() in ('1', 'true', 'yes'):
+                            return True
+    except Exception:
+        pass
+    return False
+
+
+def _disable_windows_extension_points():
+    """在 Windows 平台上启用进程扩展点禁用策略（ProcessExtensionPointDisablePolicy）。
+
+    阻止外部第三方模块（例如部分音频驱动 OSD 组件、屏幕悬浮窗等）通过全局 Windows 钩子注入当前进程，
+    避免在 Qt/GUI 渲染上下文初始化阶段触发 0xC0000005（STATUS_ACCESS_VIOLATION）异常崩溃。
     """
     if sys.platform != 'win32':
         return
 
-    # 兼容性开关：若用户依赖某些使用旧版全局钩子的特殊第三方输入法或辅助工具，可通过环境变量跳过该策略
-    if os.environ.get('MT_DISABLE_EXTENSION_POINT_MITIGATION', '').strip().lower() in ('1', 'true', 'yes'):
+    # 兼容性开关：若依赖使用旧版全局钩子的第三方输入法或辅助工具，可通过环境变量或 .env 禁用该策略
+    if _is_extension_point_mitigation_disabled():
         print(
             '[INFO] ProcessExtensionPointDisablePolicy is bypassed via MT_DISABLE_EXTENSION_POINT_MITIGATION.',
             file=sys.stderr,
@@ -76,7 +102,7 @@ def _disable_windows_extension_points():
         )
 
 
-# 在加载图形界面与渲染上下文之前尽早应用，阻止流氓 DLL 注入
+# 在加载图形界面与渲染上下文之前启用进程缓解策略，阻止外部钩子注入
 _disable_windows_extension_points()
 
 # 修复便携版Python的路径问题：将脚本所在目录添加到sys.path开头
