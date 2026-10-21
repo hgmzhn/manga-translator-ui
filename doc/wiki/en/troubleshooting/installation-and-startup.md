@@ -24,6 +24,7 @@ Model loading, GPU VRAM, and memory issues are covered by [Model, GPU, and Memor
 | Symptom | Most likely cause | First check |
 | --- | --- | --- |
 | `Win-Start.bat` prints `[ERROR] Application exited with code ...` | Broken runtime environment or dependencies | Read `result/log_*.txt`, then run `Win-Install-or-Update.bat` and choose `[1] Install`; see [Windows Portable](../install/windows-portable.md) |
+| Immediate crash with exit code `-1073741819` (`0xC0000005`) | Access violation (third-party hook injection, CUDA, or driver conflict) | Press `Win + R`, run `eventvwr.msc`, inspect "Fault Module Name" in Application Error logs: if an overlay DLL (`NahimicOSD.dll`) disable overlay/service; if Torch/CUDA check GPU driver |
 | `Win-Start.bat` cannot find bundled Python or Conda | Incomplete distribution directory | Re-extract the package and confirm `packaging/python/python.exe` or a Conda environment exists |
 | `Unix-Start.sh` prints `Run ./Unix-Install-or-Update.sh first` | Missing project files or `.venv` | Run `Unix-Install-or-Update.sh` first; see [Linux and macOS Installation](../install/linux-and-macos.md) |
 | `uv sync` fails due to network | Package source unreachable | Retry or switch mirrors and use `uv sync --locked`; see [Runtime Requirements](../install/requirements.md) |
@@ -67,6 +68,11 @@ The installer first uses the declared dependency sources and, on failure, falls 
 - Service initialization failure logs `Fatal: Service initialization failed.` and exits with code 1; the concrete exception is in the log.
 - Unhandled exceptions are written to the log and stderr by the global exception handler; Qt-internal errors are recorded by the Qt message handler.
 - PyTorch is imported before PyQt6 to avoid Qt and `c10.dll` loading conflicts; the portable build also registers PyInstaller directories for DLL search. Mixed environments or a wrong PATH often surface as an immediate crash at startup.
+- **Exit code `-1073741819` (`0xC0000005`, Access Violation)**:
+  - **Identify the faulting module**: Press `Win + R` and run `eventvwr.msc`, navigate to **Windows Logs -> Application**, find the `Application Error` entry with exception code `0xc0000005`, and check the **Fault Module Name**.
+  - **Third-party injection conflicts (e.g. `NahimicOSD.dll`, RTSS, screen recording overlays)**: Audio enhancement utilities (Nahimic, Sonic Studio) or game tools can inject hook DLLs into GUI processes, causing `0xC0000005` crashes when Qt initializes graphics contexts. The application enables `ProcessExtensionPointDisablePolicy` by default to block global hook injections; if still encountered, disable "Sound Tracker" in Nahimic or stop `NahimicService` in Windows Services.
+  - **Legacy third-party IME compatibility & opt-out flag**: Because this mitigation blocks legacy Windows hook injection, a few older third-party IMEs or specialized hook-based accessibility tools might be affected. If an IME compatibility issue occurs, set the environment variable `MT_DISABLE_EXTENSION_POINT_MITIGATION=1` before startup to disable this policy (note that this trades off protection and re-exposes the process to third-party DLL injections).
+  - **Low-level library or driver conflicts (e.g. `c10.dll`, `torch_cuda.dll`, GPU display driver)**: If the fault module points to PyTorch, CUDA, or the GPU driver, see [Model, GPU, and Memory](./model-gpu-and-memory.md) to troubleshoot driver versions and hardware support.
 - For non-zero exit codes, `Win-Start.bat` prints `[ERROR] Application exited with code ...`, suggests reinstalling, and asks whether to open `Win-Install-or-Update.bat`. Do not upload the local paths or logs shown in the error window.
 
 Advice: run the startup command directly in a terminal to see stderr; inspect `result/log_*.txt`; confirm only one environment is used; reinstall with `[1] Install` in the maintenance menu when needed.

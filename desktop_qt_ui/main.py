@@ -21,6 +21,64 @@ os.environ.setdefault('PYTORCH_ALLOC_CONF', 'expandable_segments:True')
 # 允许桌面端加载解码后超过 Qt 默认 256 MiB 限制的长图。
 os.environ.setdefault('QT_IMAGEIO_MAXALLOC', '1024')
 
+
+def _disable_windows_extension_points():
+    """在 Windows 上禁用旧版扩展点与全局钩子注入。
+
+    防御第三方音效/悬浮窗软件（如 NahimicOSD.dll）通过全局钩子注入到图形渲染进程所导致的 0xC0000005 崩溃。
+    参考 Issue #327: 0xC0000005 (-1073741819) 由 NahimicOSD.dll 注入冲突引发。
+    """
+    if sys.platform != 'win32':
+        return
+
+    # 兼容性开关：若用户依赖某些使用旧版全局钩子的特殊第三方输入法或辅助工具，可通过环境变量跳过该策略
+    if os.environ.get('MT_DISABLE_EXTENSION_POINT_MITIGATION', '').strip().lower() in ('1', 'true', 'yes'):
+        print(
+            '[INFO] ProcessExtensionPointDisablePolicy is bypassed via MT_DISABLE_EXTENSION_POINT_MITIGATION.',
+            file=sys.stderr,
+        )
+        return
+
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class PROCESS_MITIGATION_EXTENSION_POINT_DISABLE_POLICY(ctypes.Structure):
+            _fields_ = [
+                ('DisableExtensionPoints', wintypes.DWORD, 1),
+                ('ReservedFlags', wintypes.DWORD, 31),
+            ]
+
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        if hasattr(kernel32, 'SetProcessMitigationPolicy'):
+            kernel32.SetProcessMitigationPolicy.argtypes = [
+                ctypes.c_int,
+                ctypes.c_void_p,
+                ctypes.c_size_t,
+            ]
+            kernel32.SetProcessMitigationPolicy.restype = wintypes.BOOL
+
+            # ProcessExtensionPointDisablePolicy = 6
+            policy = PROCESS_MITIGATION_EXTENSION_POINT_DISABLE_POLICY()
+            policy.DisableExtensionPoints = 1
+            if not kernel32.SetProcessMitigationPolicy(
+                6, ctypes.byref(policy), ctypes.sizeof(policy)
+            ):
+                err = ctypes.get_last_error()
+                print(
+                    f'[WARNING] Failed to enable ProcessExtensionPointDisablePolicy (error {err}). Continuing startup...',
+                    file=sys.stderr,
+                )
+    except Exception as exc:
+        print(
+            f'[WARNING] Exception setting ProcessExtensionPointDisablePolicy: {exc}. Continuing startup...',
+            file=sys.stderr,
+        )
+
+
+# 在加载图形界面与渲染上下文之前尽早应用，阻止流氓 DLL 注入
+_disable_windows_extension_points()
+
 # 修复便携版Python的路径问题：将脚本所在目录添加到sys.path开头
 # 便携版Python使用._pth文件会禁用自动添加脚本目录的默认行为
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
