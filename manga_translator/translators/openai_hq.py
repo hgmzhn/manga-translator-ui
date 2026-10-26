@@ -277,11 +277,12 @@ class OpenAIHighQualityTranslator(CommonTranslator):
                 pass  # 忽略所有清理错误
 
 
-    def _build_user_prompt(self, batch_data: List[Dict], ctx: Any, retry_attempt: int = 0, retry_reason: str = "") -> Any:
+    def _build_user_prompt(self, batch_data: List[Dict], ctx: Any, retry_attempt: int = 0, retry_reason: str = "", image_index_map=None) -> Any:
         """构建 HQ 用户提示词：原文可放入 source.txt 附件。"""
         return self._build_unified_user_prompt(
             batch_data, ctx, retry_attempt=retry_attempt, retry_reason=retry_reason,
             is_image_mode=True, file_input=getattr(self, '_translation_file_input', False),
+            image_index_map=image_index_map,
         )
     
     def _get_system_prompt(self, source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, retry_attempt: int = 0, retry_reason: str = "", extract_glossary: bool = False) -> str:
@@ -303,6 +304,7 @@ class OpenAIHighQualityTranslator(CommonTranslator):
         self.logger.info(f"High-quality translation mode: packaging and sending {len(batch_data)} images...")
 
         image_contents = []
+        image_index_map = {}
         for img_idx, data in enumerate(batch_data):
             image = data.get('image')
             if image is None:
@@ -322,6 +324,7 @@ class OpenAIHighQualityTranslator(CommonTranslator):
                 "type": "image_url",
                 "image_url": {"url": f"data:image/png;base64,{base64_img}"}
             })
+            image_index_map[img_idx] = len(image_contents)
         
         # 初始化重试信息
         retry_attempt = 0
@@ -368,7 +371,10 @@ class OpenAIHighQualityTranslator(CommonTranslator):
 
             # 构建系统提示词和用户提示词（包含重试信息以避免缓存）
             system_prompt = self._get_system_prompt(source_lang, target_lang, custom_prompt_json=custom_prompt_json, line_break_prompt_json=line_break_prompt_json, retry_attempt=retry_attempt, retry_reason=retry_reason, extract_glossary=extract_glossary)
-            user_prompt = self._build_user_prompt(batch_data, ctx, retry_attempt=retry_attempt, retry_reason=retry_reason)
+            user_prompt = self._build_user_prompt(
+                batch_data, ctx, retry_attempt=retry_attempt, retry_reason=retry_reason,
+                image_index_map=image_index_map if send_images else {},
+            )
             user_content = list(user_prompt) if isinstance(user_prompt, list) else [{"type": "text", "text": user_prompt}]
             
             # 降级检查：如果 send_images 为 True，则发送图片

@@ -2,6 +2,7 @@
 
 
 def to_gemini_parts(content):
+    """Convert attachment content to native parts, preserving legacy text input."""
     if isinstance(content, str):
         return [{"text": content}]
     parts = []

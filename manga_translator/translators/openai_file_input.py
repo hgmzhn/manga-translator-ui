@@ -22,7 +22,8 @@ def build_file_content(items, *, image_mode=False, retry_hint=""):
         prompt += (
             " Each image_index identifies the corresponding attached image "
             "(starting at 1); ids match the numbered text boxes. Use images "
-            "to understand context and correct OCR errors."
+            "to understand context and correct OCR errors. Entries without "
+            "image_index have no attached image; translate them from text alone."
         )
     return [
         {"type": "text", "text": retry_hint + prompt},
@@ -86,7 +87,13 @@ def build_responses_request(params):
 def normalize_response(result):
     """Expose completed Responses text through the existing Chat response parser."""
     if result.get("error") or result.get("status") != "completed":
-        reason = (result.get("incomplete_details") or {}).get("reason", "unknown")
+        error = result.get("error")
+        if isinstance(error, dict):
+            reason = ": ".join(str(error[key]) for key in ("code", "message") if error.get(key))
+        else:
+            reason = str(error) if error else ""
+        details = result.get("incomplete_details")
+        reason = reason or (details.get("reason") if isinstance(details, dict) else None) or "unknown"
         raise RuntimeError(f"File translation response was not completed (reason: {reason})")
     texts = []
     for item in result.get("output", []):

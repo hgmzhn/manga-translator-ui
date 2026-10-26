@@ -1749,7 +1749,14 @@ class CommonTranslator(InfererModule):
                 f"File translation requires Responses API with TXT input support; "
                 f"HTTP {response.status_code}: {_extract_http_error_details(response)}"
             )
-        return _OpenAIResponse(normalize_response(response.json()))
+        try:
+            result = response.json()
+        except Exception as error:
+            raise RuntimeError(
+                f"Failed to parse the Responses API JSON response: {error}. "
+                f"{_response_diagnostics(response)}"
+            ) from error
+        return _OpenAIResponse(normalize_response(result))
 
     def _build_openai_context_messages(self, prev_context: str) -> List[Dict[str, Any]]:
         """将历史上下文转换为 OpenAI 多轮消息，不附带图片。"""
@@ -1905,7 +1912,7 @@ class CommonTranslator(InfererModule):
             target_lang_full=target_lang_full,
         )
 
-    def _build_unified_user_prompt(self, batch_data: List[Dict], ctx=None, prev_context: str = "", retry_attempt: int = 0, retry_reason: str = "", is_image_mode: bool = True, file_input: bool = False):
+    def _build_unified_user_prompt(self, batch_data: List[Dict], ctx=None, prev_context: str = "", retry_attempt: int = 0, retry_reason: str = "", is_image_mode: bool = True, file_input: bool = False, image_index_map=None):
         """
         统一的用户提示词构建方法（支持多模态和纯文本）
         Unified user prompt builder for both multimodal and text-only modes.
@@ -1918,6 +1925,8 @@ class CommonTranslator(InfererModule):
             retry_reason: Reason for retry.
             is_image_mode: Whether to include image-specific descriptions.
             file_input: Whether to put source entries into a TXT attachment.
+            image_index_map: Batch positions mapped to the images actually attached,
+                numbered from 1. Missing positions have no attached image.
 
         Returns:
             User prompt string, or text/file content parts when file_input is enabled.
@@ -1974,8 +1983,8 @@ class CommonTranslator(InfererModule):
                     "text": text_clean
                 }
                 
-                if file_input and is_image_mode:
-                    item["image_index"] = img_idx + 1
+                if file_input and is_image_mode and image_index_map and img_idx in image_index_map:
+                    item["image_index"] = image_index_map[img_idx]
 
                 # AI 断句逻辑：获取 original_region_count
                 if enable_ai_break:
