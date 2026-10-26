@@ -14,51 +14,30 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = "_file_input_checks"
-package = ModuleType(PACKAGE)
-package.__path__ = [str(ROOT / "manga_translator/translators")]
-sys.modules[PACKAGE] = package
-spec = importlib.util.spec_from_file_location(
-    PACKAGE + ".openai_file_input", ROOT / "manga_translator/translators/openai_file_input.py"
-)
-adapter = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = adapter
-spec.loader.exec_module(adapter)
-gemini_spec = importlib.util.spec_from_file_location(
-    PACKAGE + ".gemini_file_input", ROOT / "manga_translator/translators/gemini_file_input.py"
-)
-gemini_adapter = importlib.util.module_from_spec(gemini_spec)
-sys.modules[gemini_spec.name] = gemini_adapter
-gemini_spec.loader.exec_module(gemini_adapter)
+_MISSING = object()
+_TEST_MODULE_NAMES = (PACKAGE, PACKAGE + ".openai_file_input", PACKAGE + ".gemini_file_input")
+_HARNESS_METHODS = ("_build_unified_user_prompt", "_build_user_prompt_for_texts", "_build_user_prompt_for_hq", "_create_translation_request")
 
-retry_spec = importlib.util.spec_from_file_location(PACKAGE + ".retry", ROOT / "manga_translator/utils/retry.py")
-retry_module = importlib.util.module_from_spec(retry_spec)
-retry_spec.loader.exec_module(retry_module)
 
-# Execute the real prompt and transport methods in isolation from GPU/OCR imports.
-tree = ast.parse((ROOT / "manga_translator/translators/common.py").read_text(encoding="utf-8"))
-common = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "CommonTranslator")
-names = {"_build_unified_user_prompt", "_build_user_prompt_for_texts", "_build_user_prompt_for_hq", "_create_translation_request"}
-methods = [node for node in common.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in names]
-response_class = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "_OpenAIResponse")
-diagnostics = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_response_diagnostics")
-namespace = {
-    "__package__": PACKAGE, "List": list, "Dict": dict,
-    "system_proxy_request_kwargs": lambda url: {},
-    "_extract_http_error_details": lambda response: "endpoint unavailable",
-    "summarize_response_text": retry_module.summarize_response_text,
-}
-exec(compile(ast.Module(body=[response_class, diagnostics, *methods], type_ignores=[]), "common.py", "exec"), namespace)
+def _restore_test_modules(previous):
+    """Restore only the private module entries owned by this test environment."""
+    for name, module in previous.items():
+        if module is _MISSING:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = module
 
 
 class Harness:
     """Run the real prompt and transport methods without loading GPU dependencies."""
 
-    _build_unified_user_prompt = namespace["_build_unified_user_prompt"]
-    _build_user_prompt_for_texts = namespace["_build_user_prompt_for_texts"]
-    _build_user_prompt_for_hq = namespace["_build_user_prompt_for_hq"]
-    _create_translation_request = namespace["_create_translation_request"]
     logger = logging.getLogger("file-input-check")
     _get_retry_hint = lambda self, attempt, reason: f"Retry {attempt}: {reason}"
+
+    def __init__(self, namespace):
+        """Bind extracted methods to this instance without changing shared classes."""
+        for name in _HARNESS_METHODS:
+            setattr(self, name, MethodType(namespace[name], self))
 
 
 def completed(text):
@@ -73,7 +52,39 @@ class FileInputTests(unittest.TestCase):
 
     def setUp(self):
         """Create independent translator state and a batch with Unicode source text."""
-        self.harness = Harness()
+        previous = {name: sys.modules.get(name, _MISSING) for name in _TEST_MODULE_NAMES}
+        self.addCleanup(_restore_test_modules, previous)
+        package = ModuleType(PACKAGE)
+        package.__path__ = [str(ROOT / "manga_translator/translators")]
+        sys.modules[PACKAGE] = package
+
+        def load_module(name, relative_path, register=True):
+            """Load a source module only while this test's cleanup is registered."""
+            spec = importlib.util.spec_from_file_location(name, ROOT / relative_path)
+            module = importlib.util.module_from_spec(spec)
+            if register:
+                sys.modules[name] = module
+            spec.loader.exec_module(module)
+            return module
+
+        self.adapter = load_module(PACKAGE + ".openai_file_input", "manga_translator/translators/openai_file_input.py")
+        self.gemini_adapter = load_module(PACKAGE + ".gemini_file_input", "manga_translator/translators/gemini_file_input.py")
+        retry_module = load_module(PACKAGE + ".retry", "manga_translator/utils/retry.py", register=False)
+
+        # Execute real methods without importing the GPU/OCR package hierarchy.
+        self.common_tree = ast.parse((ROOT / "manga_translator/translators/common.py").read_text(encoding="utf-8"))
+        common = next(node for node in self.common_tree.body if isinstance(node, ast.ClassDef) and node.name == "CommonTranslator")
+        methods = [node for node in common.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in _HARNESS_METHODS]
+        response_class = next(node for node in self.common_tree.body if isinstance(node, ast.ClassDef) and node.name == "_OpenAIResponse")
+        diagnostics = next(node for node in self.common_tree.body if isinstance(node, ast.FunctionDef) and node.name == "_response_diagnostics")
+        self.namespace = {
+            "__package__": PACKAGE, "List": list, "Dict": dict,
+            "system_proxy_request_kwargs": lambda url: {},
+            "_extract_http_error_details": lambda response: "endpoint unavailable",
+            "summarize_response_text": retry_module.summarize_response_text,
+        }
+        exec(compile(ast.Module(body=[response_class, diagnostics, *methods], type_ignores=[]), "common.py", "exec"), self.namespace)
+        self.harness = Harness(self.namespace)
         self.batch = [
             {"original_texts": ['こんにちは\n世界', '"引用" \\ 😀'], "text_order": [1, 2]},
             {"original_texts": ["第二页"], "text_order": [3]},
@@ -106,11 +117,11 @@ class FileInputTests(unittest.TestCase):
             {"role": "system", "content": "Translate into Chinese"},
             {"role": "user", "content": "historical original"},
             {"role": "assistant", "content": "historical translation"},
-            {"role": "user", "content": adapter.build_file_content([{ "id": 1, "text": "source"}]) + [
+            {"role": "user", "content": self.adapter.build_file_content([{ "id": 1, "text": "source"}]) + [
                 {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc", "detail": "low"}}
             ]},
         ]
-        request = adapter.build_responses_request({"model": "test-model", "messages": messages, "max_tokens": 100, "reasoning_effort": "low"})
+        request = self.adapter.build_responses_request({"model": "test-model", "messages": messages, "max_tokens": 100, "reasoning_effort": "low"})
         self.assertNotIn("messages", request)
         self.assertEqual(request["input"][2], messages[2])
         self.assertEqual(request["input"][-1]["content"][-1], {"type": "input_image", "image_url": "data:image/png;base64,abc", "detail": "low"})
@@ -123,7 +134,7 @@ class FileInputTests(unittest.TestCase):
         for result in [{"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}}, completed(""),
                        {"status": "completed", "output": [{"type": "message", "content": [{"type": "refusal"}]}]}]:
             with self.assertRaises(RuntimeError):
-                adapter.normalize_response(result)
+                self.adapter.normalize_response(result)
 
     def test_mock_http_and_existing_json_response_shape(self):
         """Route file input to Responses and retain the existing parsed result shape."""
@@ -164,7 +175,7 @@ class FileInputTests(unittest.TestCase):
     def test_gemini_native_file_and_image_coexist(self):
         """Combine native Gemini text attachments with independent image parts."""
         content = self.harness._build_unified_user_prompt(self.batch, file_input=True, image_index_map={0: 1, 1: 2})
-        parts = gemini_adapter.to_gemini_parts(content)
+        parts = self.gemini_adapter.to_gemini_parts(content)
         image = {"inlineData": {"mimeType": "image/png", "data": "image-data"}}
         parts.append(image)
         self.assertNotIn("こんにちは", parts[0]["text"])
@@ -173,7 +184,7 @@ class FileInputTests(unittest.TestCase):
         self.assertEqual([item["id"] for item in items], [1, 2, 3])
         self.assertEqual(items[-1]["image_index"], 2)
         self.assertEqual(parts[-1], image)
-        self.assertEqual(gemini_adapter.to_gemini_parts("legacy prompt"), [{"text": "legacy prompt"}])
+        self.assertEqual(self.gemini_adapter.to_gemini_parts("legacy prompt"), [{"text": "legacy prompt"}])
 
     def test_all_prompt_builders_preserve_text_mode_and_use_attachment_setting(self):
         """Compare all four disabled prompt paths with their original text builders."""
@@ -190,7 +201,7 @@ class FileInputTests(unittest.TestCase):
             exec(compile(ast.Module(body=[method], type_ignores=[]), filename, "exec"), ns)
             self.harness._translation_file_input = True
             content = ns["_build_user_prompt"](self.harness, source, None)
-            self.assertEqual(gemini_adapter.to_gemini_parts(content)[1]["inlineData"]["mimeType"], "text/plain")
+            self.assertEqual(self.gemini_adapter.to_gemini_parts(content)[1]["inlineData"]["mimeType"], "text/plain")
             legacy_builder = self.harness._build_user_prompt_for_hq if image_mode else self.harness._build_user_prompt_for_texts
             for ctx in [None, SimpleNamespace(config=SimpleNamespace(render=SimpleNamespace(disable_auto_wrap=True)))]:
                 for attempt in [0, 2]:
@@ -202,7 +213,7 @@ class FileInputTests(unittest.TestCase):
 
     def test_gemini_transport_preserves_native_attachment_on_wire(self):
         """Capture the actual Gemini transport's JSON body without making API calls."""
-        client_cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "AsyncGeminiCurlCffi")
+        client_cls = next(node for node in self.common_tree.body if isinstance(node, ast.ClassDef) and node.name == "AsyncGeminiCurlCffi")
         models_cls = next(node for node in client_cls.body if isinstance(node, ast.ClassDef) and node.name == "Models")
         method = next(node for node in models_cls.body if isinstance(node, ast.AsyncFunctionDef) and node.name == "generate_content")
         ns = {"json": json, "system_proxy_request_kwargs": lambda url: {}, "_GeminiResponse": lambda data: data}
@@ -215,7 +226,7 @@ class FileInputTests(unittest.TestCase):
             return SimpleNamespace(status_code=200, headers={"content-type": "application/json"}, json=lambda: expected)
         model = SimpleNamespace(parent=SimpleNamespace(base_url="https://mock.invalid", api_key="test-key", default_headers={}, timeout=10, session=SimpleNamespace(post=post)))
         content = self.harness._build_unified_user_prompt(self.batch, file_input=True)
-        parts = gemini_adapter.to_gemini_parts(content)
+        parts = self.gemini_adapter.to_gemini_parts(content)
         image = {"inlineData": {"mimeType": "image/png", "data": "abc"}}
         parts.append(image)
         result = asyncio.run(ns["generate_content"](model, "mock", [{"role": "user", "parts": parts}]))
@@ -234,7 +245,7 @@ class FileInputTests(unittest.TestCase):
         ]
         for response, reason in cases:
             with self.subTest(response=response), self.assertRaisesRegex(RuntimeError, reason):
-                adapter.normalize_response(response)
+                self.adapter.normalize_response(response)
 
     def test_non_json_responses_include_bounded_http_diagnostics(self):
         """Include MIME type and bounded response text while chaining parse errors."""
@@ -285,7 +296,7 @@ class FileInputTests(unittest.TestCase):
 
             for images in [[None, "broken", "usable"], [None, None, None]]:
                 batch = [{"image": image, "original_texts": [f"page {index + 1}"], "text_order": [index + 1]} for index, image in enumerate(images)]
-                harness = Harness()
+                harness = Harness(self.namespace)
                 harness.client = object()
                 harness._translation_file_input = True
                 harness._resolve_max_total_attempts = lambda: 1
@@ -312,6 +323,50 @@ class FileInputTests(unittest.TestCase):
                 fallback = eval(compile(ast.Expression(body=prompt_call), filename, "eval"), {}, {"self": harness, "batch_data": batch, "ctx": None, "retry_attempt": 1, "retry_reason": "images disabled", "image_index_map": expected, "send_images": False})
                 fallback_items = json.loads(base64.b64decode(fallback[1]["file"]["file_data"].split(",", 1)[1]))
                 self.assertTrue(all("image_index" not in item for item in fallback_items))
+
+
+class CollectionIsolationTests(unittest.TestCase):
+    """Guard collection and cleanup when the test suite shares one interpreter."""
+
+    def test_import_does_not_register_private_modules(self):
+        """Importing the test module must leave private module registrations intact."""
+        previous = {name: sys.modules.get(name, _MISSING) for name in _TEST_MODULE_NAMES}
+        spec = importlib.util.spec_from_file_location("_file_input_collection_probe", __file__)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        for name, original in previous.items():
+            self.assertIs(sys.modules.get(name, _MISSING), original)
+
+    def test_cleanup_removes_new_modules_and_restores_existing_modules(self):
+        """Cleanup restores prior registrations after normal runs or setup failures."""
+        from unittest.mock import patch
+
+        for existing in (False, True):
+            for fail_setup in (False, True):
+                with self.subTest(existing=existing, fail_setup=fail_setup):
+                    original = {name: sys.modules.get(name, _MISSING) for name in _TEST_MODULE_NAMES}
+                    try:
+                        for name in _TEST_MODULE_NAMES:
+                            if existing:
+                                sys.modules[name] = ModuleType(name)
+                            else:
+                                sys.modules.pop(name, None)
+                        expected = {name: sys.modules.get(name, _MISSING) for name in _TEST_MODULE_NAMES}
+                        case = FileInputTests("test_legacy_prompt_and_retry")
+                        try:
+                            if fail_setup:
+                                with patch.object(importlib.util, "module_from_spec", side_effect=RuntimeError("setup failed")):
+                                    with self.assertRaisesRegex(RuntimeError, "setup failed"):
+                                        case.setUp()
+                            else:
+                                case.setUp()
+                                case.test_legacy_prompt_and_retry()
+                        finally:
+                            case.doCleanups()
+                        for name, previous in expected.items():
+                            self.assertIs(sys.modules.get(name, _MISSING), previous)
+                    finally:
+                        _restore_test_modules(original)
 
 
 if __name__ == "__main__":
