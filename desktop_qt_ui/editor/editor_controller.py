@@ -452,6 +452,11 @@ class EditorController(QObject):
             existing_toast_manager is None
             or getattr(existing_toast_manager, "parent", None) is not view
         ):
+            if existing_toast_manager is not None:
+                try:
+                    existing_toast_manager.close_all()
+                except Exception:
+                    pass
             from ui.widgets.toast_notification import ToastManager
 
             self.toast_manager = ToastManager(view)

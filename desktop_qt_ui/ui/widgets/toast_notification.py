@@ -6,9 +6,132 @@ import os
 import platform
 import subprocess
 
+from PyQt6 import sip
 from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSignal
 from PyQt6.QtWidgets import QWidget
 from qfluentwidgets import FluentIcon as FIF, InfoBar, InfoBarPosition, PushButton
+from qfluentwidgets.components.widgets.info_bar import InfoBarManager
+
+
+def _install_infobar_manager_safety_patches():
+    """为 qfluentwidgets InfoBarManager 增加对已销毁 C++ 对象的容错防御。
+
+    当父控件在隐藏状态下创建 InfoBar 并提前关闭时，Qt 在父控件后续展示时仍可能补发 showEvent，
+    造成 InfoBarManager 列表中残留野指针并在调用 bar.height() 时引发 RuntimeError。
+    在此主动清洗列表，保证即使外部控件生命周期异常，全局单例也永远只持有有效引用。
+    """
+    if getattr(InfoBarManager, "_safety_patches_installed", False):
+        return
+    InfoBarManager._safety_patches_installed = True
+
+    orig_add = InfoBarManager.add
+
+    def safe_add(self, infoBar):
+        if not infoBar or sip.isdeleted(infoBar):
+            return
+        p = infoBar.parent()
+        if not p or sip.isdeleted(p):
+            return
+
+        # 清洗已析构的旧父控件
+        for parent_widget in list(self.infoBars.keys()):
+            try:
+                if sip.isdeleted(parent_widget):
+                    self.infoBars.pop(parent_widget, None)
+                    if hasattr(self, "aniGroups"):
+                        self.aniGroups.pop(parent_widget, None)
+            except Exception:
+                pass
+
+        if p not in self.infoBars:
+            try:
+                p.destroyed.connect(lambda _, pw=p: self._cleanup_parent(pw))
+            except Exception:
+                pass
+            self.infoBars[p] = []
+        else:
+            self.infoBars[p] = [
+                b for b in self.infoBars[p] if not sip.isdeleted(b)
+            ]
+        return orig_add(self, infoBar)
+
+    def _cleanup_parent(self, parent_widget):
+        try:
+            self.infoBars.pop(parent_widget, None)
+            if hasattr(self, "aniGroups"):
+                self.aniGroups.pop(parent_widget, None)
+        except Exception:
+            pass
+
+    InfoBarManager.add = safe_add
+    InfoBarManager._cleanup_parent = _cleanup_parent
+
+    orig_remove = InfoBarManager.remove
+
+    def safe_remove(self, infoBar):
+        if not infoBar or sip.isdeleted(infoBar):
+            for bars in self.infoBars.values():
+                if infoBar in bars:
+                    try:
+                        bars.remove(infoBar)
+                    except ValueError:
+                        pass
+            return
+        try:
+            p = infoBar.parent()
+            if not p or sip.isdeleted(p):
+                for bars in self.infoBars.values():
+                    if infoBar in bars:
+                        try:
+                            bars.remove(infoBar)
+                        except ValueError:
+                            pass
+                return
+            if p in self.infoBars:
+                self.infoBars[p] = [
+                    b for b in self.infoBars[p] if not sip.isdeleted(b)
+                ]
+            return orig_remove(self, infoBar)
+        except Exception:
+            pass
+
+    InfoBarManager.remove = safe_remove
+
+    orig_updateDropAni = InfoBarManager._updateDropAni
+
+    def safe_updateDropAni(self, parent):
+        if not parent or sip.isdeleted(parent):
+            return
+        if parent in self.infoBars:
+            self.infoBars[parent] = [
+                b for b in self.infoBars[parent] if not sip.isdeleted(b)
+            ]
+        return orig_updateDropAni(self, parent)
+
+    InfoBarManager._updateDropAni = safe_updateDropAni
+
+    for mgr in InfoBarManager.managers.values():
+        cls = type(mgr)
+        if hasattr(cls, "_pos"):
+            orig_pos = cls._pos
+
+            def make_safe_pos(old_pos):
+                def safe_pos(self, infoBar, parentSize=None):
+                    if not infoBar or sip.isdeleted(infoBar):
+                        return
+                    p = infoBar.parent()
+                    if p and not sip.isdeleted(p) and p in self.infoBars:
+                        self.infoBars[p] = [
+                            b for b in self.infoBars[p] if not sip.isdeleted(b)
+                        ]
+                    return old_pos(self, infoBar, parentSize)
+
+                return safe_pos
+
+            cls._pos = make_safe_pos(orig_pos)
+
+
+_install_infobar_manager_safety_patches()
 
 
 class ToastNotification(QObject):
@@ -58,6 +181,23 @@ class ToastNotification(QObject):
 
         return self
 
+    def show_info(self, message, duration=3000):
+        """Show an informational notification."""
+        self._clickable = False
+        self._extra_data = None
+        info_duration = duration if duration > 0 else -1
+        self._bar = InfoBar.info(
+            title="",
+            content=str(message),
+            orient=Qt.Orientation.Horizontal,
+            isClosable=True,
+            duration=info_duration,
+            position=InfoBarPosition.BOTTOM,
+            parent=self.parent,
+        )
+        self._bar.closedSignal.connect(self._on_bar_closed)
+        return self
+
     def eventFilter(self, obj, event):
         # 在 release 而不是 press 处理点击：press 就 close 会让后续事件
         # 继续派发给正在销毁的 InfoBar。处理后 return True 终止派发。
@@ -78,22 +218,66 @@ class ToastNotification(QObject):
         self._bar = None
         self.closed.emit()
 
+    def is_active(self) -> bool:
+        """检查 Toast 是否处于活跃状态（尚未被关闭且底层 C++ 对象未被销毁）。"""
+        if self._bar is None:
+            return False
+        try:
+            return not sip.isdeleted(self._bar)
+        except Exception:
+            return False
+
     def isVisible(self):
-        return bool(self._bar and self._bar.isVisible())
+        if self._bar is None:
+            return False
+        try:
+            if sip.isdeleted(self._bar):
+                self._bar = None
+                return False
+            return bool(self._bar.isVisible())
+        except Exception:
+            self._bar = None
+            return False
 
     def height(self):
-        return self._bar.height() if self._bar else 0
+        if self._bar is None:
+            return 0
+        try:
+            if sip.isdeleted(self._bar):
+                self._bar = None
+                return 0
+            return self._bar.height()
+        except Exception:
+            self._bar = None
+            return 0
 
     def y(self):
-        return self._bar.y() if self._bar else 0
+        if self._bar is None:
+            return 0
+        try:
+            if sip.isdeleted(self._bar):
+                self._bar = None
+                return 0
+            return self._bar.y()
+        except Exception:
+            self._bar = None
+            return 0
 
     def fade_out(self):
         self.close()
 
     def close(self):
         if self._bar is not None:
-            self._bar.close()
+            bar = self._bar
             self._bar = None
+            try:
+                if not sip.isdeleted(bar):
+                    bar.hide()
+                    bar.close()
+                    # 避免在父控件后续展示时触发延迟派发的 showEvent
+                    bar.setParent(None)
+            except Exception:
+                pass
 
     @staticmethod
     def open_file_location(file_path):
@@ -123,7 +307,7 @@ class ToastManager:
 
     def show_toast(self, message, duration=3000, success=True, clickable_path=None):
         """Show a notification."""
-        self.active_toasts = [toast for toast in self.active_toasts if toast.isVisible()]
+        self.active_toasts = [toast for toast in self.active_toasts if toast.is_active()]
 
         toast = ToastNotification(self.parent)
         toast.closed.connect(lambda t=toast: self._forget_toast(t))
@@ -146,25 +330,19 @@ class ToastManager:
 
     def show_info(self, message, duration=3000):
         """Show an informational notification."""
-        self.active_toasts = [toast for toast in self.active_toasts if toast.isVisible()]
+        self.active_toasts = [toast for toast in self.active_toasts if toast.is_active()]
         toast = ToastNotification(self.parent)
         toast.closed.connect(lambda t=toast: self._forget_toast(t))
-        toast._bar = InfoBar.info(
-            title="",
-            content=str(message),
-            orient=Qt.Orientation.Horizontal,
-            isClosable=True,
-            duration=duration if duration > 0 else -1,
-            position=InfoBarPosition.BOTTOM,
-            parent=self.parent,
-        )
-        toast._bar.closedSignal.connect(toast._on_bar_closed)
+        toast.show_info(message, duration)
         self.active_toasts.append(toast)
         return toast
 
     def close_all(self):
         """Close all active notifications."""
-        for toast in list(self.active_toasts):
-            if toast.isVisible():
-                toast.close()
+        toasts = list(self.active_toasts)
         self.active_toasts.clear()
+        for toast in toasts:
+            try:
+                toast.close()
+            except Exception:
+                pass
