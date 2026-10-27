@@ -32,13 +32,39 @@ def _install_infobar_manager_safety_patches():
         p = infoBar.parent()
         if not p or sip.isdeleted(p):
             return
-        if p in self.infoBars:
+
+        # 清洗已析构的旧父控件
+        for parent_widget in list(self.infoBars.keys()):
+            try:
+                if sip.isdeleted(parent_widget):
+                    self.infoBars.pop(parent_widget, None)
+                    if hasattr(self, "aniGroups"):
+                        self.aniGroups.pop(parent_widget, None)
+            except Exception:
+                pass
+
+        if p not in self.infoBars:
+            try:
+                p.destroyed.connect(lambda _, pw=p: self._cleanup_parent(pw))
+            except Exception:
+                pass
+            self.infoBars[p] = []
+        else:
             self.infoBars[p] = [
                 b for b in self.infoBars[p] if not sip.isdeleted(b)
             ]
         return orig_add(self, infoBar)
 
+    def _cleanup_parent(self, parent_widget):
+        try:
+            self.infoBars.pop(parent_widget, None)
+            if hasattr(self, "aniGroups"):
+                self.aniGroups.pop(parent_widget, None)
+        except Exception:
+            pass
+
     InfoBarManager.add = safe_add
+    InfoBarManager._cleanup_parent = _cleanup_parent
 
     orig_remove = InfoBarManager.remove
 
@@ -192,6 +218,15 @@ class ToastNotification(QObject):
         self._bar = None
         self.closed.emit()
 
+    def is_active(self) -> bool:
+        """检查 Toast 是否处于活跃状态（尚未被关闭且底层 C++ 对象未被销毁）。"""
+        if self._bar is None:
+            return False
+        try:
+            return not sip.isdeleted(self._bar)
+        except Exception:
+            return False
+
     def isVisible(self):
         if self._bar is None:
             return False
@@ -272,7 +307,7 @@ class ToastManager:
 
     def show_toast(self, message, duration=3000, success=True, clickable_path=None):
         """Show a notification."""
-        self.active_toasts = [toast for toast in self.active_toasts if toast.isVisible()]
+        self.active_toasts = [toast for toast in self.active_toasts if toast.is_active()]
 
         toast = ToastNotification(self.parent)
         toast.closed.connect(lambda t=toast: self._forget_toast(t))
@@ -295,7 +330,7 @@ class ToastManager:
 
     def show_info(self, message, duration=3000):
         """Show an informational notification."""
-        self.active_toasts = [toast for toast in self.active_toasts if toast.isVisible()]
+        self.active_toasts = [toast for toast in self.active_toasts if toast.is_active()]
         toast = ToastNotification(self.parent)
         toast.closed.connect(lambda t=toast: self._forget_toast(t))
         toast.show_info(message, duration)
