@@ -10,11 +10,11 @@
     "release_config": "config/config-example.json"
   },
   "baseline_comparison": {
-    "requested_baseline": 111,
-    "layout_parameter_entries": 111,
-    "visible_parameter_fields": 110,
+    "requested_baseline": 112,
+    "layout_parameter_entries": 112,
+    "visible_parameter_fields": 111,
     "difference_from_requested_baseline": -1,
-    "difference_explanation": "The layout has 111 string entries, matching the updated baseline. Its render.font_color entry has a null release default and no None widget branch, leaving 110 visible settings rows (one below 111)."
+    "difference_explanation": "The layout has 112 string entries, matching the updated baseline. Its render.font_color entry has a null release default and no None widget branch, leaving 111 visible settings rows (one below 112)."
   },
   "records": [
     {
@@ -1487,6 +1487,29 @@
       "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
     },
     {
+      "key": "inpainter.blur_radius",
+      "ui": {
+        "tab": "Inpainting",
+        "i18n_key": "label_blur_radius",
+        "english": "Blur Radius",
+        "simplified_chinese": "模糊半径"
+      },
+      "wiki_page": "desktop/settings/mask-and-inpainting.md",
+      "control": "int-input",
+      "defaults": {
+        "release_json_value": 0,
+        "source": "config/config-example.json (release) -> desktop_qt_ui/core/config_models.py#InpainterSettings.blur_radius"
+      },
+      "lifecycle_stages": [
+        "mask refinement",
+        "inpainting"
+      ],
+      "file_action": false,
+      "consumers": [],
+      "consumer_status": "pending Phase 3 source trace",
+      "verification_status": "Phase 0 UI/default evidence catalogued; final consumer trace pending"
+    },
+    {
       "key": "inpainter.inpainting_size",
       "ui": {
         "tab": "Inpainting",
@@ -2523,7 +2546,7 @@
     }
   ],
   "validation": {
-    "record_count": 110,
+    "record_count": 111,
     "ui_labels": "Every record resolves an actual UI label key in both desktop locales.",
     "consumer_trace": "Not generated from Phase 0; intentionally left pending for Phase 3 evidence."
   }

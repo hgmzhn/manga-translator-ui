@@ -1269,6 +1269,7 @@ class MainAppLogic(QObject):
                     "force_use_torch_inpainting": self._t("label_force_use_torch_inpainting"),
                     "solid_fill_pure_bubbles": self._t("label_solid_fill_pure_bubbles"),
                     "per_block_inpainting": self._t("label_per_block_inpainting"),
+                    "blur_radius": self._t("label_blur_radius"),
                     "renderer": self._t("label_renderer"),
                     "font_family": self._t("label_font_family"),
                     "disable_system_fonts": self._t("label_disable_system_fonts"),

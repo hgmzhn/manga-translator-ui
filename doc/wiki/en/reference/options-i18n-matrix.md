@@ -198,6 +198,7 @@ The Settings page, API-management translation tab, and editor property panel reu
 | `sd` | sd | sd | Same as above |
 | `none` | none | none | Same as above |
 | `original` | original | original | Same as above |
+| `blur` | blur | blur | Same as above |
 | `fp32` | fp32 | fp32 | `inpainter.inpainting_precision`, Settings Inpainting |
 | `fp16` | fp16 | fp16 | Same as above |
 | `bf16` | bf16 | bf16 | Same as above |

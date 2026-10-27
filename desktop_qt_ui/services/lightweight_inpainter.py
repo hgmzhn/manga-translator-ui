@@ -58,6 +58,8 @@ class LightweightInpainter:
             InpainterType.LAMA_MPE: self._inpaint_simple_blur,  # 简化版Lama
             InpainterType.LAMA_LARGE: self._inpaint_simple_blur,  # 简化版(不适合实时)
             InpainterType.STABLE_DIFFUSION: self._inpaint_simple_blur,  # 简化版(不适合实时)
+            InpainterType.FLUX2_KLEIN: self._inpaint_simple_blur,  # 简化版(不适合实时)
+            InpainterType.BLUR: self._inpaint_blur,  # 毛玻璃模糊
         }
         
         # self.logger.info("轻量级擦除算法接口初始化完成")
@@ -118,6 +120,13 @@ class LightweightInpainter:
                 result[edge_mask > 0] = blurred[edge_mask > 0]
         
         return result
+    
+    def _inpaint_blur(self, image: np.ndarray, mask: np.ndarray) -> np.ndarray:
+        """毛玻璃模糊"""
+        from manga_translator.inpainting.blur import BlurInpainter
+        config = self.config_service.get_current_config()
+        blur_radius = getattr(config, 'blur_radius', 0) if config else 0
+        return BlurInpainter.apply_blur(image, mask, blur_radius=blur_radius)
     
     def _inpaint_advanced_fill(self, image: np.ndarray, mask: np.ndarray) -> np.ndarray:
         """高级填充算法（更好的质量但仍然轻量）"""

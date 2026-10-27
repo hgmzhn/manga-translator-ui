@@ -198,6 +198,7 @@ lastUpdated: true
 | `sd` | sd | sd | 同上 |
 | `none` | none | none | 同上 |
 | `original` | original | original | 同上 |
+| `blur` | blur | blur | 同上 |
 | `fp32` | fp32 | fp32 | `inpainter.inpainting_precision`，设置 Inpainting |
 | `fp16` | fp16 | fp16 | 同上 |
 | `bf16` | bf16 | bf16 | 同上 |
