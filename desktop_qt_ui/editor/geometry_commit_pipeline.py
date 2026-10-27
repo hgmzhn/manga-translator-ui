@@ -1,10 +1,12 @@
 """几何编辑提交管线 — 构建旋转 / 白框编辑的 region_data。"""
 
 import copy
+import math
 from typing import Optional
 
 from manga_translator.rendering import calc_font_from_box
 
+from editor.region_geometry_state import is_quad_like
 from editor.render_text_value import has_renderable_text, render_text_value_from_region
 from services import get_render_parameter_service
 
@@ -32,44 +34,60 @@ def build_white_frame_region_data(
     white_frame_local: Optional[list],
     old_white_frame_local: Optional[list] = None,
     edit_mode: Optional[str] = None,
+    white_frame_quad_local: Optional[list] = None,
+    old_white_frame_quad_local: Optional[list] = None,
 ) -> dict:
-    """构建白框编辑提交数据（含可选字体尺寸回写）。"""
+    """构建白框编辑提交数据（含可选字体尺寸回写）。
+
+    white_frame_quad_local 非空时按透视四边形的平均边长反算字号；
+    否则沿用矩形宽高。
+    """
     data = copy.deepcopy(region_data)
     data.update(white_patch)
 
     if edit_mode == "white_move":
         return data
 
-    if not _white_frame_size_changed(old_white_frame_local, white_frame_local):
-        return data
+    new_size = _extract_white_frame_size(white_frame_local, white_frame_quad_local)
+    old_size = _extract_white_frame_size(
+        old_white_frame_local, old_white_frame_quad_local
+    )
+    if old_size is not None and new_size is not None:
+        if tuple(round(value) for value in new_size) == tuple(
+            round(value) for value in old_size
+        ):
+            return data
 
     service = get_render_parameter_service()
     if service is None:
         raise RuntimeError("RenderParameterService is not initialized")
     params = service.get_region_parameters(region_index, data)
-    new_fs = _calc_font_size(data, white_frame_local, params)
+    new_fs = _calc_font_size(
+        data, white_frame_local, params, white_frame_quad_local
+    )
     if new_fs is not None:
         data["font_size"] = new_fs
     return data
 
 
-def _white_frame_size_changed(
-    old_wf_local: Optional[list],
-    new_wf_local: Optional[list],
-) -> bool:
-    """仅当白框宽高发生变化时，才触发字号重算。"""
-    old_size = _extract_white_frame_size(old_wf_local)
-    new_size = _extract_white_frame_size(new_wf_local)
-    if old_size is None or new_size is None:
-        return True
-    return tuple(round(value) for value in new_size) != tuple(
-        round(value) for value in old_size
-    )
-
-
 def _extract_white_frame_size(
     wf_local: Optional[list],
+    quad_local: Optional[list] = None,
 ) -> Optional[tuple[float, float]]:
+    """矩形取宽高；有透视四边形时取对边平均长度。"""
+    if is_quad_like(quad_local):
+        p0, p1, p2, p3 = quad_local
+        width = (
+            math.hypot(p1[0] - p0[0], p1[1] - p0[1])
+            + math.hypot(p2[0] - p3[0], p2[1] - p3[1])
+        ) / 2.0
+        height = (
+            math.hypot(p3[0] - p0[0], p3[1] - p0[1])
+            + math.hypot(p2[0] - p1[0], p2[1] - p1[1])
+        ) / 2.0
+        if width <= 0.0 or height <= 0.0:
+            return None
+        return float(width), float(height)
     if wf_local is None or len(wf_local) != 4:
         return None
     left, top, right, bottom = wf_local
@@ -81,9 +99,12 @@ def _extract_white_frame_size(
 
 
 def _calc_font_size(
-    region_data: dict, wf_local: Optional[list], params
+    region_data: dict,
+    wf_local: Optional[list],
+    params,
+    quad_local: Optional[list] = None,
 ) -> Optional[int]:
-    size = _extract_white_frame_size(wf_local)
+    size = _extract_white_frame_size(wf_local, quad_local)
     if size is None:
         return None
     w, h = size

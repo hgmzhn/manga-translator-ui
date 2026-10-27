@@ -82,6 +82,8 @@ def _style_summary(style: dict, empty_text: str) -> str:
         "stroke": "O",
         "outerStroke": "OS",
         "glow": "G",
+        "blur": "BL",
+        "blurAngle": "BL°",
         "emphasis": "D",
         "verticalAdvance": "FA",
         "kerning": "K",
@@ -206,6 +208,10 @@ class RichTextStyleControls(SimpleCardWidget):
             "outerStroke", "#000000", "saved_outer_stroke_colors", "width", 0.20
         )
         self.glow = self._effect("glow", "#00FFFF", "saved_glow_colors", "blur", 0.10)
+        self.blur = self._number("blur", 0, 1, 0, 0.01, 2)
+        # TextStyle normalizes blurAngle into [0, 360); keep the editor in the
+        # same domain so 270° is not clamped to 180° when loading a rule.
+        self.blur_angle = self._number("blurAngle", 0, 360, 0, 1, 0)
         self.kerning = self._number("kerning", -5, 5, 0, 0.05, 2)
         self.pre_kerning = self._number("preKerning", -5, 5, 0, 0.05, 2)
         self.line_kerning = self._number("lineKerning", -5, 5, 0, 0.05, 2)
@@ -228,6 +234,8 @@ class RichTextStyleControls(SimpleCardWidget):
             ("Stroke", self.stroke),
             ("Outer Stroke", self.outer_stroke),
             ("Glow", self.glow),
+            ("Blur", self.blur),
+            ("Direction", self.blur_angle),
             ("Kerning", self.kerning),
             ("Pre Kerning", self.pre_kerning),
             ("Line Kerning", self.line_kerning),

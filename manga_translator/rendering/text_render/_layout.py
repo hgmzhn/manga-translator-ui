@@ -16,7 +16,13 @@ import numpy as np
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFontMetricsF, QPainterPath, QTransform
 
-from ..rich_text import RenderSpan, RichTextDocument, TextStyle, normalize_rich_linebreaks
+from ..rich_text import (
+    RenderSpan,
+    RichTextDocument,
+    TextStyle,
+    normalize_rich_linebreaks,
+    ruby_text_style_for,
+)
 from ._compose import (
     _bitmap_ink_rect,
     _paste_bitmap,
@@ -218,6 +224,7 @@ def _rich_vertical_layout_geometry(
     layouts: list[VerticalColumnPlan],
     font_size: int,
     line_spacing: float,
+    blur_pad: int = 0,
 ) -> dict:
     spacing_x = calc_vertical_line_spacing_px(font_size, line_spacing)
     body_width = sum(column.thickness for column in layouts)
@@ -249,6 +256,9 @@ def _rich_vertical_layout_geometry(
         ),
         default=float(layout_width),
     )
+    if blur_pad:
+        paint_left -= blur_pad
+        paint_right += blur_pad
     left_extra = math.ceil(max(0.0, -paint_left))
     right_extra = max(
         layouts[0].annotation_cross_extent if layouts else 0,
@@ -268,6 +278,9 @@ def _rich_vertical_layout_geometry(
         ),
         default=0,
     )
+    if blur_pad:
+        top_extra += blur_pad
+        bottom_extra += blur_pad
     return {
         "spacing_x": int(spacing_x),
         "body_width": int(body_width),
@@ -655,7 +668,7 @@ def _build_horizontal_ruby_plan(
     ruby_text = "".join(item.text for item in (span.ruby or []))
     if not ruby_text:
         return None
-    ruby_style = span.style.copy()
+    ruby_style = ruby_text_style_for(span)
     ruby_style.emphasis = False
     # 注音不继承正文装饰（装饰只作用于正文行）
     ruby_style.underline = False
@@ -1037,7 +1050,10 @@ def _build_rich_horizontal_layout(
 
 
 def _rich_horizontal_layout_geometry(
-    layouts: list[HorizontalLinePlan], font_size: int, line_spacing: float
+    layouts: list[HorizontalLinePlan],
+    font_size: int,
+    line_spacing: float,
+    blur_pad: int = 0,
 ) -> dict:
     """Place real line ink boxes and return their normalized render frame."""
     gap = calc_horizontal_line_spacing_px(font_size, line_spacing)
@@ -1110,6 +1126,11 @@ def _rich_horizontal_layout_geometry(
     frame_right = math.ceil(body_width + right_extra)
     frame_top = math.floor(paint_top)
     frame_bottom = math.ceil(paint_bottom)
+    if blur_pad:
+        frame_left -= blur_pad
+        frame_right += blur_pad
+        frame_top -= blur_pad
+        frame_bottom += blur_pad
     body_left = -frame_left
     normalized_baselines = [baseline - frame_top for baseline in baselines]
     return {
@@ -1558,11 +1579,15 @@ def _build_rich_vertical_layout(
                     nominal_glyph_extent=ruby_size,
                 )
                 if glyphs:
+                    ruby_style = ruby_text_style_for(span)
+                    ruby_stroke_ratio = _style_stroke_ratio(
+                        ruby_style, ruby_size, global_stroke_ratio, bg
+                    )
                     ruby_plans.append(
                         RubyPlan(
                             source=span,
                             font_size=group_font_size,
-                            stroke_ratio=0.0,
+                            stroke_ratio=ruby_stroke_ratio,
                             glyphs=glyphs,
                             paint_start=min(
                                 glyph.main_center - ruby_size * glyph.main_scale / 2.0

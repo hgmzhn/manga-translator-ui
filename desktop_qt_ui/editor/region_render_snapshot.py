@@ -13,7 +13,12 @@ from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
-from .region_geometry_state import is_rect_like, normalize_region_geometry_data
+from .region_geometry_state import (
+    is_quad_like,
+    is_rect_like,
+    normalize_region_geometry_data,
+    quad_bbox,
+)
 
 
 def _resolve_effective_box_local(data: dict):
@@ -32,6 +37,20 @@ def _resolve_effective_box_local(data: dict):
     return None
 
 
+def _resolve_effective_quad_local(data: dict):
+    custom_quad = data.get("white_frame_quad_local")
+    render_quad = data.get("render_box_quad_local")
+    has_custom = bool(data.get("has_custom_white_frame", False))
+
+    if has_custom and is_quad_like(custom_quad):
+        return custom_quad
+    if is_quad_like(render_quad):
+        return render_quad
+    if is_quad_like(custom_quad):
+        return custom_quad
+    return None
+
+
 @dataclass
 class RegionRenderSnapshot:
     region_index: int
@@ -40,6 +59,8 @@ class RegionRenderSnapshot:
     render_center: Tuple[float, float]  # 白框中心（世界坐标），文字定位锚点
     white_frame_local: Optional[Tuple[float, float, float, float]]
     white_frame_world: Optional[np.ndarray]  # shape (1, 4, 2)
+    white_frame_quad_local: Optional[Tuple[Tuple[float, float], ...]] = None
+    white_frame_quad_world: Optional[np.ndarray] = None  # shape (1, 4, 2)
 
     @classmethod
     def from_sources(
@@ -68,17 +89,45 @@ class RegionRenderSnapshot:
         cx, cy = float(center[0]), float(center[1])
         source_center = (cx, cy)
 
+        wf_quad_local_raw = _resolve_effective_quad_local(data)
         wf_local_raw = _resolve_effective_box_local(data)
         white_frame_local = None
         white_frame_world = None
+        white_frame_quad_local = None
+        white_frame_quad_world = None
         render_center = source_center
 
-        if is_rect_like(wf_local_raw):
+        theta = math.radians(float(data.get("angle") or 0.0))
+        cos_t, sin_t = math.cos(theta), math.sin(theta)
+
+        def _l2w(lx: float, ly: float):
+            return [
+                float(cx + lx * cos_t - ly * sin_t),
+                float(cy + lx * sin_t + ly * cos_t),
+            ]
+
+        if is_quad_like(wf_quad_local_raw):
+            quad = [
+                (float(p[0]), float(p[1])) for p in wf_quad_local_raw[:4]
+            ]
+            white_frame_quad_local = tuple(quad)
+            bbox = quad_bbox(quad)
+            white_frame_local = (bbox[0], bbox[1], bbox[2], bbox[3])
+
+            local_cx = sum(p[0] for p in quad) / 4.0
+            local_cy = sum(p[1] for p in quad) / 4.0
+            render_center = (
+                cx + local_cx * cos_t - local_cy * sin_t,
+                cy + local_cx * sin_t + local_cy * cos_t,
+            )
+            white_frame_world = np.array(
+                [[_l2w(lx, ly) for lx, ly in quad]],
+                dtype=np.float32,
+            )
+            white_frame_quad_world = white_frame_world
+        elif is_rect_like(wf_local_raw):
             left, top, right, bottom = (float(v) for v in wf_local_raw)
             white_frame_local = (left, top, right, bottom)
-
-            theta = math.radians(float(data.get("angle") or 0.0))
-            cos_t, sin_t = math.cos(theta), math.sin(theta)
 
             local_cx = (left + right) / 2.0
             local_cy = (top + bottom) / 2.0
@@ -86,12 +135,6 @@ class RegionRenderSnapshot:
                 cx + local_cx * cos_t - local_cy * sin_t,
                 cy + local_cx * sin_t + local_cy * cos_t,
             )
-
-            def _l2w(lx: float, ly: float):
-                return [
-                    float(cx + lx * cos_t - ly * sin_t),
-                    float(cy + lx * sin_t + ly * cos_t),
-                ]
 
             white_frame_world = np.array(
                 [
@@ -115,4 +158,6 @@ class RegionRenderSnapshot:
             render_center=render_center,
             white_frame_local=white_frame_local,
             white_frame_world=white_frame_world,
+            white_frame_quad_local=white_frame_quad_local,
+            white_frame_quad_world=white_frame_quad_world,
         )
