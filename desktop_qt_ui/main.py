@@ -21,6 +21,90 @@ os.environ.setdefault('PYTORCH_ALLOC_CONF', 'expandable_segments:True')
 # 允许桌面端加载解码后超过 Qt 默认 256 MiB 限制的长图。
 os.environ.setdefault('QT_IMAGEIO_MAXALLOC', '1024')
 
+
+def _is_extension_point_mitigation_disabled() -> bool:
+    """检查是否通过环境变量或 .env 文件禁用了扩展点缓解策略。"""
+    val = os.environ.get('MT_DISABLE_EXTENSION_POINT_MITIGATION')
+    if val is not None:
+        return val.strip().lower() in ('1', 'true', 'yes')
+
+    # 启动极早期尚未初始化服务与全局 .env，使用 python-dotenv 读取以支持 export、引号和行尾注释
+    try:
+        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+            env_dir = os.path.dirname(sys.executable)
+        else:
+            env_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        env_path = os.path.join(env_dir, '.env')
+        if os.path.isfile(env_path):
+            from dotenv import dotenv_values
+
+            file_val = dotenv_values(env_path, encoding='utf-8').get(
+                'MT_DISABLE_EXTENSION_POINT_MITIGATION'
+            )
+            if file_val is not None:
+                return str(file_val).strip().lower() in ('1', 'true', 'yes')
+    except Exception:
+        pass
+    return False
+
+
+def _disable_windows_extension_points():
+    """在 Windows 平台上启用进程扩展点禁用策略（ProcessExtensionPointDisablePolicy）。
+
+    阻止外部第三方模块（例如部分音频驱动 OSD 组件、屏幕悬浮窗等）通过全局 Windows 钩子注入当前进程，
+    避免在 Qt/GUI 渲染上下文初始化阶段触发 0xC0000005（STATUS_ACCESS_VIOLATION）异常崩溃。
+    """
+    if sys.platform != 'win32':
+        return
+
+    # 兼容性开关：若依赖使用旧版全局钩子的第三方输入法或辅助工具，可通过环境变量或 .env 禁用该策略
+    if _is_extension_point_mitigation_disabled():
+        print(
+            '[INFO] ProcessExtensionPointDisablePolicy is bypassed via MT_DISABLE_EXTENSION_POINT_MITIGATION.',
+            file=sys.stderr,
+        )
+        return
+
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class PROCESS_MITIGATION_EXTENSION_POINT_DISABLE_POLICY(ctypes.Structure):
+            _fields_ = [
+                ('DisableExtensionPoints', wintypes.DWORD, 1),
+                ('ReservedFlags', wintypes.DWORD, 31),
+            ]
+
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        if hasattr(kernel32, 'SetProcessMitigationPolicy'):
+            kernel32.SetProcessMitigationPolicy.argtypes = [
+                ctypes.c_int,
+                ctypes.c_void_p,
+                ctypes.c_size_t,
+            ]
+            kernel32.SetProcessMitigationPolicy.restype = wintypes.BOOL
+
+            # ProcessExtensionPointDisablePolicy = 6
+            policy = PROCESS_MITIGATION_EXTENSION_POINT_DISABLE_POLICY()
+            policy.DisableExtensionPoints = 1
+            if not kernel32.SetProcessMitigationPolicy(
+                6, ctypes.byref(policy), ctypes.sizeof(policy)
+            ):
+                err = ctypes.get_last_error()
+                print(
+                    f'[WARNING] Failed to enable ProcessExtensionPointDisablePolicy (error {err}). Continuing startup...',
+                    file=sys.stderr,
+                )
+    except Exception as exc:
+        print(
+            f'[WARNING] Exception setting ProcessExtensionPointDisablePolicy: {exc}. Continuing startup...',
+            file=sys.stderr,
+        )
+
+
+# 在加载图形界面与渲染上下文之前启用进程缓解策略，阻止外部钩子注入
+_disable_windows_extension_points()
+
 # 修复便携版Python的路径问题：将脚本所在目录添加到sys.path开头
 # 便携版Python使用._pth文件会禁用自动添加脚本目录的默认行为
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

@@ -24,6 +24,7 @@ lastUpdated: true
 | 症状 | 最可能原因 | 首先检查 |
 | --- | --- | --- |
 | `Win-Start.bat` 输出 `[ERROR] Application exited with code ...` | 运行环境或依赖损坏 | 查看 `result/log_*.txt`，再运行 `Win-Install-or-Update.bat` 选 `[1] Install` 重装；详见[Windows 便携版](../install/windows-portable.md) |
+| 启动即崩且退出码为 `-1073741819` (`0xC0000005`) | 内存访问违例（第三方 Hook 注入、CUDA 或底层依赖冲突） | 按 `Win + R` 打开 `eventvwr.msc` 查看应用程序日志中事件的“错误模块名称”：若为 `NahimicOSD.dll` 等覆盖层关闭对应服务；若为 Torch/CUDA 排查显卡驱动 |
 | `Win-Start.bat` 提示找不到便携 Python 与 Conda | 发行目录不完整 | 重新解压发行包，确认 `packaging/python/python.exe` 或 Conda 环境存在 |
 | `Unix-Start.sh` 提示 `Run ./Unix-Install-or-Update.sh first` | 缺少项目文件或 `.venv` | 先运行 `Unix-Install-or-Update.sh` 完成安装；详见[Linux 与 macOS](../install/linux-and-macos.md) |
 | `uv sync` 因网络失败 | 包源不可达 | 重试或切换镜像源，使用 `uv sync --locked`；详见[安装要求](../install/requirements.md) |
@@ -67,6 +68,11 @@ lastUpdated: true
 - 服务初始化失败时记录 `Fatal: Service initialization failed.` 并以退出码 1 结束；具体异常在日志中。
 - 未捕获异常由全局异常处理器写入日志并输出到 stderr；Qt 内部错误经 Qt 消息处理器记录。
 - PyTorch 在 PyQt6 之前导入，避免 Qt 与 `c10.dll` 的加载冲突；便携版还会注册 PyInstaller 目录的 DLL 搜索路径。混装环境或错误 PATH 常表现为启动即闪退。
+- **退出码 `-1073741819` (`0xC0000005`，访问违例)**：
+  - **定位故障模块**：按 `Win + R` 运行 `eventvwr.msc`，展开 **Windows 日志 -> 应用程序**，找到来源为 `Application Error`、异常代码为 `0xc0000005` 的错误事件，查看其中的 **“错误模块名称 (Fault Module Name)”**。
+  - **第三方注入冲突（如 `NahimicOSD.dll`、RTSS、录屏悬浮窗等）**：某些电脑自带的音效管理软件（Nahimic、Sonic Studio）或游戏工具会通过全局钩子注入图形进程，导致 Qt 初始化图形上下文时闪退。应用默认已启用 `ProcessExtensionPointDisablePolicy` 拦截全局钩子注入；若在特殊环境下依然报错，可尝试在 Nahimic 中关闭“声音追踪器（Sound Tracker）”或在系统服务中禁用 `NahimicService`。
+  - **旧版第三方输入法兼容性与选项开关**：由于该策略会拦截基于旧式全局钩子注入的程序，极少数老旧输入法或特殊外挂式输入工具可能受到影响。若确认输入法出现兼容问题，可在启动前设置环境变量 `MT_DISABLE_EXTENSION_POINT_MITIGATION=1`，或在应用目录 `.env` 文件中添加 `MT_DISABLE_EXTENSION_POINT_MITIGATION=1` 来关闭此保护（注意：环境变量优先级高于 `.env`，若已在环境中显式定义，需先清除环境变量才能生效 `.env` 配置；关闭后若存在外部组件注入，可能重新引发相关冲突）。
+  - **底层库或驱动冲突（如 `c10.dll`、`torch_cuda.dll`、显卡驱动）**：若错误模块指向 PyTorch、CUDA 或显卡驱动，请参考[模型、GPU 与内存](./model-gpu-and-memory.md)排查驱动版本与硬件支持。
 - `Win-Start.bat` 对非零退出码输出 `[ERROR] Application exited with code ...`，建议先重装并询问是否打开 `Win-Install-or-Update.bat`。错误窗口里的本地路径和日志不要直接上传。
 
 建议：先在终端直接运行启动命令以便看到 stderr；检查 `result/log_*.txt`；确认只使用一套环境；必要时用维护菜单 `[1] Install` 重装。
