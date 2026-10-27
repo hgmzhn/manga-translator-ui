@@ -852,14 +852,15 @@ class MainWindow(FluentWindow):
                     self.app_logic.resolve_completed_source(files_to_load[0])
                     or files_to_load[0]
                 )
+
+            self.switchTo(self.editor_view)
+
             if target_path:
                 self.editor_logic.load_image_into_editor(target_path)
             elif editor_snapshot.editor_files:
                 self.editor_logic.load_image_into_editor(
                     editor_snapshot.editor_files[0]
                 )
-
-            self.switchTo(self.editor_view)
         except Exception as e:
             self.logger.error(f"Error in enter_editor_mode: {e}", exc_info=True)
             import traceback
