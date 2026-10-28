@@ -867,18 +867,40 @@ class EditorController(QObject):
             return
 
         old_region_data = self._merge_live_geometry_state(region_index, old_region_data)
+        text_changed = old_region_data.get("translation", "") != plain_text
+        translation = plain_text
+        if text_changed:
+            from manga_translator.rendering.rich_text_sync import (
+                apply_replacements_to_document,
+            )
+
+            from .rich_text_editing import plain_text_to_storage_text
+
+            direction_value = old_region_data.get("direction", "h")
+            direction = 0 if direction_value in ("h", "horizontal", "hr") else 1
+            try:
+                replaced = apply_replacements_to_document(rich_document, direction)
+                rich_document = replaced.to_dict()
+                translation = plain_text_to_storage_text(replaced.plain_text())
+            except Exception as exc:
+                self.logger.warning("Rich text replacements failed; preserving input: %s", exc)
+
+        # 样式编辑保留 raw，避免对已经替换过的正文再次执行非幂等规则。
+        translation_raw = (
+            plain_text
+            if text_changed
+            else old_region_data.get("translation_raw", plain_text)
+        )
         if (
             old_region_data.get("translation_rich") == rich_document
-            and old_region_data.get("translation", "") == plain_text
+            and old_region_data.get("translation", "") == translation
+            and old_region_data.get("translation_raw") == translation_raw
         ):
             return
 
         new_region_data = old_region_data.copy()
-        text_changed = old_region_data.get("translation", "") != plain_text
-        new_region_data["translation"] = plain_text
-        if text_changed or "translation_raw" not in old_region_data:
-            # 富文本正文改变后无法可靠反推替换前译文；纯样式修改保留原 raw。
-            new_region_data["translation_raw"] = plain_text
+        new_region_data["translation"] = translation
+        new_region_data["translation_raw"] = translation_raw
         new_region_data["translation_rich"] = rich_document
 
         _sync_white_frame_size_for_font_change(

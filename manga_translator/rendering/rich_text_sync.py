@@ -155,6 +155,17 @@ def apply_replacements_to_entries(
     return entries
 
 
+def apply_replacements_to_document(
+    document_value: Any, direction: int, replacements: Optional[dict] = None
+) -> RichTextDocument:
+    """替换富文本正文，并保留命中字符的样式及 ruby/tcy 节点。"""
+    document = ensure_rich_text_document(document_value)
+    entries = apply_replacements_to_entries(
+        _rule_entries_from_document(document), direction, replacements
+    )
+    return _document_from_rule_entries(_text_of(entries), entries)
+
+
 def _map_styles_to_raw(
     raw_text: str,
     doc_entries: List[_RuleEntry],
