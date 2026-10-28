@@ -1,4 +1,6 @@
 {
+  "label_translation_file_input": "原文以檔案附件傳送（OpenAI / Gemini）",
+  "desc_translator_translation_file_input": "將原文放入 UTF-8 TXT 附件。OpenAI 使用 Responses（非串流），Gemini 使用原生 inlineData；保留 HQ 圖片與 JSON 儲存方式。服務與模型需支援 TXT 附件。",
   "Manga Translator": "Manga Translator UI",
   "&File": "&檔案",
   "&Add Files...": "&新增檔案...",

@@ -124,6 +124,7 @@ class GeminiHighQualityTranslator(CommonTranslator):
         # 调用父类的 parse_args 来设置通用参数（包括 attempts、post_check 等）
         super().parse_args(args)
         translator_args = self._resolve_translator_config(args)
+        self._translation_file_input = self._get_config_value(translator_args, 'translation_file_input', False)
         
         # 同步重试次数到“总尝试次数”（首次请求 + 重试）
         self._max_total_attempts = self._resolve_max_total_attempts()
@@ -303,9 +304,13 @@ class GeminiHighQualityTranslator(CommonTranslator):
             self.client = None
 
 
-    def _build_user_prompt(self, batch_data: List[Dict], ctx: Any, retry_attempt: int = 0, retry_reason: str = "") -> str:
+    def _build_user_prompt(self, batch_data: List[Dict], ctx: Any, retry_attempt: int = 0, retry_reason: str = "", image_index_map=None) -> Any:
         """构建用户提示词（高质量版）- 使用统一方法，只包含当前待翻译文本"""
-        return self._build_user_prompt_for_hq(batch_data, ctx, "", retry_attempt=retry_attempt, retry_reason=retry_reason)
+        return self._build_unified_user_prompt(
+            batch_data, ctx, retry_attempt=retry_attempt, retry_reason=retry_reason,
+            is_image_mode=True, file_input=getattr(self, '_translation_file_input', False),
+            image_index_map=image_index_map,
+        )
     
     def _get_system_instruction(self, source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, retry_attempt: int = 0, retry_reason: str = "", extract_glossary: bool = False) -> str:
         """获取完整的系统指令（包含断句提示词、自定义提示词和基础系统提示词）"""
@@ -345,6 +350,7 @@ class GeminiHighQualityTranslator(CommonTranslator):
 
         # 准备图片列表（放在最后）- 使用新版 SDK 的 Part 格式
         image_parts = []
+        image_index_map = {}
         for i, data in enumerate(batch_data):
             image = data.get('image')
             if image is None:
@@ -369,6 +375,7 @@ class GeminiHighQualityTranslator(CommonTranslator):
                         exclude_none=True,
                     )
                 )
+                image_index_map[i] = len(image_parts)
             except Exception as image_error:
                 self.logger.warning(f"Failed to process image [{i + 1}]; skipping upload: {image_error}")
                 continue
@@ -433,10 +440,14 @@ class GeminiHighQualityTranslator(CommonTranslator):
                 )
             
             # 构建用户提示词（包含重试信息以避免缓存）
-            user_prompt = self._build_user_prompt(batch_data, ctx, retry_attempt=retry_attempt, retry_reason=retry_reason)
+            user_prompt = self._build_user_prompt(
+                batch_data, ctx, retry_attempt=retry_attempt, retry_reason=retry_reason,
+                image_index_map=image_index_map if send_images else {},
+            )
             contents = self._build_gemini_context_messages(self.prev_context)
 
-            current_user_parts = [{"text": user_prompt}]
+            from .gemini_file_input import to_gemini_parts
+            current_user_parts = to_gemini_parts(user_prompt)
             if send_images:
                 current_user_parts.extend(image_parts)
             else:
@@ -478,6 +489,8 @@ class GeminiHighQualityTranslator(CommonTranslator):
                 streamed_diagnostics = None
 
                 use_streaming = self._is_streaming_enabled(ctx)
+                if getattr(self, '_translation_file_input', False):
+                    self.logger.info("Original text is sent as a source.txt attachment via Gemini inlineData (text/plain).")
 
                 async def _send_gemini_request():
                     nonlocal response, streamed_text, streamed_finish_reason, streamed_diagnostics

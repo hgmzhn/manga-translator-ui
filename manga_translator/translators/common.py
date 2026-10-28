@@ -1730,6 +1730,34 @@ class CommonTranslator(InfererModule):
                 turns.append({"user": user_content, "assistant": assistant_content})
         return turns
 
+    async def _create_translation_request(self, request_params):
+        """Keep Chat parsing/saving while routing file inputs through Responses."""
+        if not getattr(self, '_translation_file_input', False):
+            return await self.client.chat.completions.create(**request_params)
+        from .openai_file_input import build_responses_request, normalize_response
+        client = self.client
+        url = f"{client.base_url}/responses"
+        headers = {**client.default_headers, "Content-Type": "application/json"}
+        if client.api_key:
+            headers["Authorization"] = f"Bearer {client.api_key}"
+        response = await client.session.post(
+            url, json=build_responses_request(request_params), headers=headers,
+            timeout=client.timeout, **system_proxy_request_kwargs(url),
+        )
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"File translation requires Responses API with TXT input support; "
+                f"HTTP {response.status_code}: {_extract_http_error_details(response)}"
+            )
+        try:
+            result = response.json()
+        except Exception as error:
+            raise RuntimeError(
+                f"Failed to parse the Responses API JSON response: {error}. "
+                f"{_response_diagnostics(response)}"
+            ) from error
+        return _OpenAIResponse(normalize_response(result))
+
     def _build_openai_context_messages(self, prev_context: str) -> List[Dict[str, Any]]:
         """将历史上下文转换为 OpenAI 多轮消息，不附带图片。"""
         turns = self._parse_prev_context_turns(prev_context)
@@ -1884,7 +1912,7 @@ class CommonTranslator(InfererModule):
             target_lang_full=target_lang_full,
         )
 
-    def _build_unified_user_prompt(self, batch_data: List[Dict], ctx=None, prev_context: str = "", retry_attempt: int = 0, retry_reason: str = "", is_image_mode: bool = True) -> str:
+    def _build_unified_user_prompt(self, batch_data: List[Dict], ctx=None, prev_context: str = "", retry_attempt: int = 0, retry_reason: str = "", is_image_mode: bool = True, file_input: bool = False, image_index_map=None):
         """
         统一的用户提示词构建方法（支持多模态和纯文本）
         Unified user prompt builder for both multimodal and text-only modes.
@@ -1896,9 +1924,12 @@ class CommonTranslator(InfererModule):
             retry_attempt: Retry attempt count.
             retry_reason: Reason for retry.
             is_image_mode: Whether to include image-specific descriptions.
+            file_input: Whether to put source entries into a TXT attachment.
+            image_index_map: Batch positions mapped to the images actually attached,
+                numbered from 1. Missing positions have no attached image.
 
         Returns:
-            Constructed user prompt string.
+            User prompt string, or text/file content parts when file_input is enabled.
         """
         import json
         
@@ -1952,6 +1983,9 @@ class CommonTranslator(InfererModule):
                     "text": text_clean
                 }
                 
+                if file_input and is_image_mode and image_index_map and img_idx in image_index_map:
+                    item["image_index"] = image_index_map[img_idx]
+
                 # AI 断句逻辑：获取 original_region_count
                 if enable_ai_break:
                     region_count = 1
@@ -1973,6 +2007,11 @@ class CommonTranslator(InfererModule):
                 
                 input_data.append(item)
                 text_index += 1
+
+        if file_input:
+            from .openai_file_input import build_file_content
+            hint = self._get_retry_hint(retry_attempt, retry_reason) + "\n" if retry_attempt > 0 else ""
+            return build_file_content(input_data, image_mode=is_image_mode, retry_hint=hint)
 
         prompt += json.dumps(input_data, ensure_ascii=False, indent=2)
         prompt += "\n\nCRITICAL: Provide translations in the exact same order as the input array. Follow the OUTPUT FORMAT specified in the System Prompt."

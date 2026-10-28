@@ -66,6 +66,7 @@ class OpenAITranslator(CommonTranslator):
         # 调用父类的 parse_args 来设置通用参数（包括 attempts、post_check 等）
         super().parse_args(args)
         translator_args = self._resolve_translator_config(args)
+        self._translation_file_input = self._get_config_value(translator_args, 'translation_file_input', False)
         
         # 同步重试次数到"总尝试次数"（首次请求 + 重试）
         self._max_total_attempts = self._resolve_max_total_attempts()
@@ -244,9 +245,12 @@ class OpenAITranslator(CommonTranslator):
             except Exception:
                 pass  # 忽略所有清理错误
 
-    def _build_user_prompt(self, texts: List[str], ctx: Any, retry_attempt: int = 0, retry_reason: str = "") -> str:
-        """构建用户提示词（纯文本版）- 使用 JSON 格式以配合 HQ Prompt"""
-        return self._build_user_prompt_for_texts(texts, ctx, "", retry_attempt=retry_attempt, retry_reason=retry_reason)
+    def _build_user_prompt(self, texts: List[str], ctx: Any, retry_attempt: int = 0, retry_reason: str = "") -> Any:
+        """构建用户提示词：文本输入或 source.txt 附件。"""
+        return self._build_unified_user_prompt(
+            [{'original_texts': texts, 'text_regions': getattr(ctx, 'text_regions', []) if ctx else []}], ctx, retry_attempt=retry_attempt, retry_reason=retry_reason,
+            is_image_mode=False, file_input=getattr(self, '_translation_file_input', False),
+        )
 
     def _get_system_prompt(self, source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, retry_attempt: int = 0, retry_reason: str = "", extract_glossary: bool = False) -> str:
         """获取完整的系统提示词"""
@@ -343,7 +347,9 @@ class OpenAITranslator(CommonTranslator):
                 streamed_text = None
                 streamed_finish_reason = None
                 response = None
-                use_streaming = self._is_streaming_enabled(ctx)
+                use_streaming = self._is_streaming_enabled(ctx) and not getattr(self, '_translation_file_input', False)
+                if getattr(self, '_translation_file_input', False):
+                    self.logger.info("Original text is sent as source.txt via Responses API (non-streaming).")
 
                 async def _send_openai_request():
                     nonlocal response, streamed_text, streamed_finish_reason
@@ -378,14 +384,14 @@ class OpenAITranslator(CommonTranslator):
                             streamed_finish_reason = None
                             self.logger.warning(f"Streaming request unavailable; fell back to a non-streaming request: {stream_error}")
                             response = await self._await_with_cancel_polling(
-                                self.client.chat.completions.create(**request_params),
+                                self._create_translation_request(request_params),
                                 poll_interval=0.2,
                                 on_cancel=self._abort_inflight_request,
                             )
                     else:
                         self.logger.info("Streaming is disabled; using a non-streaming request.")
                         response = await self._await_with_cancel_polling(
-                            self.client.chat.completions.create(**request_params),
+                            self._create_translation_request(request_params),
                             poll_interval=0.2,
                             on_cancel=self._abort_inflight_request,
                         )
