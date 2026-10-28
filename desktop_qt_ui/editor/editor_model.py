@@ -268,8 +268,11 @@ class EditorModel(QObject):
         return self.session.get_original_image_alpha()
 
     def set_active_tool(self, tool: str):
+        previous_size = self.get_brush_size()
         if self.session.set_active_tool(tool):
             self.active_tool_changed.emit(tool)
+        if self.get_brush_size() != previous_size:
+            self.brush_size_changed.emit(self.get_brush_size())
 
     def get_active_tool(self) -> str:
         return self.session.get_active_tool()
@@ -278,8 +281,12 @@ class EditorModel(QObject):
         if self.session.set_brush_size(size):
             self.brush_size_changed.emit(size)
 
-    def get_brush_size(self) -> int:
-        return self.session.get_brush_size()
+    def get_brush_size(self, group: Optional[str] = None) -> int:
+        return self.session.get_brush_size(group)
+
+    def set_brush_group(self, group: str):
+        if self.session.set_brush_group(group):
+            self.brush_size_changed.emit(self.get_brush_size())
 
     def set_brush_color(self, color: str):
         if self.session.set_brush_color(color):

@@ -271,6 +271,17 @@ class EditorSession:
         return self._workspace.source_opacity
 
     def set_active_tool(self, tool: str) -> bool:
+        brush_group = {
+            "pen": "mask",
+            "brush": "mask",
+            "eraser": "mask",
+            "paint": "paint",
+            "paint_erase": "paint",
+            "clone": "stamp",
+            "stamp_erase": "stamp",
+        }.get(tool)
+        if brush_group is not None:
+            self.set_brush_group(brush_group)
         if self._workspace.active_tool == tool:
             return False
         self._workspace.active_tool = tool
@@ -281,13 +292,23 @@ class EditorSession:
 
     def set_brush_size(self, size: int) -> bool:
         size = int(size)
-        if self._workspace.brush_size == size:
+        group = self._workspace.brush_group
+        if self._workspace.brush_sizes[group] == size:
             return False
-        self._workspace.brush_size = size
+        self._workspace.brush_sizes[group] = size
         return True
 
-    def get_brush_size(self) -> int:
-        return self._workspace.brush_size
+    def get_brush_size(self, group: Optional[str] = None) -> int:
+        return self._workspace.brush_sizes[group or self._workspace.brush_group]
+
+    def set_brush_group(self, group: str) -> bool:
+        if (
+            group not in self._workspace.brush_sizes
+            or group == self._workspace.brush_group
+        ):
+            return False
+        self._workspace.brush_group = group
+        return True
 
     def set_brush_color(self, color: str) -> bool:
         value = str(color or "").strip() or "#ff0000"

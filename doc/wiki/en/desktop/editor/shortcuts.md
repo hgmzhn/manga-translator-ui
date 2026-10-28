@@ -49,7 +49,7 @@ The following table lists every keyboard shortcut actually registered by `_setup
 
 | Combo | Effect | Limits |
 | --- | --- | --- |
-| `Shift + wheel` | Changes the shared brush size by ±1 per notch | Clamped to `5`–`200`; the event is swallowed and does not zoom the canvas |
+| `Shift + wheel` | Changes the current image-tool tab's brush size by ±1 per notch | Clamped to `5`–`200`; Mask, Paint, and Clone Stamp remember separate sizes; the event is swallowed and does not zoom the canvas |
 | Any `Ctrl`-containing wheel combo | Changes the font size of all selected regions by ±5% (minimum 1) | Swallowed even with no selection; never falls through to canvas zoom |
 | Plain wheel | Zooms the canvas anchored at the mouse position | Scale clamped to `0.05`–`50.0`, handled by `GraphicsView.wheelEvent()` |
 
@@ -81,7 +81,7 @@ When focus is in a text widget, the `V`/`1`/`2`/`3`/`Q`/`W`/`E`/`A`/`D` handlers
 ```mermaid
 flowchart LR
     W["Canvas viewport wheel event"] --> F{"EditorShortcutManager.eventFilter"}
-    F -->|Shift| B["Change shared brush size<br/>±1 per notch, clamp 5–200, swallow"]
+    F -->|Shift| B["Change current tab's brush size<br/>±1 per notch, clamp 5–200, swallow"]
     F -->|contains Ctrl| C["Change selected-region font size<br/>±5% (min 1), swallowed even without selection"]
     F -->|other| Z["Not intercepted<br/>GraphicsView.wheelEvent<br/>zoom canvas by 1.15"]
 ```

@@ -528,7 +528,7 @@ class PropertyPanel(QWidget):
         stamp_tools_layout.addWidget(self.stamp_eraser_button)
         stamp_layout.addLayout(stamp_tools_layout)
 
-        # 印章大小（与蒙版/画笔页共享同一个模型字段）
+        # 印章页单独记住大小，同页的仿制与擦除工具共用。
         stamp_size_layout = QHBoxLayout()
         stamp_size_layout.setContentsMargins(0, 0, 0, 0)
         stamp_size_layout.setSpacing(6)
@@ -2123,18 +2123,15 @@ class PropertyPanel(QWidget):
             self.mask_tool_changed.emit("stamp_erase")
 
     def _on_brush_size_changed(self, value):
-        """三个大小滑块共享同一个模型字段；同步其余滑块显示，避免循环触发。"""
+        """只更新当前页的大小，其他页由模型分别保存。"""
         sender = self.sender()
         for slider, label in (
             (self.brush_size_slider, self.brush_size_value_label),
             (self.paint_size_slider, self.paint_size_value_label),
             (self.stamp_size_slider, self.stamp_size_value_label),
         ):
-            label.setText(str(value))
-            if slider is not sender and slider.value() != value:
-                slider.blockSignals(True)
-                slider.setValue(value)
-                slider.blockSignals(False)
+            if slider is sender:
+                label.setText(str(value))
         self.brush_size_changed.emit(value)
 
     def _on_paint_color_changed(self, hex_color: str):
@@ -2160,27 +2157,29 @@ class PropertyPanel(QWidget):
             checked = self.mask_tool_group.checkedButton()
             if checked not in buttons:
                 buttons[0].setChecked(True)
-                if self.model.get_active_tool() == "select":
-                    self.sync_brush_size_from_model(self.model.get_brush_size())
                 self.mask_tool_changed.emit("select")
+            self.model.set_brush_group({0: "mask", 1: "paint", 2: "stamp"}[index])
         except Exception:
             pass
 
     def sync_brush_size_from_model(self, size: int):
-        """从模型同步画笔大小到 UI，并刷新当前工具对应的滑块外观。"""
-        for slider, label in (
-            (self.brush_size_slider, self.brush_size_value_label),
+        """同步各页独立的大小；滚轮修改只会影响当前页。"""
+        for group, slider, label in (
+            ("mask", self.brush_size_slider, self.brush_size_value_label),
             (
+                "paint",
                 getattr(self, "paint_size_slider", None),
                 getattr(self, "paint_size_value_label", None),
             ),
             (
+                "stamp",
                 getattr(self, "stamp_size_slider", None),
                 getattr(self, "stamp_size_value_label", None),
             ),
         ):
             if slider is None:
                 continue
+            size = self.model.get_brush_size(group)
             slider.blockSignals(True)
             slider.setValue(size)
             slider.blockSignals(False)

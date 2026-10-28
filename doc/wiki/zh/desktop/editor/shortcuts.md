@@ -18,7 +18,7 @@ lastUpdated: true
 - 编辑器键盘快捷键全部由 `desktop_qt_ui/ui/editor/shortcut_manager.py#EditorShortcutManager` 注册，工具栏不注册 `QAction` 快捷键，只在“导出图片”“撤销”“重做”菜单项后追加提示文字。
 - `Undo`、`Redo`、`Copy`、`Paste`、`Select All`、`Delete` 使用 `QKeySequence.StandardKey` 注册；在 Windows 上的主绑定分别为 `Ctrl+Z`、`Ctrl+Y`、`Ctrl+C`、`Ctrl+V`、`Ctrl+A`、`Del`。实际显示会随 Qt 平台映射。
 - `Ctrl+Q` 导出、`V` 切换选中文本框的横排/竖排、`1`/`2`/`3` 切换图像编辑页、`Q`/`W`/`E` 切换当前页工具、`A`/`D` 切换图片是固定字面量，不随平台变化；页签上的数字仅通过悬浮提示显示。
-- 滚轮组合通过安装在画布 viewport 上的事件过滤器处理：`Shift+滚轮` 调整共享画笔大小，任意含 `Ctrl` 的滚轮组合调整选中区域字号，普通滚轮交给 `GraphicsView` 缩放画布。
+- 滚轮组合通过安装在画布 viewport 上的事件过滤器处理：`Shift+滚轮` 调整当前图像工具页的笔刷大小，任意含 `Ctrl` 的滚轮组合调整选中区域字号，普通滚轮交给 `GraphicsView` 缩放画布。
 - `Escape` 或画布失焦会取消进行中的框选、绘制、文本框、仿制、区域拖动或中键平移，不提交任何修改。
 - 快捷键分派优先级从高到低为：焦点在其他顶层窗口（例如浮动富文本窗口）→ 焦点在主窗口文本控件 → 焦点在画布。完整冲突规则见[运行机理](#runtime-behavior)。
 
@@ -55,7 +55,7 @@ lastUpdated: true
 
 | 组合 | 效果 | 限制 |
 | --- | --- | --- |
-| `Shift + 滚轮` | 调整共享画笔大小，每格 ±1 | 钳制在 `5`–`200`；事件被吞掉，不缩放画布 |
+| `Shift + 滚轮` | 调整当前图像工具页的笔刷大小，每格 ±1 | 钳制在 `5`–`200`；蒙版、画笔、印章分别记忆大小；事件被吞掉，不缩放画布 |
 | 任意含 `Ctrl` 的滚轮组合 | 按 ±5%（最小 1）调整所有选中区域字号 | 无选区时也吞掉事件，不穿透成画布缩放 |
 | 普通滚轮 | 以鼠标点为锚缩放画布 | 倍率钳制在 `0.05`–`50.0`，由 `GraphicsView.wheelEvent()` 处理 |
 
@@ -87,7 +87,7 @@ flowchart TD
 ```mermaid
 flowchart LR
     W["画布 viewport 滚轮事件"] --> F{"EditorShortcutManager.eventFilter"}
-    F -->|Shift| B["调整共享画笔大小<br/>每格 ±1，钳制 5–200，吞掉"]
+    F -->|Shift| B["调整当前工具页笔刷大小<br/>每格 ±1，钳制 5–200，吞掉"]
     F -->|含 Ctrl| C["调整选中区域字号<br/>±5%（最小 1），无选区也吞掉"]
     F -->|其它| Z["不拦截<br/>GraphicsView.wheelEvent<br/>按 1.15 倍缩放画布"]
 ```
