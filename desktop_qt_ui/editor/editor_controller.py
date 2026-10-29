@@ -1604,11 +1604,22 @@ class EditorController(QObject):
     def copy_regions(self, region_indices: list):
         """复制多个区域的数据"""
         regions = self.model.get_regions()
-        region_data = [
-            copy.deepcopy(regions[index])
-            for index in region_indices
-            if isinstance(index, int) and 0 <= index < len(regions)
-        ]
+        render_service = get_render_parameter_service()
+        region_data = []
+        for index in region_indices:
+            if not isinstance(index, int) or not 0 <= index < len(regions):
+                continue
+            copied_region = copy.deepcopy(regions[index])
+            if render_service is not None:
+                # Snapshot inherited stroke values so pasting also replaces
+                # the destination's overrides and cached render parameters.
+                params = render_service.get_region_parameters(index, copied_region)
+                copied_region.update(
+                    bg_colors=list(params.bg_color),
+                    stroke_width=params.stroke_width,
+                    disable_font_border=params.disable_font_border,
+                )
+            region_data.append(copied_region)
         if not region_data:
             self.logger.error("No valid region to copy")
             return
@@ -1643,10 +1654,19 @@ class EditorController(QObject):
             "direction",
             "line_spacing",
             "letter_spacing",
+            "stroke_width",
+            "disable_font_border",
         ]
         for key in style_keys:
             if key in clipboard_data:
                 new_region_data[key] = clipboard_data[key]
+
+        stroke_color = clipboard_data.get("bg_colors")
+        if stroke_color is None:
+            stroke_color = clipboard_data.get("bg_color")
+        if stroke_color is not None:
+            new_region_data["bg_colors"] = list(stroke_color)
+            new_region_data.pop("bg_color", None)
 
         command = UpdateRegionCommand(
             model=self.model,
