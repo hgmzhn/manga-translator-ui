@@ -126,13 +126,21 @@ def test_sanitize_relative_output_path_preserves_hierarchy_and_casing():
     with pytest.raises(ValueError):
         export_service.sanitize_relative_output_path("", allow_empty=False)
 
-    # Windows reserved device names and long segment truncation
+    # Windows reserved device names and long segment truncation by UTF-8 bytes
     assert export_service.sanitize_relative_output_path("CON/lpt1.png") == ["_CON", "_lpt1.png"]
     long_name = ("A" * 240) + ".png"
     sanitized_long = export_service.sanitize_relative_output_path(long_name)
     assert len(sanitized_long) == 1
-    assert len(sanitized_long[0]) == 200
+    assert len(sanitized_long[0].encode("utf-8")) <= export_service._MAX_SEGMENT_BYTES
     assert sanitized_long[0].endswith(".png")
+
+    # Long Chinese character segment truncation by UTF-8 bytes (< 255 bytes for Linux ext4)
+    long_chinese = ("漫画" * 50) + ".png"  # 100 Chinese chars = 300+ bytes in UTF-8
+    sanitized_chinese = export_service.sanitize_relative_output_path(long_chinese)
+    assert len(sanitized_chinese) == 1
+    encoded_bytes = len(sanitized_chinese[0].encode("utf-8"))
+    assert encoded_bytes <= export_service._MAX_SEGMENT_BYTES
+    assert sanitized_chinese[0].endswith(".png")
 
 
 @pytest.mark.parametrize(

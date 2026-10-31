@@ -37,7 +37,15 @@ _WINDOWS_RESERVED_NAMES = frozenset(
         *(f"LPT{i}" for i in range(1, 10)),
     }
 )
-_MAX_SEGMENT_LENGTH = 200
+_MAX_SEGMENT_BYTES = 200
+
+
+def _truncate_utf8(text: str, max_bytes: int) -> str:
+    """Safely truncate text so its UTF-8 encoding does not exceed max_bytes."""
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+    return encoded[:max_bytes].decode("utf-8", errors="ignore")
 
 
 def get_server_result_root(result_root: str | Path | None = None) -> Path:
@@ -112,9 +120,24 @@ def _sanitize_segment(raw_segment: str) -> str:
         stem = f"_{stem}"
         cleaned = f"{stem}{ext}"
 
-    if len(cleaned) > _MAX_SEGMENT_LENGTH:
-        max_stem_len = max(1, _MAX_SEGMENT_LENGTH - len(ext))
-        cleaned = f"{stem[:max_stem_len]}{ext}"
+    # Linux / Docker ext4 restricts a single directory/file entry to 255 bytes (NAME_MAX).
+    # Multi-byte UTF-8 sequences (such as Chinese characters) can easily exceed 255 bytes
+    # even with fewer than 90 characters. We truncate by UTF-8 encoded bytes while
+    # leaving adequate space for the file extension.
+    ext_bytes = len(ext.encode("utf-8"))
+    if ext_bytes >= _MAX_SEGMENT_BYTES:
+        ext = _truncate_utf8(ext, 20)
+        ext_bytes = len(ext.encode("utf-8"))
+
+    max_stem_bytes = max(1, _MAX_SEGMENT_BYTES - ext_bytes)
+    stem_bytes = len(stem.encode("utf-8"))
+    if stem_bytes > max_stem_bytes:
+        stem = _truncate_utf8(stem, max_stem_bytes).rstrip(".")
+        if not stem:
+            stem = "_"
+        cleaned = f"{stem}{ext}"
+    else:
+        cleaned = f"{stem}{ext}"
 
     return cleaned
 
