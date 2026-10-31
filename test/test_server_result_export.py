@@ -279,6 +279,32 @@ def test_save_image_to_server_result_formats_subfolder_and_overwrite(
     assert saved_second == "MyManga/Chapter01/001_1.jpg"
     assert (tmp_path / "MyManga" / "Chapter01" / "001_1.jpg").is_file()
 
+    # Collision on long name with overwrite=False safely keeps filename under _MAX_SEGMENT_BYTES
+    long_source = ("漫" * 65) + ".png"
+    long_first = export_service.save_image_to_server_result(
+        rgba_image,
+        username="admin",
+        config=cfg,
+        source_path=long_source,
+        output_folder="LongCollisions",
+        result_root=tmp_path,
+        overwrite=False,
+    )
+    long_second = export_service.save_image_to_server_result(
+        rgba_image,
+        username="admin",
+        config=cfg,
+        source_path=long_source,
+        output_folder="LongCollisions",
+        result_root=tmp_path,
+        overwrite=False,
+    )
+    assert long_first != long_second
+    assert (tmp_path / long_first).is_file()
+    assert (tmp_path / long_second).is_file()
+    assert len(Path(long_first).name.encode("utf-8")) <= export_service._MAX_SEGMENT_BYTES
+    assert len(Path(long_second).name.encode("utf-8")) <= export_service._MAX_SEGMENT_BYTES
+
     saved_overwrite = export_service.save_image_to_server_result(
         Image.new("RGB", (20, 20), "green"),
         username="admin",
@@ -672,7 +698,17 @@ def test_server_result_export_failure_propagation(
     # 不应发送结果图片帧
     assert not any(status == 0 for status, _ in frames)
 
-    # 2. 批量接口全部保存失败时，应当向客户端返回 500
+    # 2. 批量接口全部保存失败时，应当向客户端返回 500，且临时 ZIP 文件必须在 finally 中被清理
+    created_tmp_zips = []
+    real_named_temp_file = translation_routes.tempfile.NamedTemporaryFile
+
+    def spy_named_temp_file(*args, **kwargs):
+        tf = real_named_temp_file(*args, **kwargs)
+        created_tmp_zips.append(tf.name)
+        return tf
+
+    monkeypatch.setattr(translation_routes.tempfile, "NamedTemporaryFile", spy_named_temp_file)
+
     batch_resp = client.post(
         "/translate/batch/images",
         json={
@@ -685,6 +721,8 @@ def test_server_result_export_failure_propagation(
     )
     assert batch_resp.status_code == 500
     assert "Disk full" in batch_resp.json().get("detail", "")
+    assert len(created_tmp_zips) == 1
+    assert not os.path.exists(created_tmp_zips[0])
 
     # 3. 批量接口部分成功、部分失败时，返回 200 并携带 X-Server-Save-Error 与已保存计数
     saved_counter = {"calls": 0}

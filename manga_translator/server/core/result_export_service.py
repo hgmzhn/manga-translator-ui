@@ -267,8 +267,16 @@ def resolve_server_result_file_path(
 
     if not overwrite and candidate.exists():
         suffix_index = 1
+        ext_bytes = len(ext.encode("utf-8"))
         while True:
-            numbered = target_dir / f"{stem}_{suffix_index}{ext}"
+            num_suffix = f"_{suffix_index}"
+            num_suffix_bytes = len(num_suffix.encode("utf-8"))
+            max_num_stem_bytes = max(1, _MAX_SEGMENT_BYTES - ext_bytes - num_suffix_bytes)
+            num_stem = _truncate_utf8(stem, max_num_stem_bytes).rstrip(".")
+            if not num_stem:
+                num_stem = "_"
+            numbered_name = f"{num_stem}{num_suffix}{ext}"
+            numbered = target_dir / numbered_name
             resolve_path_within(root_dir, numbered)
             if not numbered.exists():
                 candidate = numbered
