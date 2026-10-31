@@ -14,7 +14,8 @@ lastUpdated: true
 ## 页面与接口范围 {#feature-boundary}
 
 - “结果列表”是当前浏览器内的临时视图，条目保存在 `localStorage.translationResults`（保存的是 blob 地址）；它不等于服务器历史，清空浏览器数据或更换浏览器后不可恢复。
-- “历史记录”由服务器在翻译成功后自动写入并按用户隔离；普通用户只能看到自己的历史，是否可查看、下载、删除由权限决定，无权限时对应接口返回 403。
+- “历史记录”由服务器在翻译成功后自动写入并按用户隔离（位于 `manga_translator/server/data/results`）；普通用户只能看到自己的历史，是否可查看、下载、删除由权限决定，无权限时对应接口返回 403。
+- “保存到服务器 `result` 目录”是可选的直存导出通道（需 `can_save_to_server_result` 权限，管理员默认开启）：勾选后会把翻译后图片按原文件夹相对路径（及可选子文件夹）额外写入服务端根目录下的 `result/`（Docker 中对应 `/app/result`），流式任务发送 `saved_to_server` 进度帧，批量任务在响应头附带 `X-Server-Saved-Count`。它与按用户隔离的历史记录互不替代。
 - 进度通过流式进度帧、每 500ms 一次的任务日志轮询和日志框呈现；界面没有百分比进度条。
 - 这里仅写 Web 用户操作。流帧格式、历史与下载票据等 HTTP API 契约分别见[流式协议](../developer/http-api/streaming-protocol.md)与[历史、文件与下载票据](../developer/http-api/history-files-and-download-tickets.md)。
 

@@ -689,6 +689,7 @@ class PermissionEditor {
                 ${this.createFormRowSimple('允许导出文本', this.createCheckbox('permissions', 'can_export_text'))}
                 ${this.createFormRowSimple(this.t('web_can_view_history', '可查看历史'), this.createCheckbox('permissions', 'can_view_history'))}
                 ${this.createFormRowSimple(this.t('web_can_view_logs', '可查看日志'), this.createCheckbox('permissions', 'can_view_logs'))}
+                ${this.createFormRowSimple(this.t('web_can_save_to_server_result', '允许保存到服务器 result 目录'), this.createCheckbox('permissions', 'can_save_to_server_result'), this.t('web_can_save_to_server_result_hint', '开启后，用户可在主页勾选将翻译结果直接写入服务端 result 目录（Docker 映射目录）'))}
             </div>
         `;
     }

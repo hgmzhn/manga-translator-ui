@@ -42,8 +42,8 @@ The JSON variants encode the whole image as a data URI with the `data:image/...;
 | `POST /translate/image/stream` | JSON: `TranslateRequest` | Streaming frames whose result payload is PNG |
 | `POST /translate/with-form/json/stream` | Form: `image` + `config` | Streaming frames whose result payload is JSON |
 | `POST /translate/with-form/bytes/stream` | Form: `image` + `config` | Streaming frames whose result payload is custom bytes |
-| `POST /translate/with-form/image/stream` | Form: `image` + `config` + `user_env_vars` | Streaming frames whose result payload is PNG (generic mode, suitable for API calls and scripts) |
-| `POST /translate/with-form/image/stream/web` | Form: `image` + `config` + `user_env_vars` | Streaming frames whose result payload is PNG (Web-frontend optimized mode) |
+| `POST /translate/with-form/image/stream` | Form: `image` + `config` + `user_env_vars` (optional: `save_to_server`, `output_folder`, `relative_path`) | Streaming frames whose result payload is PNG (generic mode, suitable for API calls and scripts) |
+| `POST /translate/with-form/image/stream/web` | Form: `image` + `config` + `user_env_vars` (optional: `save_to_server`, `output_folder`, `relative_path`) | Streaming frames whose result payload is PNG (Web-frontend optimized mode) |
 
 Streaming endpoints go through `while_streaming()`, which registers the active task, emits queueing and stage progress, runs the translation, and finally produces result frames with `transform_to_json` / `transform_to_bytes` / `transform_to_image`. `/image/stream/web` sets the config flag `_web_frontend_optimized` to `true`; `transform_to_image()` returns a 1×1 placeholder PNG when `ctx.use_placeholder` is set so the response is faster, while the final image is still written to history.
 
@@ -79,7 +79,9 @@ The Web frontend (`static/index.html` + `static/script.js`) is the main consumer
 | `images` | `list[bytes \| str]` | required | Each image as bytes or a data URI |
 | `config` | `dict` or `Config` | `{}` | Configuration; a `dict` is converted with `parse_config()` |
 | `batch_size` | `int` | `4` | Number of images processed per batch |
-| `filenames` | `list[str]` | `[]` | Original filenames used for output naming and history |
+| `filenames` | `list[str]` | `[]` | Original filenames (relative subfolder paths allowed), used for output naming, ZIP entries, and history |
+| `save_to_server` | `bool` | `false` | Whether to also save output images to the server's `result/` directory (requires `can_save_to_server_result`) |
+| `output_folder` | `str \| None` | `None` | Optional target subfolder relative path under `result/` when `save_to_server` is true |
 
 ### Response `TranslationResponse` {#translation-response}
 
@@ -155,15 +157,15 @@ Workflow stored-value to endpoint mapping: `normal` → `/translate/with-form/im
 | Status | Trigger (current code) | Source |
 | --- | --- | --- |
 | `200` | Success: JSON, image, stream, bytes, or the `queue-size` integer | FastAPI default |
-| `400` | `/batch/images` without images; import/export validation failures | `translation.py:449` |
+| `400` | `/batch/images` without images; import/export validation failures; path traversal in `output_folder`/`relative_path`/`filenames` | `translation.py`; `core/result_export_service.py` |
 | `401` | Missing `X-Session-Token` (`NO_TOKEN`) or invalid/expired (`INVALID_TOKEN`) | `translation_auth.py:253` |
-| `403` | Missing translator/OCR/colorizer/renderer permission; user API key does not match the translator | `translation_auth.py:345`; `core/response_utils.py` |
+| `403` | Missing translator/OCR/colorizer/renderer or `can_save_to_server_result` permission; user API key does not match the translator | `translation_auth.py:345`; `core/response_utils.py`; `core/result_export_service.py` |
 | `422` | Body validation failure or invalid image data; the global handler returns `detail` and the body | `main.py:255` |
 | `429` | User concurrency limit (`CONCURRENT_LIMIT_EXCEEDED`) or daily quota (`DAILY_QUOTA_EXCEEDED`) exceeded | `core/middleware.py:326`, `:365` |
 | `499` | Batch task forcibly cancelled or detected as cancelled | `translation.py:421`, `:518` |
-| `500` | No result image, translation exception, or service not initialized | `translation.py:527`; `request_extraction.py` |
+| `500` | No result image, translation exception, service uninitialized, or `save_to_server` export failure | `translation.py`; `request_extraction.py` |
 
-Streaming endpoints do not raise HTTP errors when translation fails midway; they emit a status-`2` error frame with `{"error": ..., "stage": ...}`. HTTP status codes are reserved for authentication, permission, concurrency, quota, and request-validation phases.
+Streaming endpoints do not raise HTTP errors when translation fails midway; they emit a status-`2` error frame with `{"error": ..., "stage": ...}` (when `save_to_server=true` and export fails, a status-`2` error frame with `stage: "save_to_server"` is emitted and the stream terminates). HTTP status codes are reserved for authentication, permission, concurrency, quota, and request-validation phases. When batch translation enables direct export, failure to save all images raises `500`, while partial failures attach the `X-Server-Save-Error` response header (URL-encoded to adhere to pure-ASCII HTTP header standards).
 
 ### Related files and formats {#related-files-and-formats}
 

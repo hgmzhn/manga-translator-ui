@@ -15,16 +15,16 @@ lastUpdated: true
 
 - 内容包括 Web 用户界面中的上传、配置与发起翻译。登录与会话见[登录、语言与会话](./login-language-and-session.md)，进度、结果与历史见[进度、结果与历史](./progress-results-and-history.md)，账号、权限与 API 密钥见[账号、权限与 API 密钥](./accounts-permissions-and-api-keys.md)，字体与提示词上传见[资源、字体与提示词](./resources-fonts-and-prompts.md)，访问地址见[启动与访问](./launch-and-access.md)。
 - Web 前端不是桌面 Qt 界面的直接复用：`index.html` 自带初始中文，`script.js` 通过 i18n key 覆盖一部分静态文字；"添加文件夹"、"文件列表"、"翻译结果"、"翻译历史"、"N 个文件"等仍是 HTML/脚本硬编码，没有对应 i18n key。
-- 上传、PDF 提取、配置导入导出和结果列表都在浏览器本地完成；浏览器 `localStorage` 中的结果列表与服务器翻译历史是两套独立存储。
+- 上传、PDF 提取、配置导入导出和结果列表都在浏览器本地完成；浏览器 `localStorage` 中的结果列表、服务器按用户隔离的翻译历史，以及可选直存的服务器 `result/` 目录互为独立存储。
 - 工作流模式下拉框控制的 `cli.load_text`、`cli.translate_json_only`、`cli.template`、`cli.generate_and_export`、`cli.colorize_only`、`cli.upscale_only`、`cli.inpaint_only`，以及 `cli.batch_size`、`cli.batch_concurrent`、`cli.use_gpu` 等键被服务器端 `SERVER_HIDDEN_CONFIG_KEYS` 隐藏，不显示在 Web 配置表单中；不要手工编辑这些键。
-- 上传数量/大小限制、API 密钥编辑开关、字体与提示词上传权限来自 `/user/settings`；`0` 表示不限制。
+- 上传数量/大小限制、API 密钥编辑开关、字体与提示词上传权限以及直存服务器 `result/` 目录权限（`can_save_to_server_result`）来自 `/user/settings`；配额值 `0` 表示不限制。
 
 ## 在 Web 界面中操作
 
 ### 添加文件与文件夹
 
 1. 左侧"文件列表"面板提供三个按钮："添加文件"（`Add Files`）、"添加文件夹"（HTML 硬编码中文，未走 i18n）、"清空"（`Clear List`）。
-2. 点击"添加文件"打开系统多选对话框；点击"添加文件夹"选择整个目录。文件选择器的 `accept` 为 `image/*,.pdf,.json,.txt`。
+2. 点击"添加文件"打开系统多选对话框；点击"添加文件夹"选择整个目录并保留文件的相对目录层级（`webkitRelativePath`），便于多章节漫画在打包下载或直存服务器 `result/` 目录时保持原有子目录结构。文件选择器的 `accept` 为 `image/*,.pdf,.json,.txt`。
 3. 选择 PDF 时，浏览器用 pdf.js 按 2x 渲染每一页并提取为 PNG（文件名形如 `{原名}_page_{页码}.png`）。提取受 `max_pdf_size_mb`（前端兜底 50MB）与 `max_images_per_batch` 限制；超过配额只提取剩余页并写警告日志。PDF 相关日志文案是脚本内硬编码中文 fallback（`en_US`、`zh_CN` 两个 locale 均无这些 key）。
 4. 同时选中的 `.json`、`_original.txt`、`_translated.txt` 会被按基础文件名与图片匹配，供"导入译文并渲染"模式使用；匹配成功或失败都会写入日志。
 5. 列表项右侧 `✖` 移除单项；"清空"清空全部；文件计数显示 `N 个文件`（硬编码中文）。
@@ -42,6 +42,13 @@ lastUpdated: true
 ### 选择工作流模式
 
 "翻译流程模式"（`Translation Workflow Mode:`）下拉框列出七种模式，可用选项由 `/workflows` 按权限返回。
+
+### 服务器输出（可选）
+
+当当前账号拥有 `can_save_to_server_result` 权限（`admin` 角色与 `admin` 用户组默认开启，普通用户默认关闭）时，左侧面板工作流下拉框下方会显示"服务器输出"（`web_server_output_title`）区域：
+
+1. 勾选"保存到服务器 result 目录"（`web_save_to_server_result`）后，翻译生成的图片在返回浏览器的同时，还会直接写入服务器根目录下的 `result/`（Docker Compose 默认挂载为宿主机的 `packaging/data/result` → 容器 `/app/result`）。
+2. 勾选后可填写可选的子文件夹名称（例如 `我的漫画/第01话`）；留空时直接按上传时的相对路径写入 `result/` 下。服务端会严格拒绝 `..`、绝对路径或盘符等越界路径。
 
 ### 发起翻译
 
