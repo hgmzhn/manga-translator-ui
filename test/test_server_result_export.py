@@ -141,7 +141,7 @@ def test_sanitize_relative_output_path_preserves_hierarchy_and_casing():
     sanitized_chinese = export_service.sanitize_relative_output_path(long_chinese)
     assert len(sanitized_chinese) == 1
     encoded_bytes = len(sanitized_chinese[0].encode("utf-8"))
-    assert encoded_bytes <= export_service._MAX_SEGMENT_BYTES
+    assert encoded_bytes <= 255
     assert sanitized_chinese[0].endswith(".png")
 
     # Distinct long filenames that share prefix must not collide after truncation
