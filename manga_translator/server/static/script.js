@@ -2543,7 +2543,13 @@ async function processBatch(files, config) {
                 log(`${t('web_saved_to_server_batch', '已保存到服务器 result 目录')}: ${savedCountHeader}`, 'info');
             }
             if (saveErrorHeader) {
-                log(`${currentLocale.startsWith('zh') ? '部分图片保存到服务器失败' : 'Failed to save some images to server'}: ${saveErrorHeader}`, 'warning');
+                let decodedError = saveErrorHeader;
+                try {
+                    decodedError = decodeURIComponent(saveErrorHeader);
+                } catch (e) {
+                    console.warn('Failed to decode X-Server-Save-Error header:', e);
+                }
+                log(`${currentLocale.startsWith('zh') ? '部分图片保存到服务器失败' : 'Failed to save some images to server'}: ${decodedError}`, 'warning');
             }
         }
         

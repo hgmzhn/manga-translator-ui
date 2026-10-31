@@ -8,6 +8,7 @@ import struct
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import unquote
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -732,7 +733,7 @@ def test_server_result_export_failure_propagation(
         saved_counter["calls"] += 1
         if saved_counter["calls"] == 1:
             return "FullDiskBatch/001.jpg"
-        raise OSError("Write error on image 2")
+        raise OSError("写入失败：测试目录无法访问/002.png")
 
     monkeypatch.setattr(translation_routes, "save_image_to_server_result", partial_save)
     monkeypatch.setattr(export_service, "save_image_to_server_result", partial_save)
@@ -748,7 +749,10 @@ def test_server_result_export_failure_propagation(
     )
     assert batch_partial_resp.status_code == 200
     assert batch_partial_resp.headers.get("X-Server-Saved-Count") == "1"
-    assert "Write error on image 2" in batch_partial_resp.headers.get("X-Server-Save-Error", "")
+    raw_error_header = batch_partial_resp.headers.get("X-Server-Save-Error", "")
+    assert raw_error_header
+    raw_error_header.encode("ascii")
+    assert "写入失败：测试目录无法访问/002.png" in unquote(raw_error_header)
 
     # 4. 非流式单图接口保存失败时返回 500
     monkeypatch.setattr(translation_routes, "save_image_to_server_result", fail_save)

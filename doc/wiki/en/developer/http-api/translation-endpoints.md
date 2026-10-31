@@ -165,7 +165,7 @@ Workflow stored-value to endpoint mapping: `normal` → `/translate/with-form/im
 | `499` | Batch task forcibly cancelled or detected as cancelled | `translation.py:421`, `:518` |
 | `500` | No result image, translation exception, service uninitialized, or `save_to_server` export failure | `translation.py`; `request_extraction.py` |
 
-Streaming endpoints do not raise HTTP errors when translation fails midway; they emit a status-`2` error frame with `{"error": ..., "stage": ...}` (when `save_to_server=true` and export fails, a status-`2` error frame with `stage: "save_to_server"` is emitted and the stream terminates). HTTP status codes are reserved for authentication, permission, concurrency, quota, and request-validation phases. When batch translation enables direct export, failure to save all images raises `500`, while partial failures attach the `X-Server-Save-Error` response header.
+Streaming endpoints do not raise HTTP errors when translation fails midway; they emit a status-`2` error frame with `{"error": ..., "stage": ...}` (when `save_to_server=true` and export fails, a status-`2` error frame with `stage: "save_to_server"` is emitted and the stream terminates). HTTP status codes are reserved for authentication, permission, concurrency, quota, and request-validation phases. When batch translation enables direct export, failure to save all images raises `500`, while partial failures attach the `X-Server-Save-Error` response header (URL-encoded to adhere to pure-ASCII HTTP header standards).
 
 ### Related files and formats {#related-files-and-formats}
 

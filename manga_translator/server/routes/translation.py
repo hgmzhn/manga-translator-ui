@@ -10,6 +10,7 @@ import secrets
 import tempfile
 import zipfile
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
@@ -792,7 +793,8 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
     if getattr(config, "_save_to_server", False):
         response_headers["X-Server-Saved-Count"] = str(saved_to_server_count)
         if server_save_errors:
-            response_headers["X-Server-Save-Error"] = server_save_errors[0]
+            # URL-encode to pure ASCII so Starlette can safely encode response headers into Latin-1
+            response_headers["X-Server-Save-Error"] = quote(str(server_save_errors[0]), safe="")
 
     return StreamingResponse(
         io.BytesIO(zip_data),

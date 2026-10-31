@@ -165,7 +165,7 @@ flowchart TD
 | `499` | 批量任务被强制取消或检测为取消 | `translation.py:421`、`:518` |
 | `500` | 无结果图片、翻译异常、服务未初始化或 `save_to_server` 直存服务端失败 | `translation.py`；`request_extraction.py` |
 
-流式端点不会在翻译中途失败时抛出 HTTP 错误，而是发送状态 `2` 的错误帧，载荷为 `{"error": ..., "stage": ...}`（若指定 `save_to_server=true` 且落盘失败，同样发送状态 `2` 的 `stage: "save_to_server"` 错误帧并终止）；只有认证、权限、并发、配额和请求校验阶段才返回 HTTP 状态码。批量翻译开启直存时，若全部落盘失败则返回 `500`，部分失败时通过 `X-Server-Save-Error` 响应头返回错误信息。
+流式端点不会在翻译中途失败时抛出 HTTP 错误，而是发送状态 `2` 的错误帧，载荷为 `{"error": ..., "stage": ...}`（若指定 `save_to_server=true` 且落盘失败，同样发送状态 `2` 的 `stage: "save_to_server"` 错误帧并终止）；只有认证、权限、并发、配额和请求校验阶段才返回 HTTP 状态码。批量翻译开启直存时，若全部落盘失败则返回 `500`，部分失败时通过 `X-Server-Save-Error` 响应头（经 URL 编码以满足纯 ASCII HTTP 标头规范）返回首个错误详情。
 
 ### 关联文件与格式 {#related-files-and-formats}
 
