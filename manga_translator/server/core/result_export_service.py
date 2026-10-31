@@ -7,6 +7,7 @@ permission checks and strict relative-path sanitization.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import re
@@ -132,7 +133,18 @@ def _sanitize_segment(raw_segment: str) -> str:
     max_stem_bytes = max(1, _MAX_SEGMENT_BYTES - ext_bytes)
     stem_bytes = len(stem.encode("utf-8"))
     if stem_bytes > max_stem_bytes:
-        stem = _truncate_utf8(stem, max_stem_bytes).rstrip(".")
+        # Use a deterministic short hash suffix of the original stem to distinguish
+        # different filenames/folders that would otherwise collide when truncated.
+        suffix_hash = hashlib.sha256(stem.encode("utf-8")).hexdigest()[:8]
+        suffix = f"_{suffix_hash}"
+        suffix_bytes = len(suffix.encode("utf-8"))
+
+        if max_stem_bytes > suffix_bytes:
+            budget = max_stem_bytes - suffix_bytes
+            stem = f"{_truncate_utf8(stem, budget).rstrip('.')}{suffix}"
+        else:
+            stem = suffix[:max_stem_bytes]
+
         if not stem:
             stem = "_"
         cleaned = f"{stem}{ext}"

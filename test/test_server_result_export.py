@@ -142,6 +142,24 @@ def test_sanitize_relative_output_path_preserves_hierarchy_and_casing():
     assert encoded_bytes <= export_service._MAX_SEGMENT_BYTES
     assert sanitized_chinese[0].endswith(".png")
 
+    # Distinct long filenames that share prefix must not collide after truncation
+    file_a = ("漫" * 65) + "甲.png"
+    file_b = ("漫" * 65) + "乙.png"
+    sanitized_a = export_service.sanitize_relative_output_path(file_a)[0]
+    sanitized_b = export_service.sanitize_relative_output_path(file_b)[0]
+    assert sanitized_a != sanitized_b
+    assert len(sanitized_a.encode("utf-8")) <= export_service._MAX_SEGMENT_BYTES
+    assert len(sanitized_b.encode("utf-8")) <= export_service._MAX_SEGMENT_BYTES
+
+    # Distinct long folder names that share prefix must not merge into the same folder
+    folder_a = ("漫" * 65) + "第一章"
+    folder_b = ("漫" * 65) + "第二章"
+    sanitized_folder_a = export_service.sanitize_relative_output_path(folder_a)[0]
+    sanitized_folder_b = export_service.sanitize_relative_output_path(folder_b)[0]
+    assert sanitized_folder_a != sanitized_folder_b
+    assert len(sanitized_folder_a.encode("utf-8")) <= export_service._MAX_SEGMENT_BYTES
+    assert len(sanitized_folder_b.encode("utf-8")) <= export_service._MAX_SEGMENT_BYTES
+
 
 @pytest.mark.parametrize(
     "malicious_path",
