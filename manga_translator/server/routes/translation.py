@@ -772,8 +772,11 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
         if getattr(config, "_save_to_server", False):
             response_headers["X-Server-Saved-Count"] = str(saved_to_server_count)
             if server_save_errors:
+                # Truncate error text before URL-encoding to keep header size within safe limits
+                raw_error = str(server_save_errors[0])
+                error_summary = raw_error if len(raw_error) <= 200 else f"{raw_error[:200]}..."
                 # URL-encode to pure ASCII so Starlette can safely encode response headers into Latin-1
-                response_headers["X-Server-Save-Error"] = quote(str(server_save_errors[0]), safe="")
+                response_headers["X-Server-Save-Error"] = quote(error_summary, safe="")
 
         return StreamingResponse(
             io.BytesIO(zip_data),

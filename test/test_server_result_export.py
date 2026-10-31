@@ -738,7 +738,7 @@ def test_server_result_export_failure_propagation(
         saved_counter["calls"] += 1
         if saved_counter["calls"] == 1:
             return "FullDiskBatch/001.jpg"
-        raise OSError("写入失败：测试目录无法访问/002.png")
+        raise OSError("写入失败：" + ("测试超长错误目录无法访问/" * 20) + "002.png")
 
     monkeypatch.setattr(translation_routes, "save_image_to_server_result", partial_save)
     monkeypatch.setattr(export_service, "save_image_to_server_result", partial_save)
@@ -757,7 +757,10 @@ def test_server_result_export_failure_propagation(
     raw_error_header = batch_partial_resp.headers.get("X-Server-Save-Error", "")
     assert raw_error_header
     raw_error_header.encode("ascii")
-    assert "写入失败：测试目录无法访问/002.png" in unquote(raw_error_header)
+    decoded_error = unquote(raw_error_header)
+    assert decoded_error.startswith("写入失败：")
+    assert decoded_error.endswith("...")
+    assert len(decoded_error) == 203
 
     # 4. 非流式单图接口保存失败时返回 500
     monkeypatch.setattr(translation_routes, "save_image_to_server_result", fail_save)
