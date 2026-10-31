@@ -113,13 +113,17 @@
                     </div>
                 </div>
 
-                <!-- Output Directory Section - Hidden in Web mode -->
-                <div class="panel-section output-section" style="display: none;">
-                    <h3>输出目录</h3>
-                    <div class="input-group">
-                        <input type="text" id="output-dir" placeholder="默认输出到 result 文件夹">
+                <!-- Server Output Directory Section - Shown when user has can_save_to_server_result permission -->
+                <div class="panel-section output-section" id="server-output-section" style="display: none;">
+                    <h3 id="server-output-title">服务器输出</h3>
+                    <div class="checkbox-wrapper" style="margin-bottom: 8px;">
+                        <input type="checkbox" id="save-to-server-cb">
+                        <label for="save-to-server-cb" id="save-to-server-label" style="cursor: pointer;">保存到服务器 result 目录</label>
                     </div>
-                    <small class="hint">Web 模式下文件将直接下载到浏览器</small>
+                    <div class="input-group" id="server-output-folder-group" style="display: none;">
+                        <input type="text" id="output-dir" placeholder="输出子目录（可选，上传文件夹自动保留层级）">
+                    </div>
+                    <small class="hint" id="server-output-hint">勾选后翻译结果将直接写入服务端 result 目录（Docker 映射目录）</small>
                 </div>
 
                 <!-- Workflow Mode Section -->

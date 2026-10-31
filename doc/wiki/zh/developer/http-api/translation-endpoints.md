@@ -42,8 +42,8 @@ JSON 变体把整张图片编码为带 `data:image/...;base64,` 前缀的 data U
 | `POST /translate/image/stream` | JSON：`TranslateRequest` | 流式帧，结果载荷为 PNG |
 | `POST /translate/with-form/json/stream` | 表单：`image` + `config` | 流式帧，结果载荷为 JSON |
 | `POST /translate/with-form/bytes/stream` | 表单：`image` + `config` | 流式帧，结果载荷为自定义字节 |
-| `POST /translate/with-form/image/stream` | 表单：`image` + `config` + `user_env_vars` | 流式帧，结果载荷为 PNG（通用模式，适合 API 调用与脚本） |
-| `POST /translate/with-form/image/stream/web` | 表单：`image` + `config` + `user_env_vars` | 流式帧，结果载荷为 PNG（Web 前端优化模式） |
+| `POST /translate/with-form/image/stream` | 表单：`image` + `config` + `user_env_vars`（可选：`save_to_server`、`output_folder`、`relative_path`） | 流式帧，结果载荷为 PNG（通用模式，适合 API 调用与脚本） |
+| `POST /translate/with-form/image/stream/web` | 表单：`image` + `config` + `user_env_vars`（可选：`save_to_server`、`output_folder`、`relative_path`） | 流式帧，结果载荷为 PNG（Web 前端优化模式） |
 
 流式端点通过 `while_streaming()` 注册活动任务、发送排队与阶段进度、执行翻译，最后用 `transform_to_json` / `transform_to_bytes` / `transform_to_image` 生成结果帧。`/image/stream/web` 把配置标记 `_web_frontend_optimized` 设为 `true`；`transform_to_image()` 在 `ctx.use_placeholder` 为真时返回 1×1 占位 PNG 以加快响应，最终图片仍写入历史。
 
@@ -79,7 +79,9 @@ Web 前端（`static/index.html` + `static/script.js`）是这些端点的主要
 | `images` | `list[bytes \| str]` | 必填 | 每张图片为字节或 data URI |
 | `config` | `dict` 或 `Config` | `{}` | 配置；为 `dict` 时用 `parse_config()` 转换 |
 | `batch_size` | `int` | `4` | 每批处理的图片数 |
-| `filenames` | `list[str]` | `[]` | 原始文件名，用于输出命名与历史记录 |
+| `filenames` | `list[str]` | `[]` | 原始文件名（支持相对子目录路径），用于输出命名、ZIP 条目与历史记录 |
+| `save_to_server` | `bool` | `false` | 是否同时将输出图片写入服务端 `result/` 目录（需 `can_save_to_server_result` 权限） |
+| `output_folder` | `str \| None` | `None` | 直存 `result/` 时的可选目标子文件夹相对路径 |
 
 ### 响应 `TranslationResponse` {#translation-response}
 
@@ -155,9 +157,9 @@ flowchart TD
 | 状态码 | 触发条件（当前代码） | 来源 |
 | --- | --- | --- |
 | `200` | 成功：JSON、图片、流、字节或 `queue-size` 整数 | FastAPI 默认 |
-| `400` | `/batch/images` 未提供图片；导入/导出校验失败 | `translation.py:449` |
+| `400` | `/batch/images` 未提供图片；导入/导出校验失败；`output_folder`/`relative_path`/`filenames` 含越界路径 | `translation.py`；`core/result_export_service.py` |
 | `401` | `X-Session-Token` 缺失（`NO_TOKEN`）或无效/过期（`INVALID_TOKEN`） | `translation_auth.py:253` |
-| `403` | 翻译器/OCR/上色/渲染权限不足；用户 API Key 与翻译器不匹配 | `translation_auth.py:345`；`core/response_utils.py` |
+| `403` | 翻译器/OCR/上色/渲染或 `can_save_to_server_result` 权限不足；用户 API Key 与翻译器不匹配 | `translation_auth.py:345`；`core/response_utils.py`；`core/result_export_service.py` |
 | `422` | 请求体校验失败或图片数据非法；全局 handler 返回 `detail` 与请求体 | `main.py:255` |
 | `429` | 超过用户并发任务数（`CONCURRENT_LIMIT_EXCEEDED`）或每日配额（`DAILY_QUOTA_EXCEEDED`） | `core/middleware.py:326`、`:365` |
 | `499` | 批量任务被强制取消或检测为取消 | `translation.py:421`、`:518` |

@@ -14,7 +14,8 @@ After a translation starts, this guide explains how to watch task progress, prev
 ## UI and API scope {#feature-boundary}
 
 - The “results list” is a temporary view inside the current browser; entries are saved in `localStorage.translationResults` (as blob URLs). It is not server history and cannot be recovered after clearing browser data or switching browsers.
-- “History records” are written automatically by the server after a successful translation and are isolated per user; a regular user sees only their own history, and whether it can be viewed, downloaded, or deleted depends on permissions. The corresponding endpoints return 403 without permission.
+- “History records” are written automatically by the server after a successful translation and are isolated per user (under `manga_translator/server/data/results`); a regular user sees only their own history, and whether it can be viewed, downloaded, or deleted depends on permissions. The corresponding endpoints return 403 without permission.
+- “Save to server `result` directory” is an optional direct-export channel (requires `can_save_to_server_result`, enabled by default for administrators): when checked, translated images are additionally written under the server's `result/` directory (`/app/result` in Docker) preserving relative folder paths (and an optional output subfolder), emitting a `saved_to_server` progress frame on streaming tasks or returning `X-Server-Saved-Count` on batch tasks. It operates alongside, rather than replacing, per-user history records.
 - Progress is presented through streaming progress frames, task-log polling every 500 ms, and the log box; there is no percentage progress bar.
 - This guide covers web user operations only. The frame format and the history/download-ticket HTTP contracts live in [Streaming protocol](../developer/http-api/streaming-protocol.md) and [History, files, and download tickets](../developer/http-api/history-files-and-download-tickets.md).
 

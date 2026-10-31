@@ -9,6 +9,7 @@ import os
 import secrets
 import tempfile
 import zipfile
+from typing import Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
@@ -24,6 +25,12 @@ from manga_translator.server.core.response_utils import (
     transform_to_bytes,
     transform_to_image,
     transform_to_json,
+)
+from manga_translator.server.core.result_export_service import (
+    build_archive_entry_name,
+    check_save_to_server_result_permission,
+    sanitize_relative_output_path,
+    save_image_to_server_result,
 )
 from manga_translator.server.request_extraction import (
     BatchTranslateRequest,
@@ -87,6 +94,67 @@ async def _authorize_translation_with_env(
     env_vars = await apply_user_env_vars(user_env_vars, config, admin_settings, username)
     config._user_env_vars = env_vars
     return username, ip_address
+
+
+def _configure_server_result_export(
+    username: str,
+    config,
+    *,
+    save_to_server: bool = False,
+    output_folder: Optional[str] = None,
+    relative_path: Optional[str] = None,
+    filenames: Optional[list[str]] = None,
+) -> None:
+    if not save_to_server:
+        config._save_to_server = False
+        return
+
+    if not check_save_to_server_result_permission(username, admin_settings):
+        raise HTTPException(403, detail="您没有权限将翻译结果保存到服务器目录")
+
+    try:
+        sanitize_relative_output_path(output_folder, allow_empty=True)
+        if relative_path:
+            sanitize_relative_output_path(relative_path, allow_empty=True)
+        for item in filenames or []:
+            if item:
+                sanitize_relative_output_path(item, allow_empty=True)
+    except ValueError as exc:
+        raise HTTPException(400, detail=f"无效的输出路径: {exc}") from exc
+
+    config._save_to_server = True
+    config._server_output_folder = output_folder or None
+    if relative_path:
+        config._original_relative_path = relative_path
+
+
+def _maybe_export_ctx_to_server_result(
+    ctx,
+    username: str,
+    config,
+    *,
+    source_path: Optional[str] = None,
+    fallback_stem: Optional[str] = None,
+) -> Optional[str]:
+    if not getattr(config, "_save_to_server", False):
+        return None
+    if not ctx or not hasattr(ctx, "result") or ctx.result is None:
+        return None
+    try:
+        saved_rel = save_image_to_server_result(
+            ctx.result,
+            username=username,
+            admin_settings=admin_settings,
+            config=config,
+            source_path=source_path or getattr(config, "_original_relative_path", None),
+            output_folder=getattr(config, "_server_output_folder", None),
+            fallback_stem=fallback_stem,
+        )
+        add_log(f"Saved result to server directory: result/{saved_rel}", "INFO")
+        return saved_rel
+    except Exception as exc:
+        add_log(f"Failed to save result to server directory: {exc}", "WARNING")
+        return None
 
 
 async def _run_tracked_translation(
@@ -248,20 +316,32 @@ async def bytes_form(req: Request, image: UploadFile = File(...), config: str = 
 
 @router.post("/with-form/image", response_description="the result image", tags=["api", "form"],
              response_class=StreamingResponse)
-async def image_form(req: Request, image: UploadFile = File(...), config: str = Form("{}")) -> StreamingResponse:
+async def image_form(
+    req: Request,
+    image: UploadFile = File(...),
+    config: str = Form("{}"),
+    save_to_server: bool = Form(False),
+    output_folder: str = Form(""),
+    relative_path: str = Form(""),
+) -> StreamingResponse:
     """Translate image (form upload) and return result image"""
     img, conf = await _read_form_image_and_config(image, config)
-    return await _run_tracked_translation(
-        req,
+    username, ip_address = await _authorize_translation(req, conf, set_username=True)
+    _configure_server_result_export(
+        username,
         conf,
-        img,
-        "normal",
-        lambda ctx: _png_response_from_ctx(
-            ctx,
-            "Translation failed: no result image generated",
-        ),
-        set_username=True,
+        save_to_server=save_to_server,
+        output_folder=output_folder,
+        relative_path=relative_path or image.filename,
     )
+    track_task_start(username)
+    try:
+        log_translation_task_created(username, ip_address, _get_translator_name(conf), conf)
+        ctx = await get_ctx(req, conf, img, "normal")
+        _maybe_export_ctx_to_server_result(ctx, username, conf, source_path=relative_path or image.filename)
+        return _png_response_from_ctx(ctx, "Translation failed: no result image generated")
+    finally:
+        track_task_end(username)
 
 
 # ============================================================================
@@ -296,7 +376,10 @@ async def stream_bytes_form(req: Request, image: UploadFile = File(...), config:
 @router.post("/with-form/image/stream", response_class=StreamingResponse, tags=["api", "form"],
              response_description="Standard streaming endpoint - returns complete image data. Suitable for API calls and scripts.")
 async def stream_image_form(req: Request, image: UploadFile = File(...), config: str = Form("{}"), 
-                           user_env_vars: str = Form("{}")) -> StreamingResponse:
+                           user_env_vars: str = Form("{}"),
+                           save_to_server: bool = Form(False),
+                           output_folder: str = Form(""),
+                           relative_path: str = Form("")) -> StreamingResponse:
     """Generic streaming endpoint: returns complete image data, suitable for API calls and comicread scripts"""
     img, conf = await _read_form_image_and_config(image, config)
     username, ip_address = await _authorize_translation_with_env(
@@ -304,6 +387,13 @@ async def stream_image_form(req: Request, image: UploadFile = File(...), config:
         conf,
         user_env_vars,
         set_username=True,
+    )
+    _configure_server_result_export(
+        username,
+        conf,
+        save_to_server=save_to_server,
+        output_folder=output_folder,
+        relative_path=relative_path or image.filename,
     )
     # Mark as generic mode, no placeholder optimization
     conf._web_frontend_optimized = False
@@ -313,7 +403,7 @@ async def stream_image_form(req: Request, image: UploadFile = File(...), config:
         conf,
         img,
         "normal",
-        filename=image.filename,
+        filename=relative_path or image.filename,
         username=username,
         ip_address=ip_address,
     )
@@ -322,7 +412,10 @@ async def stream_image_form(req: Request, image: UploadFile = File(...), config:
 @router.post("/with-form/image/stream/web", response_class=StreamingResponse, tags=["api", "form"],
              response_description="Web frontend optimized streaming endpoint - uses placeholder optimization for faster response.")
 async def stream_image_form_web(req: Request, image: UploadFile = File(...), config: str = Form("{}"),
-                                user_env_vars: str = Form("{}")) -> StreamingResponse:
+                                user_env_vars: str = Form("{}"),
+                                save_to_server: bool = Form(False),
+                                output_folder: str = Form(""),
+                                relative_path: str = Form("")) -> StreamingResponse:
     """Web frontend specific endpoint: uses placeholder optimization for ultra-fast experience"""
     img, conf = await _read_form_image_and_config(image, config)
     username, ip_address = await _authorize_translation_with_env(
@@ -330,6 +423,13 @@ async def stream_image_form_web(req: Request, image: UploadFile = File(...), con
         conf,
         user_env_vars,
         set_username=True,
+    )
+    _configure_server_result_export(
+        username,
+        conf,
+        save_to_server=save_to_server,
+        output_folder=output_folder,
+        relative_path=relative_path or image.filename,
     )
     # Mark as Web frontend optimized mode, use placeholder optimization
     conf._web_frontend_optimized = True
@@ -339,7 +439,7 @@ async def stream_image_form_web(req: Request, image: UploadFile = File(...), con
         conf,
         img,
         "normal",
-        filename=image.filename,
+        filename=relative_path or image.filename,
         username=username,
         ip_address=ip_address,
     )
@@ -379,6 +479,13 @@ async def translate_batch_json(req: Request, data: BatchTranslateRequest):
     
     # Verify authentication and permissions
     username, ip_address = await verify_translation_auth(req, config)
+    _configure_server_result_export(
+        username,
+        config,
+        save_to_server=data.save_to_server,
+        output_folder=data.output_folder,
+        filenames=data.filenames,
+    )
     
     # Extract translator name
     translator = "unknown"
@@ -414,6 +521,13 @@ async def translate_batch_json(req: Request, data: BatchTranslateRequest):
                     await save_translation_to_history(ctx, username, f"{task_id}_{i}", "normal", original_name, config)
                 except Exception as e:
                     add_log(f"Failed to save history (image {i+1}): {e}", "WARNING")
+                _maybe_export_ctx_to_server_result(
+                    ctx,
+                    username,
+                    config,
+                    source_path=original_name,
+                    fallback_stem=f"batch_{i+1}",
+                )
         
         return [to_translation(ctx) for ctx in results]
     except asyncio.CancelledError:
@@ -470,20 +584,30 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
         
         # Verify authentication and permissions
         username, ip_address = await verify_translation_auth(req, config)
+        _configure_server_result_export(
+            username,
+            config,
+            save_to_server=data.save_to_server,
+            output_folder=data.output_folder,
+            filenames=data.filenames,
+        )
         
         # 检查用户是否有离线翻译权限
         from manga_translator.server.core.middleware import get_services
         _, _, permission_service = get_services()
         allow_offline = permission_service.check_offline_translation_permission(username)
         
-        # 如果允许离线翻译，创建一个永不断开的 Request 包装器
-        if allow_offline:
+        # 如果允许离线翻译或开启了直接保存到服务端 result 目录，创建一个永不断开的 Request 包装器
+        if allow_offline or data.save_to_server:
             class OfflineRequest:
                 """支持离线翻译的 Request 包装器"""
                 async def is_disconnected(self):
                     return False  # 永不断开
             req = OfflineRequest()
-            add_log(f"User {username} enabled offline translation mode", "INFO")
+            if allow_offline:
+                add_log(f"User {username} enabled offline translation mode", "INFO")
+            else:
+                add_log(f"User {username} enabled background server result export", "INFO")
         
         # 获取用户预设的 API Keys
         env_vars = await apply_user_env_vars("{}", config, admin_settings, username)
@@ -516,6 +640,8 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
     except asyncio.CancelledError:
         add_log("Batch translation forcibly cancelled", "WARNING")
         raise HTTPException(499, detail="任务已被强制取消")
+    except HTTPException:
+        raise
     except Exception as e:
         error_msg = str(e)
         if "cancelled" in error_msg.lower():
@@ -562,20 +688,20 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
             i = img_data['index']
             img_to_save = img_data['image']
             
-            # 获取原始文件名
+            # 获取原始文件名（可能包含相对目录结构）
             original_name = filenames[i] if i < len(filenames) else None
             
-            save_format, ext = resolve_output_image_format(
+            save_format, _ext = resolve_output_image_format(
                 output_format,
                 original_path=original_name,
             )
             
-            # 生成输出文件名
-            if original_name:
-                base_name = os.path.splitext(os.path.basename(original_name))[0]
-                output_name = f"{base_name}{ext}"
-            else:
-                output_name = f"translated_{i+1}{ext}"
+            # 生成输出文件名（保留子目录结构以避免多章节同名文件在 ZIP 中互相覆盖）
+            output_name = build_archive_entry_name(
+                original_name,
+                output_format,
+                fallback_stem=f"translated_{i+1}",
+            )
             
             img_byte_arr = io.BytesIO()
             if save_format in RGB_PIL_FORMATS and img_to_save.mode not in ('RGB', 'L'):
@@ -606,6 +732,27 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
         except Exception as e:
             add_log(f"Failed to save history (image {i+1}): {e}", "WARNING")
     
+    # 如果启用了保存到服务器 result 目录，直接按相对目录结构写入服务端 result 目录
+    saved_to_server_count = 0
+    if getattr(config, "_save_to_server", False):
+        for img_data in result_images:
+            i = img_data['index']
+            source_name = filenames[i] if i < len(filenames) else None
+            try:
+                saved_rel = save_image_to_server_result(
+                    img_data['image'],
+                    username=username,
+                    admin_settings=admin_settings,
+                    config=config,
+                    source_path=source_name,
+                    output_folder=getattr(config, "_server_output_folder", None),
+                    fallback_stem=f"translated_{i+1}",
+                )
+                saved_to_server_count += 1
+                add_log(f"Saved batch result to server directory: result/{saved_rel}", "INFO")
+            except Exception as e:
+                add_log(f"Failed to save batch image {i+1} to server directory: {e}", "WARNING")
+    
     # 读取 ZIP 文件内容
     with open(tmp_file_name, 'rb') as f:
         zip_data = f.read()
@@ -628,13 +775,17 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
     
     # 返回 ZIP 数据，不使用 Content-Disposition: attachment（避免 IDM 拦截）
     # 使用 inline 或不设置，让浏览器直接处理而不触发下载
+    response_headers = {
+        "Content-Length": str(len(zip_data)),
+        "X-Content-Type": "application/zip"  # 自定义 header 告诉前端这是 ZIP
+    }
+    if getattr(config, "_save_to_server", False):
+        response_headers["X-Server-Saved-Count"] = str(saved_to_server_count)
+
     return StreamingResponse(
         io.BytesIO(zip_data),
         media_type="application/octet-stream",  # 使用通用二进制类型，避免 IDM 识别为 ZIP
-        headers={
-            "Content-Length": str(len(zip_data)),
-            "X-Content-Type": "application/zip"  # 自定义 header 告诉前端这是 ZIP
-        }
+        headers=response_headers
     )
 
 
@@ -873,37 +1024,73 @@ async def export_translated_stream(req: Request, image: UploadFile = File(...), 
 
 @router.post("/upscale", response_class=StreamingResponse, tags=["api", "process"])
 async def upscale_only(req: Request, image: UploadFile = File(...), config: str = Form("{}"),
-                       user_env_vars: str = Form("{}")):
+                       user_env_vars: str = Form("{}"),
+                       save_to_server: bool = Form(False),
+                       output_folder: str = Form(""),
+                       relative_path: str = Form("")):
     """Upscale only (image super-resolution)"""
     img, conf = await _read_form_image_and_config(image, config)
-    await _authorize_translation_with_env(req, conf, user_env_vars)
+    username, _ = await _authorize_translation_with_env(req, conf, user_env_vars, set_username=True)
+    _configure_server_result_export(
+        username,
+        conf,
+        save_to_server=save_to_server,
+        output_folder=output_folder,
+        relative_path=relative_path or image.filename,
+    )
     ctx = await get_ctx(req, conf, img, "upscale_only")
+    _maybe_export_ctx_to_server_result(ctx, username, conf, source_path=relative_path or image.filename)
     return _png_response_from_ctx(ctx, "Upscaling failed")
 
 
 @router.post("/colorize", response_class=StreamingResponse, tags=["api", "process"])
 async def colorize_only(req: Request, image: UploadFile = File(...), config: str = Form("{}"),
-                        user_env_vars: str = Form("{}")):
+                        user_env_vars: str = Form("{}"),
+                        save_to_server: bool = Form(False),
+                        output_folder: str = Form(""),
+                        relative_path: str = Form("")):
     """Colorize only (black and white image colorization)"""
     img, conf = await _read_form_image_and_config(image, config)
-    await _authorize_translation_with_env(req, conf, user_env_vars)
+    username, _ = await _authorize_translation_with_env(req, conf, user_env_vars, set_username=True)
+    _configure_server_result_export(
+        username,
+        conf,
+        save_to_server=save_to_server,
+        output_folder=output_folder,
+        relative_path=relative_path or image.filename,
+    )
     ctx = await get_ctx(req, conf, img, "colorize_only")
+    _maybe_export_ctx_to_server_result(ctx, username, conf, source_path=relative_path or image.filename)
     return _png_response_from_ctx(ctx, "Colorization failed")
 
 
 @router.post("/inpaint", response_class=StreamingResponse, tags=["api", "process"])
 async def inpaint_only(req: Request, image: UploadFile = File(...), config: str = Form("{}"),
-                       user_env_vars: str = Form("{}")):
+                       user_env_vars: str = Form("{}"),
+                       save_to_server: bool = Form(False),
+                       output_folder: str = Form(""),
+                       relative_path: str = Form("")):
     """Inpaint only (detect text and inpaint image)"""
     img, conf = await _read_form_image_and_config(image, config)
-    await _authorize_translation_with_env(req, conf, user_env_vars)
+    username, _ = await _authorize_translation_with_env(req, conf, user_env_vars, set_username=True)
+    _configure_server_result_export(
+        username,
+        conf,
+        save_to_server=save_to_server,
+        output_folder=output_folder,
+        relative_path=relative_path or image.filename,
+    )
     ctx = await get_ctx(req, conf, img, "inpaint_only")
+    _maybe_export_ctx_to_server_result(ctx, username, conf, source_path=relative_path or image.filename)
     return _png_response_from_ctx(ctx, "Inpainting failed")
 
 
 @router.post("/upscale/stream", response_class=StreamingResponse, tags=["api", "process", "stream"])
 async def upscale_only_stream(req: Request, image: UploadFile = File(...), config: str = Form("{}"),
-                              user_env_vars: str = Form("{}")):
+                              user_env_vars: str = Form("{}"),
+                              save_to_server: bool = Form(False),
+                              output_folder: str = Form(""),
+                              relative_path: str = Form("")):
     """Upscale only (streaming, with progress)"""
     img, conf = await _read_form_image_and_config(image, config)
     username, ip_address = await _authorize_translation_with_env(
@@ -912,13 +1099,20 @@ async def upscale_only_stream(req: Request, image: UploadFile = File(...), confi
         user_env_vars,
         set_username=True,
     )
+    _configure_server_result_export(
+        username,
+        conf,
+        save_to_server=save_to_server,
+        output_folder=output_folder,
+        relative_path=relative_path or image.filename,
+    )
     return await _stream_translation(
         req,
         transform_to_image,
         conf,
         img,
         "upscale_only",
-        filename=image.filename,
+        filename=relative_path or image.filename,
         log_task=False,
         username=username,
         ip_address=ip_address,
@@ -927,7 +1121,10 @@ async def upscale_only_stream(req: Request, image: UploadFile = File(...), confi
 
 @router.post("/colorize/stream", response_class=StreamingResponse, tags=["api", "process", "stream"])
 async def colorize_only_stream(req: Request, image: UploadFile = File(...), config: str = Form("{}"),
-                               user_env_vars: str = Form("{}")):
+                               user_env_vars: str = Form("{}"),
+                               save_to_server: bool = Form(False),
+                               output_folder: str = Form(""),
+                               relative_path: str = Form("")):
     """Colorize only (streaming, with progress)"""
     img, conf = await _read_form_image_and_config(image, config)
     username, ip_address = await _authorize_translation_with_env(
@@ -936,13 +1133,20 @@ async def colorize_only_stream(req: Request, image: UploadFile = File(...), conf
         user_env_vars,
         set_username=True,
     )
+    _configure_server_result_export(
+        username,
+        conf,
+        save_to_server=save_to_server,
+        output_folder=output_folder,
+        relative_path=relative_path or image.filename,
+    )
     return await _stream_translation(
         req,
         transform_to_image,
         conf,
         img,
         "colorize_only",
-        filename=image.filename,
+        filename=relative_path or image.filename,
         log_task=False,
         username=username,
         ip_address=ip_address,
@@ -951,7 +1155,10 @@ async def colorize_only_stream(req: Request, image: UploadFile = File(...), conf
 
 @router.post("/inpaint/stream", response_class=StreamingResponse, tags=["api", "process", "stream"])
 async def inpaint_only_stream(req: Request, image: UploadFile = File(...), config: str = Form("{}"),
-                              user_env_vars: str = Form("{}")):
+                              user_env_vars: str = Form("{}"),
+                              save_to_server: bool = Form(False),
+                              output_folder: str = Form(""),
+                              relative_path: str = Form("")):
     """Inpaint only (streaming, with progress)"""
     img, conf = await _read_form_image_and_config(image, config)
     username, ip_address = await _authorize_translation_with_env(
@@ -960,13 +1167,20 @@ async def inpaint_only_stream(req: Request, image: UploadFile = File(...), confi
         user_env_vars,
         set_username=True,
     )
+    _configure_server_result_export(
+        username,
+        conf,
+        save_to_server=save_to_server,
+        output_folder=output_folder,
+        relative_path=relative_path or image.filename,
+    )
     return await _stream_translation(
         req,
         transform_to_image,
         conf,
         img,
         "inpaint_only",
-        filename=image.filename,
+        filename=relative_path or image.filename,
         log_task=False,
         username=username,
         ip_address=ip_address,
@@ -980,7 +1194,10 @@ async def inpaint_only_stream(req: Request, image: UploadFile = File(...), confi
 
 @router.post("/import/json", response_class=StreamingResponse, tags=["api", "import"])
 async def import_json_and_render(req: Request, image: UploadFile = File(...), json_file: UploadFile = File(...), 
-                                config: str = Form("{}"), user_env_vars: str = Form("{}")):
+                                config: str = Form("{}"), user_env_vars: str = Form("{}"),
+                                save_to_server: bool = Form(False),
+                                output_folder: str = Form(""),
+                                relative_path: str = Form("")):
     """Import JSON + image, return rendered image (load_text workflow)"""
 #     import json
     from manga_translator.utils.path_manager import get_work_dir
@@ -993,6 +1210,13 @@ async def import_json_and_render(req: Request, image: UploadFile = File(...), js
     username, _ = await verify_translation_auth(req, conf)
     env_vars = await apply_user_env_vars(user_env_vars, conf, admin_settings, username)
     conf._user_env_vars = env_vars
+    _configure_server_result_export(
+        username,
+        conf,
+        save_to_server=save_to_server,
+        output_folder=output_folder,
+        relative_path=relative_path or image.filename,
+    )
     
     # Use temporary filename
     temp_name = f"temp_{secrets.token_hex(8)}"
@@ -1033,6 +1257,13 @@ async def import_json_and_render(req: Request, image: UploadFile = File(...), js
                 os.unlink(json_path)
             if os.path.exists(temp_image_path):
                 os.unlink(temp_image_path)
+
+            _maybe_export_ctx_to_server_result(
+                ctx,
+                username,
+                conf,
+                source_path=relative_path or image.filename,
+            )
             
             return StreamingResponse(img_byte_arr, media_type="image/png")
         else:
@@ -1043,6 +1274,12 @@ async def import_json_and_render(req: Request, image: UploadFile = File(...), js
                 os.unlink(temp_image_path)
             raise HTTPException(500, detail="Failed to render image")
     
+    except HTTPException:
+        if os.path.exists(json_path):
+            os.unlink(json_path)
+        if 'temp_image_path' in locals() and os.path.exists(temp_image_path):
+            os.unlink(temp_image_path)
+        raise
     except Exception as e:
         # Clean up temporary files
         if os.path.exists(json_path):
@@ -1055,7 +1292,10 @@ async def import_json_and_render(req: Request, image: UploadFile = File(...), js
 @router.post("/import/txt", response_class=StreamingResponse, tags=["api", "import"])
 async def import_txt_and_render(req: Request, image: UploadFile = File(...), txt_file: UploadFile = File(...), 
                                json_file: UploadFile = File(...), config: str = Form("{}"), 
-                               template: UploadFile = File(None), user_env_vars: str = Form("{}")):
+                               template: UploadFile = File(None), user_env_vars: str = Form("{}"),
+                               save_to_server: bool = Form(False),
+                               output_folder: str = Form(""),
+                               relative_path: str = Form("")):
     """Import TXT + JSON + image, return rendered image (using UI layer import logic)"""
     import importlib.util
 
@@ -1074,14 +1314,20 @@ async def import_txt_and_render(req: Request, image: UploadFile = File(...), txt
     
     img_bytes = await image.read()
     txt_content = await txt_file.read()
+    json_content = await json_file.read()
     
     # Parse config and get preset
     conf = parse_config(config)
     username, _ = await verify_translation_auth(req, conf)
     env_vars = await apply_user_env_vars(user_env_vars, conf, admin_settings, username)
     conf._user_env_vars = env_vars
-    json_content = await json_file.read()
-    conf = parse_config(config)
+    _configure_server_result_export(
+        username,
+        conf,
+        save_to_server=save_to_server,
+        output_folder=output_folder,
+        relative_path=relative_path or image.filename,
+    )
     
     # Use temporary filename
     temp_name = f"temp_{secrets.token_hex(8)}"
@@ -1147,6 +1393,13 @@ async def import_txt_and_render(req: Request, image: UploadFile = File(...), txt
                 os.unlink(json_path)
             if os.path.exists(temp_image_path):
                 os.unlink(temp_image_path)
+
+            _maybe_export_ctx_to_server_result(
+                ctx,
+                username,
+                conf,
+                source_path=relative_path or image.filename,
+            )
             
             return StreamingResponse(img_byte_arr, media_type="image/png")
         else:
@@ -1157,6 +1410,12 @@ async def import_txt_and_render(req: Request, image: UploadFile = File(...), txt
                 os.unlink(temp_image_path)
             raise HTTPException(500, detail="Failed to render image")
     
+    except HTTPException:
+        if os.path.exists(json_path):
+            os.unlink(json_path)
+        if 'temp_image_path' in locals() and os.path.exists(temp_image_path):
+            os.unlink(temp_image_path)
+        raise
     except Exception as e:
         # Clean up temporary files
         if os.path.exists(json_path):
@@ -1168,7 +1427,10 @@ async def import_txt_and_render(req: Request, image: UploadFile = File(...), txt
 
 @router.post("/import/json/stream", response_class=StreamingResponse, tags=["api", "import", "stream"])
 async def import_json_and_render_stream(req: Request, image: UploadFile = File(...), json_file: UploadFile = File(...), 
-                                       config: str = Form("{}"), user_env_vars: str = Form("{}")):
+                                       config: str = Form("{}"), user_env_vars: str = Form("{}"),
+                                       save_to_server: bool = Form(False),
+                                       output_folder: str = Form(""),
+                                       relative_path: str = Form("")):
     """Import JSON + image, return rendered image (streaming, with progress)"""
 #     import json
     from manga_translator.utils.path_manager import get_work_dir
@@ -1182,6 +1444,13 @@ async def import_json_and_render_stream(req: Request, image: UploadFile = File(.
     env_vars = await apply_user_env_vars(user_env_vars, conf, admin_settings, username)
     conf._user_env_vars = env_vars
     conf._username = username
+    _configure_server_result_export(
+        username,
+        conf,
+        save_to_server=save_to_server,
+        output_folder=output_folder,
+        relative_path=relative_path or image.filename,
+    )
     
     # Use temporary filename
     temp_name = f"temp_{secrets.token_hex(8)}"
@@ -1213,7 +1482,7 @@ async def import_json_and_render_stream(req: Request, image: UploadFile = File(.
         # Note: Cannot delete files in finally block during streaming response
         # Temporary files will accumulate in result directory, need periodic cleanup
         # 并发控制在 while_streaming 内部处理
-        return await while_streaming(req, transform_to_image, conf, temp_image, "load_text", image.filename)
+        return await while_streaming(req, transform_to_image, conf, temp_image, "load_text", relative_path or image.filename)
     
     except Exception as _e:
         # Only clean up temporary files on error
@@ -1230,7 +1499,10 @@ async def import_json_and_render_stream(req: Request, image: UploadFile = File(.
 @router.post("/import/txt/stream", response_class=StreamingResponse, tags=["api", "import", "stream"])
 async def import_txt_and_render_stream(req: Request, image: UploadFile = File(...), txt_file: UploadFile = File(...), 
                                       json_file: UploadFile = File(...), config: str = Form("{}"), 
-                                      template: UploadFile = File(None), user_env_vars: str = Form("{}")):
+                                      template: UploadFile = File(None), user_env_vars: str = Form("{}"),
+                                      save_to_server: bool = Form(False),
+                                      output_folder: str = Form(""),
+                                      relative_path: str = Form("")):
     """Import TXT + JSON + image, return rendered image (streaming, with progress, using UI layer import logic)"""
     import importlib.util
 
@@ -1257,6 +1529,13 @@ async def import_txt_and_render_stream(req: Request, image: UploadFile = File(..
     env_vars = await apply_user_env_vars(user_env_vars, conf, admin_settings, username)
     conf._user_env_vars = env_vars
     conf._username = username
+    _configure_server_result_export(
+        username,
+        conf,
+        save_to_server=save_to_server,
+        output_folder=output_folder,
+        relative_path=relative_path or image.filename,
+    )
     
     # Use temporary filename
     temp_name = f"temp_{secrets.token_hex(8)}"
@@ -1312,7 +1591,7 @@ async def import_txt_and_render_stream(req: Request, image: UploadFile = File(..
         # Use streaming translation, pass PIL Image object
         # Note: Cannot delete files in finally block during streaming response
         # Temporary files will accumulate in result directory, need periodic cleanup
-        return await while_streaming(req, transform_to_image, conf, temp_image, "load_text", image.filename)
+        return await while_streaming(req, transform_to_image, conf, temp_image, "load_text", relative_path or image.filename)
     
     except Exception as _e:
         # Only clean up temporary files on error

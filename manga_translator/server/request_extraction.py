@@ -8,7 +8,7 @@ import os
 import re
 from base64 import b64decode
 from contextlib import asynccontextmanager
-from typing import Union
+from typing import Optional, Union
 
 from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -108,7 +108,9 @@ class BatchTranslateRequest(BaseModel):
     images: list[bytes|str]
     config: dict | Config = {}
     batch_size: int = 4
-    filenames: list[str] = []  # 原始文件名列表（可选）
+    filenames: list[str] = []  # 原始文件名或相对路径列表（可选）
+    save_to_server: bool = False  # 是否保存到服务端 result 目录
+    output_folder: Optional[str] = None  # 可选输出子目录（相对于 result/）
     
     class Config:
         arbitrary_types_allowed = True
@@ -610,6 +612,36 @@ async def while_streaming(req: Request, transform, config: Config, image: bytes 
                     add_log("Translation saved to history", "INFO")
                 except Exception as save_error:
                     add_log(f"Failed to save history: {save_error}", "WARNING")
+                
+                # 如果启用了保存到服务器 result 目录，将结果图片直接写入服务端 result 目录
+                if getattr(config, '_save_to_server', False) and hasattr(ctx.result, 'save'):
+                    try:
+                        from manga_translator.server.core.config_manager import (
+                            admin_settings,
+                        )
+                        from manga_translator.server.core.result_export_service import (
+                            save_image_to_server_result,
+                        )
+                        source_rel_path = (
+                            getattr(config, '_original_relative_path', None)
+                            or getattr(config, '_original_filename', None)
+                        )
+                        saved_rel = save_image_to_server_result(
+                            ctx.result,
+                            username=username,
+                            admin_settings=admin_settings,
+                            config=config,
+                            source_path=source_rel_path,
+                            output_folder=getattr(config, '_server_output_folder', None),
+                        )
+                        add_log(f"Saved result to server directory: result/{saved_rel}", "INFO")
+                        yield pack_message(1, json.dumps({
+                            "stage": "saved_to_server",
+                            "message": f"已保存到服务器: result/{saved_rel}",
+                            "saved_path": f"result/{saved_rel}",
+                        }, ensure_ascii=False).encode('utf-8'))
+                    except Exception as export_error:
+                        add_log(f"Failed to save result to server directory: {export_error}", "WARNING")
                 
                 yield pack_message(1, json.dumps({"stage": "sending", "message": "Sending..."}, ensure_ascii=False).encode('utf-8'))
                 yield pack_message(0, result_data)

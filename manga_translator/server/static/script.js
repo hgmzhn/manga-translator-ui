@@ -1,4 +1,4 @@
-﻿document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', () => {
     init();
 });
 
@@ -80,6 +80,10 @@ const els = {
     exportConfigBtn: document.getElementById('export-config-btn'),
     importConfigBtn: document.getElementById('import-config-btn'),
     configInput: document.getElementById('config-input'),
+    serverOutputSection: document.getElementById('server-output-section'),
+    saveToServerCb: document.getElementById('save-to-server-cb'),
+    serverOutputFolderGroup: document.getElementById('server-output-folder-group'),
+    outputDirInput: document.getElementById('output-dir'),
 };
 
 let configOptions = {};  // 存储参数选项
@@ -547,10 +551,23 @@ function applyTranslations() {
     document.getElementById('add-files-btn').textContent = t('Add Files');
     document.getElementById('clear-list-btn').textContent = t('Clear List');
     
-    // 输出目录在 Web 模式下隐藏，不需要翻译
-    // const outputHeader = document.querySelector('.output-section h3');
-    // if (outputHeader) outputHeader.textContent = t('Output Directory:');
-    // document.getElementById('output-dir').placeholder = t('Select or drag output folder...');
+    // 服务器输出目录（仅对有 can_save_to_server_result 权限的用户显示）
+    const serverOutputTitle = document.getElementById('server-output-title');
+    if (serverOutputTitle) {
+        serverOutputTitle.textContent = t('web_server_output_title', '服务器输出');
+    }
+    const saveToServerLabel = document.getElementById('save-to-server-label');
+    if (saveToServerLabel) {
+        saveToServerLabel.textContent = t('web_save_to_server_result', '保存到服务器 result 目录');
+    }
+    const outputDirInput = document.getElementById('output-dir');
+    if (outputDirInput) {
+        outputDirInput.placeholder = t('web_server_output_folder_placeholder', '输出子目录（可选，上传文件夹自动保留层级）');
+    }
+    const serverOutputHint = document.getElementById('server-output-hint');
+    if (serverOutputHint) {
+        serverOutputHint.textContent = t('web_save_to_server_result_hint', '勾选后翻译结果将直接写入服务端 result 目录（Docker 映射目录）');
+    }
     document.querySelector('.workflow-section h3').textContent = t('Translation Workflow Mode:');
     document.getElementById('start-btn').textContent = t('Start Translation');
     document.getElementById('export-config-btn').textContent = t('Export Config');
@@ -655,6 +672,21 @@ function setupEventListeners() {
     }
     if (clearResultsBtn) {
         clearResultsBtn.addEventListener('click', clearResults);
+    }
+
+    // Server result export controls
+    const saveToServerCb = document.getElementById('save-to-server-cb');
+    if (saveToServerCb) {
+        saveToServerCb.addEventListener('change', (e) => {
+            localStorage.setItem('save_to_server_result', e.target.checked ? 'true' : 'false');
+            updateServerOutputUI();
+        });
+    }
+    const outputDirInput = document.getElementById('output-dir');
+    if (outputDirInput) {
+        outputDirInput.addEventListener('input', (e) => {
+            localStorage.setItem('server_output_folder', e.target.value);
+        });
     }
 }
 
@@ -864,9 +896,47 @@ async function loadUserSettings() {
         if (promptUploadSection) {
             promptUploadSection.style.display = userSettings.can_upload_prompts ? 'block' : 'none';
         }
+
+        // 根据权限恢复并显示/隐藏服务器 result 目录导出选项
+        const saveToServerCb = document.getElementById('save-to-server-cb');
+        if (saveToServerCb) {
+            saveToServerCb.checked = localStorage.getItem('save_to_server_result') === 'true';
+        }
+        const outputDirInput = document.getElementById('output-dir');
+        if (outputDirInput) {
+            outputDirInput.value = localStorage.getItem('server_output_folder') || '';
+        }
+        updateServerOutputUI();
     } catch (e) {
         console.error('Error loading user settings:', e);
     }
+}
+
+function updateServerOutputUI() {
+    const canSave = Boolean(userSettings && userSettings.can_save_to_server_result);
+    const section = document.getElementById('server-output-section');
+    const checkbox = document.getElementById('save-to-server-cb');
+    const folderGroup = document.getElementById('server-output-folder-group');
+    if (!section || !checkbox || !folderGroup) return;
+
+    section.style.display = canSave ? 'block' : 'none';
+    if (!canSave) {
+        folderGroup.style.display = 'none';
+        return;
+    }
+    folderGroup.style.display = checkbox.checked ? 'block' : 'none';
+}
+
+function getServerSaveOptions() {
+    const canSave = Boolean(userSettings && userSettings.can_save_to_server_result);
+    if (!canSave) {
+        return { saveToServer: false, outputFolder: '' };
+    }
+    const checkbox = document.getElementById('save-to-server-cb');
+    const folderInput = document.getElementById('output-dir');
+    const saveToServer = Boolean(checkbox && checkbox.checked);
+    const outputFolder = (saveToServer && folderInput) ? folderInput.value.trim() : '';
+    return { saveToServer, outputFolder };
 }
 
 async function loadWorkflows() {
@@ -2049,7 +2119,36 @@ function collectConfig() {
 }
 
 // --- File Handling ---
-let translationFiles = {}; // 存储翻译文件 {imageName: textFile}
+let translationFiles = {}; // 存储翻译文件 {relativePathOrName: textFile}
+
+function getFileRelativePath(file) {
+    if (!file) return '';
+    return (file.webkitRelativePath && file.webkitRelativePath.trim() !== '')
+        ? file.webkitRelativePath
+        : file.name;
+}
+
+function stripTranslationFileSuffix(pathStr) {
+    return pathStr
+        .replace(/_translations\.json$/i, '')
+        .replace(/_original\.txt$/i, '')
+        .replace(/_translated\.txt$/i, '')
+        .replace(/\.json$/i, '');
+}
+
+function stripFileExtension(pathStr) {
+    return pathStr.replace(/\.[^./\\]+$/, '');
+}
+
+function matchTranslationFileToImage(textFile) {
+    const textRelBase = stripTranslationFileSuffix(getFileRelativePath(textFile));
+    const textNameBase = stripTranslationFileSuffix(textFile.name);
+
+    return (
+        fileList.find(img => stripFileExtension(getFileRelativePath(img)) === textRelBase) ||
+        fileList.find(img => stripFileExtension(img.name) === textNameBase)
+    );
+}
 
 // 检查上传限制的共享函数
 function checkUploadLimits(imageFiles, currentFileCount) {
@@ -2156,23 +2255,14 @@ async function handleFileSelect(e) {
     
     // 处理文本文件，建立与图片的关联
     textFiles.forEach(textFile => {
-        // 提取基础文件名（去掉 _original.txt, _translated.txt, .json 等后缀）
-        let baseName = textFile.name
-            .replace(/_original\.txt$/, '')
-            .replace(/_translated\.txt$/, '')
-            .replace(/\.json$/, '');
-        
-        // 查找匹配的图片
-        const matchedImage = fileList.find(img => {
-            const imgBaseName = img.name.replace(/\.[^.]+$/, ''); // 去掉扩展名
-            return imgBaseName === baseName;
-        });
-        
+        const matchedImage = matchTranslationFileToImage(textFile);
         if (matchedImage) {
+            const matchedPath = getFileRelativePath(matchedImage);
+            translationFiles[matchedPath] = textFile;
             translationFiles[matchedImage.name] = textFile;
-            log(`${t('translation_file_matched', '翻译文件已匹配')}: ${textFile.name} -> ${matchedImage.name}`, 'info');
+            log(`${t('translation_file_matched', '翻译文件已匹配')}: ${getFileRelativePath(textFile)} -> ${matchedPath}`, 'info');
         } else {
-            log(`${t('translation_file_no_match', '未找到匹配的图片')}: ${textFile.name}`, 'warning');
+            log(`${t('translation_file_no_match', '未找到匹配的图片')}: ${getFileRelativePath(textFile)}`, 'warning');
         }
     });
     
@@ -2265,17 +2355,10 @@ function handleFolderSelect(e) {
     
     // 处理文本文件
     textFiles.forEach(textFile => {
-        let baseName = textFile.name
-            .replace(/_original\.txt$/, '')
-            .replace(/_translated\.txt$/, '')
-            .replace(/\.json$/, '');
-        
-        const matchedImage = fileList.find(img => {
-            const imgBaseName = img.name.replace(/\.[^.]+$/, '');
-            return imgBaseName === baseName;
-        });
-        
+        const matchedImage = matchTranslationFileToImage(textFile);
         if (matchedImage) {
+            const matchedPath = getFileRelativePath(matchedImage);
+            translationFiles[matchedPath] = textFile;
             translationFiles[matchedImage.name] = textFile;
         }
     });
@@ -2295,17 +2378,21 @@ function addFileToUI(file) {
     const label = document.createElement('span');
     const size = document.createElement('small');
     const removeBtn = document.createElement('span');
+    const displayPath = getFileRelativePath(file);
     size.textContent = `(${formatSize(file.size)})`;
-    label.append(`${file.name} `, size);
+    label.append(`${displayPath} `, size);
+    label.title = displayPath;
     removeBtn.className = 'remove-btn';
     removeBtn.textContent = '✖';
-    removeBtn.addEventListener('click', () => removeFile(file.name));
+    removeBtn.addEventListener('click', () => removeFile(file));
     li.append(label, removeBtn);
     els.fileList.appendChild(li);
 }
 
-function removeFile(name) {
-    const idx = fileList.findIndex(f => f.name === name);
+function removeFile(target) {
+    const idx = typeof target === 'string'
+        ? fileList.findIndex(f => getFileRelativePath(f) === target || f.name === target)
+        : fileList.indexOf(target);
     if (idx !== -1) {
         fileList.splice(idx, 1);
         renderFileList();
@@ -2367,7 +2454,7 @@ async function startTask() {
             for (let i = 0; i < fileList.length; i++) {
                 const file = fileList[i];
                 const processingMsg = currentLocale.startsWith('zh') ? '正在处理' : 'Processing';
-                log(`${processingMsg} [${i + 1}/${fileList.length}]: ${file.name}...`);
+                log(`${processingMsg} [${i + 1}/${fileList.length}]: ${getFileRelativePath(file)}...`);
                 await processFile(file, mode, config);
             }
         }
@@ -2400,8 +2487,9 @@ async function processBatch(files, config) {
             });
         }));
         
-        // 获取原始文件名列表
-        const filenames = files.map(file => file.name);
+        // 获取原始文件名或相对路径列表（上传文件夹时保留目录结构）
+        const filenames = files.map(file => getFileRelativePath(file));
+        const { saveToServer, outputFolder } = getServerSaveOptions();
         
         // 调用批量翻译接口
         const batchSize = parseInt(config.cli?.batch_size) || 5;
@@ -2426,7 +2514,9 @@ async function processBatch(files, config) {
                     images: images,
                     config: config,
                     batch_size: Math.min(batchSize, files.length),
-                    filenames: filenames
+                    filenames: filenames,
+                    save_to_server: saveToServer,
+                    output_folder: outputFolder || null
                 }),
                 signal: controller.signal
             });
@@ -2446,6 +2536,10 @@ async function processBatch(files, config) {
         // 检查自定义 header 确认是 ZIP 文件
         const xContentType = response.headers.get('x-content-type');
         console.log('X-Content-Type:', xContentType);
+        const savedCountHeader = response.headers.get('x-server-saved-count');
+        if (saveToServer && savedCountHeader !== null) {
+            log(`${t('web_saved_to_server_batch', '已保存到服务器 result 目录')}: ${savedCountHeader}`, 'info');
+        }
         
         // 先获取 blob
         const blob = await response.blob();
@@ -2468,9 +2562,14 @@ async function processBatch(files, config) {
                 const zipContent = await zip.loadAsync(blob);
                 console.log('ZIP content files:', Object.keys(zipContent.files));
                 
-                // 遍历 ZIP 中的所有图片文件（支持多种格式）
-                const imageExtensions = configOptions.image_extensions || [];
+                // 遍历 ZIP 中的所有图片文件（支持多种格式，过滤掉目录条目）
+                const defaultImageExtensions = ['.png', '.jpg', '.jpeg', '.webp', '.avif', '.bmp', '.tif', '.tiff', '.heic', '.heif', '.jfif'];
+                const imageExtensions = (configOptions.image_extensions && configOptions.image_extensions.length > 0)
+                    ? configOptions.image_extensions
+                    : defaultImageExtensions;
                 const imageFiles = Object.keys(zipContent.files).filter(name => {
+                    const entry = zipContent.files[name];
+                    if (!entry || entry.dir) return false;
                     const lowerName = name.toLowerCase();
                     return imageExtensions.some(ext => lowerName.endsWith(ext));
                 });
@@ -2527,6 +2626,8 @@ async function processBatch(files, config) {
 }
 
 async function processFile(file, mode, config) {
+    const relPath = getFileRelativePath(file);
+    const { saveToServer, outputFolder } = getServerSaveOptions();
     const formData = new FormData();
     formData.append('image', file);
     formData.append('config', JSON.stringify(config));
@@ -2538,6 +2639,16 @@ async function processFile(file, mode, config) {
         formData.append('user_env_vars', JSON.stringify(requestEnvVars));
     }
 
+    if (mode !== 'export_trans' && mode !== 'export_raw') {
+        formData.append('relative_path', relPath);
+        if (saveToServer) {
+            formData.append('save_to_server', 'true');
+            if (outputFolder) {
+                formData.append('output_folder', outputFolder);
+            }
+        }
+    }
+
     // Determine endpoint based on mode
     let endpoint = '/translate/with-form/image/stream'; // Default normal
 
@@ -2545,10 +2656,10 @@ async function processFile(file, mode, config) {
     else if (mode === 'export_raw') endpoint = '/translate/export/original';
     else if (mode === 'import_trans') {
         // 导入翻译并渲染：必须上传图片+JSON文件
-        const translationFile = translationFiles[file.name];
+        const translationFile = translationFiles[relPath] || translationFiles[file.name];
         
         if (!translationFile) {
-            log(`${t('import_mode_no_json', '导入翻译模式：未找到JSON文件')}: ${file.name}`, 'error');
+            log(`${t('import_mode_no_json', '导入翻译模式：未找到JSON文件')}: ${relPath}`, 'error');
             log(`${t('import_mode_hint', '提示：请同时上传图片和对应的JSON文件（例如：image.png 和 image.json）')}`, 'warning');
             return;
         }
@@ -2561,7 +2672,7 @@ async function processFile(file, mode, config) {
         
         endpoint = '/translate/import/json';
         formData.append('json_file', translationFile);
-        log(`${t('using_translation_file', '使用翻译文件')}: ${translationFile.name}`, 'info');
+        log(`${t('using_translation_file', '使用翻译文件')}: ${getFileRelativePath(translationFile)}`, 'info');
     }
     else if (mode === 'colorize') endpoint = '/translate/colorize';
     else if (mode === 'upscale') endpoint = '/translate/upscale';
@@ -2569,7 +2680,7 @@ async function processFile(file, mode, config) {
 
     // Special handling for stream endpoints
     if (endpoint.includes('stream') && !endpoint.includes('export')) {
-        await processStream(endpoint, formData, file.name);
+        await processStream(endpoint, formData, relPath);
     } else {
         // Standard download endpoints
         const sessionToken = localStorage.getItem('session_token');
@@ -2587,14 +2698,14 @@ async function processFile(file, mode, config) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
         const blob = await res.blob();
-        const resultFilename = getDownloadName(file.name, mode);
+        const resultFilename = getDownloadName(relPath, mode);
         
         // 添加到结果列表（不自动下载）
         const resultUrl = URL.createObjectURL(blob);
         const resultType = resultFilename.endsWith('.zip') ? 'zip' : 'image';
         addResult(resultFilename, resultUrl, resultType);
         
-        log(`${file.name} 处理完成`, 'info');
+        log(`${relPath} 处理完成`, 'info');
     }
 }
 
@@ -2675,7 +2786,8 @@ async function processStream(endpoint, formData, filename) {
 
         if (resultChunks.length > 0) {
             const blob = new Blob(resultChunks, { type: 'image/png' });
-            const resultFilename = `translated_${filename}`;
+            const normalizedPath = filename.replace(/\\/g, '/');
+            const resultFilename = normalizedPath.includes('/') ? normalizedPath : `translated_${normalizedPath}`;
             
             // 添加到结果列表（不自动下载）
             const imageUrl = URL.createObjectURL(blob);
@@ -2742,10 +2854,12 @@ function downloadBlob(blob, filename) {
 }
 
 function getDownloadName(original, mode) {
-    const base = original.split('.')[0];
+    const normalized = original.replace(/\\/g, '/');
+    const lastDot = normalized.lastIndexOf('.');
+    const base = lastDot > 0 ? normalized.slice(0, lastDot) : normalized;
     if (mode === 'export_trans') return `${base}_translated.zip`;
     if (mode === 'export_raw') return `${base}_original.zip`;
-    return `result_${original}`;
+    return normalized.includes('/') ? normalized : `result_${normalized}`;
 }
 
 // --- Utils ---
@@ -3206,7 +3320,8 @@ function viewResult(result) {
 function downloadResult(result) {
     const a = document.createElement('a');
     a.href = result.imageData;
-    a.download = result.filename;
+    const normalized = String(result.filename || '').replace(/\\/g, '/');
+    a.download = normalized.split('/').pop() || result.filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
