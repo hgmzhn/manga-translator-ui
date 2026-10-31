@@ -3,6 +3,7 @@ import _bootstrap  # noqa: F401
 import base64
 import io
 import json
+import os
 import struct
 import zipfile
 from pathlib import Path

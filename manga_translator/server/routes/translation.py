@@ -679,105 +679,109 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
             output_format = fmt.lower()
     
     # Create temporary ZIP file
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp_file:
-        tmp_file_name = tmp_file.name
-    
-    # File handle is closed, now safe to write
-    image_count = 0
-    with zipfile.ZipFile(tmp_file_name, 'w') as zip_file:
-        for img_data in result_images:
-            i = img_data['index']
-            img_to_save = img_data['image']
-            
-            # 获取原始文件名（可能包含相对目录结构）
-            original_name = filenames[i] if i < len(filenames) else None
-            
-            save_format, _ext = resolve_output_image_format(
-                output_format,
-                original_path=original_name,
-            )
-            
-            # 生成输出文件名（保留子目录结构以避免多章节同名文件在 ZIP 中互相覆盖）
-            output_name = build_archive_entry_name(
-                original_name,
-                output_format,
-                fallback_stem=f"translated_{i+1}",
-            )
-            
-            img_byte_arr = io.BytesIO()
-            if save_format in RGB_PIL_FORMATS and img_to_save.mode not in ('RGB', 'L'):
-                img_to_save = normalize_rgb_image(img_to_save)
-            img_to_save.save(img_byte_arr, format=save_format)
-            zip_file.writestr(output_name, img_byte_arr.getvalue())
-            image_count += 1
-    
-    add_log(f"ZIP file created: contains {image_count} images", "INFO")
-    
-    # 保存历史记录（使用已复制的图片数据）
-    from manga_translator.server.request_extraction import save_translation_to_history
-    for img_data in result_images:
-        i = img_data['index']
-        original_name = filenames[i] if i < len(filenames) else f"batch_{i+1}.png"
-        try:
-            # 创建一个临时 ctx 对象用于保存历史
-            class TempCtx:
-                pass
-            temp_ctx = TempCtx()
-            temp_ctx.result = img_data['image']
-            temp_ctx.text_regions = results[i].text_regions if results[i] and hasattr(results[i], 'text_regions') else None
-            
-            await save_translation_to_history(
-                temp_ctx, username, f"{task_id}_{i}", "normal", 
-                original_name, config
-            )
-        except Exception as e:
-            add_log(f"Failed to save history (image {i+1}): {e}", "WARNING")
-    
-    # 如果启用了保存到服务器 result 目录，直接按相对目录结构写入服务端 result 目录
-    saved_to_server_count = 0
-    server_save_errors: list[str] = []
-    if getattr(config, "_save_to_server", False):
-        for img_data in result_images:
-            i = img_data['index']
-            source_name = filenames[i] if i < len(filenames) else None
-            try:
-                saved_rel = save_image_to_server_result(
-                    img_data['image'],
-                    username=username,
-                    admin_settings=admin_settings,
-                    config=config,
-                    source_path=source_name,
-                    output_folder=getattr(config, "_server_output_folder", None),
+    tmp_file_name = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp_file:
+            tmp_file_name = tmp_file.name
+        
+        # File handle is closed, now safe to write
+        image_count = 0
+        with zipfile.ZipFile(tmp_file_name, 'w') as zip_file:
+            for img_data in result_images:
+                i = img_data['index']
+                img_to_save = img_data['image']
+                
+                # 获取原始文件名（可能包含相对目录结构）
+                original_name = filenames[i] if i < len(filenames) else None
+                
+                save_format, _ext = resolve_output_image_format(
+                    output_format,
+                    original_path=original_name,
+                )
+                
+                # 生成输出文件名（保留子目录结构以避免多章节同名文件在 ZIP 中互相覆盖）
+                output_name = build_archive_entry_name(
+                    original_name,
+                    output_format,
                     fallback_stem=f"translated_{i+1}",
                 )
-                saved_to_server_count += 1
-                add_log(f"Saved batch result to server directory: result/{saved_rel}", "INFO")
+                
+                img_byte_arr = io.BytesIO()
+                if save_format in RGB_PIL_FORMATS and img_to_save.mode not in ('RGB', 'L'):
+                    img_to_save = normalize_rgb_image(img_to_save)
+                img_to_save.save(img_byte_arr, format=save_format)
+                zip_file.writestr(output_name, img_byte_arr.getvalue())
+                image_count += 1
+        
+        add_log(f"ZIP file created: contains {image_count} images", "INFO")
+        
+        # 保存历史记录（使用已复制的图片数据）
+        from manga_translator.server.request_extraction import save_translation_to_history
+        for img_data in result_images:
+            i = img_data['index']
+            original_name = filenames[i] if i < len(filenames) else f"batch_{i+1}.png"
+            try:
+                # 创建一个临时 ctx 对象用于保存历史
+                class TempCtx:
+                    pass
+                temp_ctx = TempCtx()
+                temp_ctx.result = img_data['image']
+                temp_ctx.text_regions = results[i].text_regions if results[i] and hasattr(results[i], 'text_regions') else None
+                
+                await save_translation_to_history(
+                    temp_ctx, username, f"{task_id}_{i}", "normal", 
+                    original_name, config
+                )
             except Exception as e:
-                server_save_errors.append(str(e))
-                add_log(f"Failed to save batch image {i+1} to server directory: {e}", "ERROR")
+                add_log(f"Failed to save history (image {i+1}): {e}", "WARNING")
+        
+        # 如果启用了保存到服务器 result 目录，直接按相对目录结构写入服务端 result 目录
+        saved_to_server_count = 0
+        server_save_errors: list[str] = []
+        if getattr(config, "_save_to_server", False):
+            for img_data in result_images:
+                i = img_data['index']
+                source_name = filenames[i] if i < len(filenames) else None
+                try:
+                    saved_rel = save_image_to_server_result(
+                        img_data['image'],
+                        username=username,
+                        admin_settings=admin_settings,
+                        config=config,
+                        source_path=source_name,
+                        output_folder=getattr(config, "_server_output_folder", None),
+                        fallback_stem=f"translated_{i+1}",
+                    )
+                    saved_to_server_count += 1
+                    add_log(f"Saved batch result to server directory: result/{saved_rel}", "INFO")
+                except Exception as e:
+                    server_save_errors.append(str(e))
+                    add_log(f"Failed to save batch image {i+1} to server directory: {e}", "ERROR")
 
-        if result_images and saved_to_server_count == 0 and server_save_errors:
-            raise HTTPException(500, detail=f"保存到服务器目录失败: {server_save_errors[0]}")
-    
-    # 读取 ZIP 文件内容
-    with open(tmp_file_name, 'rb') as f:
-        zip_data = f.read()
-    
-    # 清理临时文件
-    try:
-        os.unlink(tmp_file_name)
-    except PermissionError:
-        import atexit
-        atexit.register(lambda: os.unlink(tmp_file_name) if os.path.exists(tmp_file_name) else None)
-    
-    # 显式清理复制的图片内存
-    for img_data in result_images:
-        try:
-            if img_data.get('image'):
-                img_data['image'].close()
-        except Exception:
-            pass
-    result_images.clear()
+            if result_images and saved_to_server_count == 0 and server_save_errors:
+                raise HTTPException(500, detail=f"保存到服务器目录失败: {server_save_errors[0]}")
+        
+        # 读取 ZIP 文件内容
+        with open(tmp_file_name, 'rb') as f:
+            zip_data = f.read()
+    finally:
+        # 清理临时文件
+        if tmp_file_name:
+            try:
+                os.unlink(tmp_file_name)
+            except (FileNotFoundError, PermissionError) as unlink_err:
+                if isinstance(unlink_err, PermissionError) and os.path.exists(tmp_file_name):
+                    import atexit
+                    atexit.register(lambda: os.unlink(tmp_file_name) if os.path.exists(tmp_file_name) else None)
+        
+        # 显式清理复制的图片内存
+        for img_data in result_images:
+            try:
+                if img_data.get('image'):
+                    img_data['image'].close()
+            except Exception:
+                pass
+        result_images.clear()
     
     # 返回 ZIP 数据，不使用 Content-Disposition: attachment（避免 IDM 拦截）
     # 使用 inline 或不设置，让浏览器直接处理而不触发下载
