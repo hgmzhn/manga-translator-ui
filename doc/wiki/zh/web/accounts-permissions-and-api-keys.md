@@ -54,7 +54,7 @@ lastUpdated: true
 ### 功能权限、资源权限与配额 {#feature-resource-and-quota-permissions}
 
 - 功能权限：翻译器、OCR、上色器、渲染器、工作流和参数各有 `allowed_*` / `denied_*` 两个列表。参数权限按配置键过滤（例如 `translator.target_lang`）。
-- 资源权限：`can_upload_files` / `can_delete_files` 决定是否能上传/删除私有字体与提示词；若用户组配置了更细的 `can_upload_fonts`、`can_delete_fonts`、`can_upload_prompts`、`can_delete_prompts`，以用户组为准。`can_save_to_server_result` 控制是否允许在翻译时将结果图片直接写入服务器 `result/` 目录（管理员默认开启，普通用户默认关闭，可在用户组或单用户权限编辑器中单独开启/关闭）。
+- 资源权限：`can_upload_files` / `can_delete_files` 决定是否能上传/删除私有字体与提示词；若用户组配置了更细的 `can_upload_fonts`、`can_delete_fonts`、`can_upload_prompts`、`can_delete_prompts`，以用户组为准。`can_save_to_server_result` 控制是否允许在翻译时将结果图片直接写入服务器 `result/` 目录（`admin` 角色默认开启，普通用户组默认关闭，管理员可在管理界面的用户组权限编辑器中按组单独开启/关闭）。
 - 配额：`max_concurrent_tasks`（普通用户默认 2，管理员默认 10）限制同时运行的任务数；`daily_quota`（普通用户默认 100，`-1` 为无限制）限制每日任务量。用户组配额优先于用户级配额。超限返回 `429`。
 - 上传限制还受服务器配置影响：`max_image_size_mb`、`max_images_per_batch`。
 
