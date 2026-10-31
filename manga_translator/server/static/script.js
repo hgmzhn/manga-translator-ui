@@ -2537,8 +2537,14 @@ async function processBatch(files, config) {
         const xContentType = response.headers.get('x-content-type');
         console.log('X-Content-Type:', xContentType);
         const savedCountHeader = response.headers.get('x-server-saved-count');
-        if (saveToServer && savedCountHeader !== null) {
-            log(`${t('web_saved_to_server_batch', '已保存到服务器 result 目录')}: ${savedCountHeader}`, 'info');
+        const saveErrorHeader = response.headers.get('x-server-save-error');
+        if (saveToServer) {
+            if (savedCountHeader !== null) {
+                log(`${t('web_saved_to_server_batch', '已保存到服务器 result 目录')}: ${savedCountHeader}`, 'info');
+            }
+            if (saveErrorHeader) {
+                log(`${currentLocale.startsWith('zh') ? '部分图片保存到服务器失败' : 'Failed to save some images to server'}: ${saveErrorHeader}`, 'warning');
+            }
         }
         
         // 先获取 blob

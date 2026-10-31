@@ -163,9 +163,9 @@ flowchart TD
 | `422` | 请求体校验失败或图片数据非法；全局 handler 返回 `detail` 与请求体 | `main.py:255` |
 | `429` | 超过用户并发任务数（`CONCURRENT_LIMIT_EXCEEDED`）或每日配额（`DAILY_QUOTA_EXCEEDED`） | `core/middleware.py:326`、`:365` |
 | `499` | 批量任务被强制取消或检测为取消 | `translation.py:421`、`:518` |
-| `500` | 无结果图片、翻译异常或服务未初始化 | `translation.py:527`；`request_extraction.py` |
+| `500` | 无结果图片、翻译异常、服务未初始化或 `save_to_server` 直存服务端失败 | `translation.py`；`request_extraction.py` |
 
-流式端点不会在翻译中途失败时抛出 HTTP 错误，而是发送状态 `2` 的错误帧，载荷为 `{"error": ..., "stage": ...}`；只有认证、权限、并发、配额和请求校验阶段才返回 HTTP 状态码。
+流式端点不会在翻译中途失败时抛出 HTTP 错误，而是发送状态 `2` 的错误帧，载荷为 `{"error": ..., "stage": ...}`（若指定 `save_to_server=true` 且落盘失败，同样发送状态 `2` 的 `stage: "save_to_server"` 错误帧并终止）；只有认证、权限、并发、配额和请求校验阶段才返回 HTTP 状态码。批量翻译开启直存时，若全部落盘失败则返回 `500`，部分失败时通过 `X-Server-Save-Error` 响应头返回错误信息。
 
 ### 关联文件与格式 {#related-files-and-formats}
 

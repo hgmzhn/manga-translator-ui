@@ -153,8 +153,9 @@ def _maybe_export_ctx_to_server_result(
         add_log(f"Saved result to server directory: result/{saved_rel}", "INFO")
         return saved_rel
     except Exception as exc:
-        add_log(f"Failed to save result to server directory: {exc}", "WARNING")
-        return None
+        error_msg = f"保存到服务器目录失败: {exc}"
+        add_log(error_msg, "ERROR")
+        raise HTTPException(500, detail=error_msg) from exc
 
 
 async def _run_tracked_translation(
@@ -734,6 +735,7 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
     
     # 如果启用了保存到服务器 result 目录，直接按相对目录结构写入服务端 result 目录
     saved_to_server_count = 0
+    server_save_errors: list[str] = []
     if getattr(config, "_save_to_server", False):
         for img_data in result_images:
             i = img_data['index']
@@ -751,7 +753,11 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
                 saved_to_server_count += 1
                 add_log(f"Saved batch result to server directory: result/{saved_rel}", "INFO")
             except Exception as e:
-                add_log(f"Failed to save batch image {i+1} to server directory: {e}", "WARNING")
+                server_save_errors.append(str(e))
+                add_log(f"Failed to save batch image {i+1} to server directory: {e}", "ERROR")
+
+        if result_images and saved_to_server_count == 0 and server_save_errors:
+            raise HTTPException(500, detail=f"保存到服务器目录失败: {server_save_errors[0]}")
     
     # 读取 ZIP 文件内容
     with open(tmp_file_name, 'rb') as f:
@@ -781,6 +787,8 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
     }
     if getattr(config, "_save_to_server", False):
         response_headers["X-Server-Saved-Count"] = str(saved_to_server_count)
+        if server_save_errors:
+            response_headers["X-Server-Save-Error"] = server_save_errors[0]
 
     return StreamingResponse(
         io.BytesIO(zip_data),

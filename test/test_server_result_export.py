@@ -570,6 +570,146 @@ def test_stream_image_form_endpoint_emits_saved_to_server_frame(
         assert streamed_img.size == (24, 16)
 
 
+def test_server_result_export_failure_propagation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    users = {
+        "admin": SimpleNamespace(role="admin", group="admin", parameter_config={}),
+    }
+    groups = {
+        "admin": {"parameter_config": {"permissions": {"can_save_to_server_result": True}}},
+    }
+    fake_services = (_FakeAccountService(users), _FakeSessionService({}), _FakePermissionService())
+    monkeypatch.setattr(middleware_module, "get_services", lambda: fake_services)
+    monkeypatch.setattr(group_mgmt_module, "get_group_management_service", lambda: _FakeGroupService(groups))
+    monkeypatch.setattr(export_service, "get_application_dir", lambda: str(tmp_path))
+
+    async def fake_verify_auth(req, config):
+        del req, config
+        return "admin", "127.0.0.1"
+
+    async def fake_apply_env(user_env_vars, config, admin_settings, username):
+        del user_env_vars, config, admin_settings, username
+        return {}
+
+    async def fake_run_in_translator_thread(*args, **kwargs):
+        return SimpleNamespace(
+            result=Image.new("RGB", (20, 20), "cyan"),
+            text_regions=[],
+            success=True,
+        )
+
+    async def fake_get_batch_ctx(req, config, images, batch_size, workflow, task_id=None):
+        del req, config, batch_size, workflow, task_id
+        return [
+            SimpleNamespace(result=Image.new("RGB", (10, 10), "yellow"), text_regions=[]),
+            SimpleNamespace(result=Image.new("RGB", (10, 10), "orange"), text_regions=[]),
+        ][: len(images)]
+
+    async def fake_save_history(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(translation_routes, "verify_translation_auth", fake_verify_auth)
+    monkeypatch.setattr(translation_routes, "apply_user_env_vars", fake_apply_env)
+    monkeypatch.setattr(translation_routes, "track_task_start", lambda u: None)
+    monkeypatch.setattr(translation_routes, "track_task_end", lambda u: None)
+    monkeypatch.setattr(translation_routes, "log_translation_task_created", lambda *a, **kw: None)
+    monkeypatch.setattr(task_manager_module, "run_in_translator_thread", fake_run_in_translator_thread)
+    monkeypatch.setattr(translation_routes, "get_batch_ctx", fake_get_batch_ctx)
+    monkeypatch.setattr(request_extraction_module, "save_translation_to_history", fake_save_history)
+
+    # 1. 模拟磁盘写满或无权限时，流式接口应当发出 stage="save_to_server" 的 status=2 错误帧，并中止发送结果
+    def fail_save(*args, **kwargs):
+        raise OSError("Disk full: no space left on device")
+
+    monkeypatch.setattr(export_service, "save_image_to_server_result", fail_save)
+    monkeypatch.setattr(translation_routes, "save_image_to_server_result", fail_save)
+
+    app = FastAPI()
+    app.include_router(translation_routes.router)
+    client = TestClient(app)
+
+    stream_resp = client.post(
+        "/translate/with-form/image/stream",
+        files={"image": ("001.png", _png_bytes(), "image/png")},
+        data={
+            "config": "{}",
+            "user_env_vars": "{}",
+            "save_to_server": "true",
+            "output_folder": "FullDiskTest",
+            "relative_path": "001.png",
+        },
+    )
+    assert stream_resp.status_code == 200
+    frames = _unpack_stream_frames(stream_resp.content)
+    error_frames = [
+        json.loads(payload.decode("utf-8"))
+        for status, payload in frames
+        if status == 2
+    ]
+    assert len(error_frames) == 1
+    assert error_frames[0].get("stage") == "save_to_server"
+    assert "Disk full" in error_frames[0].get("error", "")
+    # 不应发送结果图片帧
+    assert not any(status == 0 for status, _ in frames)
+
+    # 2. 批量接口全部保存失败时，应当向客户端返回 500
+    batch_resp = client.post(
+        "/translate/batch/images",
+        json={
+            "images": [_png_data_uri("red")],
+            "config": {},
+            "filenames": ["001.jpg"],
+            "save_to_server": True,
+            "output_folder": "FullDiskBatch",
+        },
+    )
+    assert batch_resp.status_code == 500
+    assert "Disk full" in batch_resp.json().get("detail", "")
+
+    # 3. 批量接口部分成功、部分失败时，返回 200 并携带 X-Server-Save-Error 与已保存计数
+    saved_counter = {"calls": 0}
+
+    def partial_save(*args, **kwargs):
+        saved_counter["calls"] += 1
+        if saved_counter["calls"] == 1:
+            return "FullDiskBatch/001.jpg"
+        raise OSError("Write error on image 2")
+
+    monkeypatch.setattr(translation_routes, "save_image_to_server_result", partial_save)
+    monkeypatch.setattr(export_service, "save_image_to_server_result", partial_save)
+    batch_partial_resp = client.post(
+        "/translate/batch/images",
+        json={
+            "images": [_png_data_uri("red"), _png_data_uri("green")],
+            "config": {},
+            "filenames": ["001.jpg", "002.jpg"],
+            "save_to_server": True,
+            "output_folder": "FullDiskBatch",
+        },
+    )
+    assert batch_partial_resp.status_code == 200
+    assert batch_partial_resp.headers.get("X-Server-Saved-Count") == "1"
+    assert "Write error on image 2" in batch_partial_resp.headers.get("X-Server-Save-Error", "")
+
+    # 4. 非流式单图接口保存失败时返回 500
+    monkeypatch.setattr(translation_routes, "save_image_to_server_result", fail_save)
+    monkeypatch.setattr(export_service, "save_image_to_server_result", fail_save)
+    single_resp = client.post(
+        "/translate/with-form/image",
+        files={"image": ("001.png", _png_bytes(), "image/png")},
+        data={
+            "config": "{}",
+            "save_to_server": "true",
+            "output_folder": "FullDiskSingle",
+            "relative_path": "001.png",
+        },
+    )
+    assert single_resp.status_code == 500
+    assert "Disk full" in single_resp.json().get("detail", "")
+
+
 def test_all_locale_files_and_group_config_have_server_output_keys():
     locales_dir = ROOT / "desktop_qt_ui" / "locales"
     locale_names = ("zh_CN", "zh_TW", "en_US", "ja_JP", "ko_KR", "es_ES")

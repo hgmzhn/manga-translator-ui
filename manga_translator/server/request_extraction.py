@@ -641,7 +641,13 @@ async def while_streaming(req: Request, transform, config: Config, image: bytes 
                             "saved_path": f"result/{saved_rel}",
                         }, ensure_ascii=False).encode('utf-8'))
                     except Exception as export_error:
-                        add_log(f"Failed to save result to server directory: {export_error}", "WARNING")
+                        error_msg = f"保存到服务器目录失败: {export_error}"
+                        add_log(error_msg, "ERROR")
+                        yield pack_message(2, json.dumps({
+                            "error": error_msg,
+                            "stage": "save_to_server",
+                        }, ensure_ascii=False).encode('utf-8'))
+                        return
                 
                 yield pack_message(1, json.dumps({"stage": "sending", "message": "Sending..."}, ensure_ascii=False).encode('utf-8'))
                 yield pack_message(0, result_data)
