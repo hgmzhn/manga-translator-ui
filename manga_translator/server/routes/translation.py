@@ -572,73 +572,214 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
     except RuntimeError:
         current_task = None
     
-    try:
-        add_log(f"Batch translation request: {len(data.images)} images, batch_size={data.batch_size}", "INFO")
-        
-        # If config is dict, convert to Config object using parse_config for consistency
-        if isinstance(data.config, dict):
-            import json
+    add_log(f"Batch translation request: {len(data.images)} images, batch_size={data.batch_size}", "INFO")
+    
+    # If config is dict, convert to Config object using parse_config for consistency
+    if isinstance(data.config, dict):
+        import json
 
-            from manga_translator.server.core.config_manager import parse_config
-            config = parse_config(json.dumps(data.config))
+        from manga_translator.server.core.config_manager import parse_config
+        config = parse_config(json.dumps(data.config))
+    else:
+        config = data.config
+    
+    # Verify authentication and permissions
+    username, ip_address = await verify_translation_auth(req, config)
+    _configure_server_result_export(
+        username,
+        config,
+        save_to_server=data.save_to_server,
+        output_folder=data.output_folder,
+        filenames=data.filenames,
+    )
+    
+    # 检查用户是否有离线翻译权限
+    from manga_translator.server.core.middleware import get_services
+    _, _, permission_service = get_services()
+    allow_offline = permission_service.check_offline_translation_permission(username)
+    
+    # 如果允许离线翻译或开启了直接保存到服务端 result 目录，创建一个永不断开的 Request 包装器
+    if allow_offline or data.save_to_server:
+        class OfflineRequest:
+            """支持离线翻译的 Request 包装器"""
+            async def is_disconnected(self):
+                return False  # 永不断开
+        req = OfflineRequest()
+        if allow_offline:
+            add_log(f"User {username} enabled offline translation mode", "INFO")
         else:
-            config = data.config
+            add_log(f"User {username} enabled background server result export", "INFO")
+    
+    # 获取用户预设的 API Keys
+    env_vars = await apply_user_env_vars("{}", config, admin_settings, username)
+    config._user_env_vars = env_vars
+    
+    # Extract translator name
+    translator = "unknown"
+    if hasattr(config, 'translator') and hasattr(config.translator, 'translator'):
+        translator = config.translator.translator
+    
+    # Register active task for admin panel visibility (with asyncio Task for force cancel)
+    register_active_task(task_id, current_task, username, translator)
+    
+    # Track task start
+    track_task_start(username)
+    
+    try:
+        # Log task creation
+        log_translation_task_created(username, ip_address, translator, config, f"batch_{len(data.images)}")
         
-        # Verify authentication and permissions
-        username, ip_address = await verify_translation_auth(req, config)
-        _configure_server_result_export(
-            username,
-            config,
-            save_to_server=data.save_to_server,
-            output_folder=data.output_folder,
-            filenames=data.filenames,
-        )
+        # Process batch translation (pass task_id for cancel checking)
+        results = await get_batch_ctx(req, config, data.images, data.batch_size, "normal", task_id)
+        add_log(f"Batch translation complete: received {len(results)} results", "INFO")
+
+        # 获取原始文件名列表
+        filenames = data.filenames if data.filenames else []
         
-        # 检查用户是否有离线翻译权限
-        from manga_translator.server.core.middleware import get_services
-        _, _, permission_service = get_services()
-        allow_offline = permission_service.check_offline_translation_permission(username)
+        # 立即将结果图片转换为字节数据，避免图片被关闭后无法访问
+        result_images = []
+        for i, ctx in enumerate(results):
+            if ctx and ctx.result:
+                try:
+                    # 复制图片数据到内存
+                    result_images.append({
+                        'index': i,
+                        'image': ctx.result.copy(),
+                        'mode': ctx.result.mode,
+                        'size': ctx.result.size
+                    })
+                except Exception as e:
+                    add_log(f"Failed to copy image {i+1}: {e}", "WARNING")
         
-        # 如果允许离线翻译或开启了直接保存到服务端 result 目录，创建一个永不断开的 Request 包装器
-        if allow_offline or data.save_to_server:
-            class OfflineRequest:
-                """支持离线翻译的 Request 包装器"""
-                async def is_disconnected(self):
-                    return False  # 永不断开
-            req = OfflineRequest()
-            if allow_offline:
-                add_log(f"User {username} enabled offline translation mode", "INFO")
-            else:
-                add_log(f"User {username} enabled background server result export", "INFO")
+        # 获取配置中的输出格式
+        output_format = None
+        if config and hasattr(config, 'cli') and hasattr(config.cli, 'format'):
+            fmt = config.cli.format
+            if fmt and fmt != '不指定':
+                output_format = fmt.lower()
         
-        # 获取用户预设的 API Keys
-        env_vars = await apply_user_env_vars("{}", config, admin_settings, username)
-        config._user_env_vars = env_vars
-        
-        # Extract translator name
-        translator = "unknown"
-        if hasattr(config, 'translator') and hasattr(config.translator, 'translator'):
-            translator = config.translator.translator
-        
-        # Register active task for admin panel visibility (with asyncio Task for force cancel)
-        register_active_task(task_id, current_task, username, translator)
-        
-        # Track task start
-        track_task_start(username)
-        
+        # Create temporary ZIP file
+        tmp_file_name = None
         try:
-            # Log task creation
-            log_translation_task_created(username, ip_address, translator, config, f"batch_{len(data.images)}")
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp_file:
+                tmp_file_name = tmp_file.name
             
-            # Process batch translation (pass task_id for cancel checking)
-            results = await get_batch_ctx(req, config, data.images, data.batch_size, "normal", task_id)
-            add_log(f"Batch translation complete: received {len(results)} results", "INFO")
+            # File handle is closed, now safe to write
+            image_count = 0
+            with zipfile.ZipFile(tmp_file_name, 'w') as zip_file:
+                for img_data in result_images:
+                    i = img_data['index']
+                    img_to_save = img_data['image']
+                    
+                    # 获取原始文件名（可能包含相对目录结构）
+                    original_name = filenames[i] if i < len(filenames) else None
+                    
+                    save_format, _ext = resolve_output_image_format(
+                        output_format,
+                        original_path=original_name,
+                    )
+                    
+                    # 生成输出文件名（保留子目录结构以避免多章节同名文件在 ZIP 中互相覆盖）
+                    output_name = build_archive_entry_name(
+                        original_name,
+                        output_format,
+                        fallback_stem=f"translated_{i+1}",
+                    )
+                    
+                    img_byte_arr = io.BytesIO()
+                    if save_format in RGB_PIL_FORMATS and img_to_save.mode not in ('RGB', 'L'):
+                        img_to_save = normalize_rgb_image(img_to_save)
+                    img_to_save.save(img_byte_arr, format=save_format)
+                    zip_file.writestr(output_name, img_byte_arr.getvalue())
+                    image_count += 1
+            
+            add_log(f"ZIP file created: contains {image_count} images", "INFO")
+            
+            # 保存历史记录（使用已复制的图片数据）
+            from manga_translator.server.request_extraction import save_translation_to_history
+            for img_data in result_images:
+                i = img_data['index']
+                original_name = filenames[i] if i < len(filenames) else f"batch_{i+1}.png"
+                try:
+                    # 创建一个临时 ctx 对象用于保存历史
+                    class TempCtx:
+                        pass
+                    temp_ctx = TempCtx()
+                    temp_ctx.result = img_data['image']
+                    temp_ctx.text_regions = results[i].text_regions if results[i] and hasattr(results[i], 'text_regions') else None
+                    
+                    await save_translation_to_history(
+                        temp_ctx, username, f"{task_id}_{i}", "normal", 
+                        original_name, config
+                    )
+                except Exception as e:
+                    add_log(f"Failed to save history (image {i+1}): {e}", "WARNING")
+            
+            # 如果启用了保存到服务器 result 目录，直接按相对目录结构写入服务端 result 目录
+            saved_to_server_count = 0
+            server_save_errors: list[str] = []
+            if getattr(config, "_save_to_server", False):
+                for img_data in result_images:
+                    i = img_data['index']
+                    source_name = filenames[i] if i < len(filenames) else None
+                    try:
+                        saved_rel = save_image_to_server_result(
+                            img_data['image'],
+                            username=username,
+                            admin_settings=admin_settings,
+                            config=config,
+                            source_path=source_name,
+                            output_folder=getattr(config, "_server_output_folder", None),
+                            fallback_stem=f"translated_{i+1}",
+                        )
+                        saved_to_server_count += 1
+                        add_log(f"Saved batch result to server directory: result/{saved_rel}", "INFO")
+                    except Exception as e:
+                        server_save_errors.append(str(e))
+                        add_log(f"Failed to save batch image {i+1} to server directory: {e}", "ERROR")
+
+                if result_images and saved_to_server_count == 0 and server_save_errors:
+                    raise HTTPException(500, detail=f"保存到服务器目录失败: {server_save_errors[0]}")
+            
+            # 读取 ZIP 文件内容
+            with open(tmp_file_name, 'rb') as f:
+                zip_data = f.read()
         finally:
-            # Track task end
-            track_task_end(username)
-            # Unregister active task
-            unregister_active_task(task_id)
+            # 清理临时文件
+            if tmp_file_name:
+                try:
+                    os.unlink(tmp_file_name)
+                except (FileNotFoundError, PermissionError) as unlink_err:
+                    if isinstance(unlink_err, PermissionError) and os.path.exists(tmp_file_name):
+                        import atexit
+                        atexit.register(lambda: os.unlink(tmp_file_name) if os.path.exists(tmp_file_name) else None)
             
+            # 显式清理复制的图片内存
+            for img_data in result_images:
+                try:
+                    if img_data.get('image'):
+                        img_data['image'].close()
+                except Exception:
+                    pass
+            result_images.clear()
+        
+        # 返回 ZIP 数据，不使用 Content-Disposition: attachment（避免 IDM 拦截）
+        # 使用 inline 或不设置，让浏览器直接处理而不触发下载
+        response_headers = {
+            "Content-Length": str(len(zip_data)),
+            "X-Content-Type": "application/zip"  # 自定义 header 告诉前端这是 ZIP
+        }
+        if getattr(config, "_save_to_server", False):
+            response_headers["X-Server-Saved-Count"] = str(saved_to_server_count)
+            if server_save_errors:
+                # URL-encode to pure ASCII so Starlette can safely encode response headers into Latin-1
+                response_headers["X-Server-Save-Error"] = quote(str(server_save_errors[0]), safe="")
+
+        return StreamingResponse(
+            io.BytesIO(zip_data),
+            media_type="application/octet-stream",  # 使用通用二进制类型，避免 IDM 识别为 ZIP
+            headers=response_headers
+        )
     except asyncio.CancelledError:
         add_log("Batch translation forcibly cancelled", "WARNING")
         raise HTTPException(499, detail="任务已被强制取消")
@@ -653,154 +794,11 @@ async def batch_images(req: Request, data: BatchTranslateRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(500, detail=f"Batch translation failed: {error_msg}")
-    
-    # 获取原始文件名列表
-    filenames = data.filenames if data.filenames else []
-    
-    # 立即将结果图片转换为字节数据，避免图片被关闭后无法访问
-    result_images = []
-    for i, ctx in enumerate(results):
-        if ctx and ctx.result:
-            try:
-                # 复制图片数据到内存
-                result_images.append({
-                    'index': i,
-                    'image': ctx.result.copy(),
-                    'mode': ctx.result.mode,
-                    'size': ctx.result.size
-                })
-            except Exception as e:
-                add_log(f"Failed to copy image {i+1}: {e}", "WARNING")
-    
-    # 获取配置中的输出格式
-    output_format = None
-    if config and hasattr(config, 'cli') and hasattr(config.cli, 'format'):
-        fmt = config.cli.format
-        if fmt and fmt != '不指定':
-            output_format = fmt.lower()
-    
-    # Create temporary ZIP file
-    tmp_file_name = None
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp_file:
-            tmp_file_name = tmp_file.name
-        
-        # File handle is closed, now safe to write
-        image_count = 0
-        with zipfile.ZipFile(tmp_file_name, 'w') as zip_file:
-            for img_data in result_images:
-                i = img_data['index']
-                img_to_save = img_data['image']
-                
-                # 获取原始文件名（可能包含相对目录结构）
-                original_name = filenames[i] if i < len(filenames) else None
-                
-                save_format, _ext = resolve_output_image_format(
-                    output_format,
-                    original_path=original_name,
-                )
-                
-                # 生成输出文件名（保留子目录结构以避免多章节同名文件在 ZIP 中互相覆盖）
-                output_name = build_archive_entry_name(
-                    original_name,
-                    output_format,
-                    fallback_stem=f"translated_{i+1}",
-                )
-                
-                img_byte_arr = io.BytesIO()
-                if save_format in RGB_PIL_FORMATS and img_to_save.mode not in ('RGB', 'L'):
-                    img_to_save = normalize_rgb_image(img_to_save)
-                img_to_save.save(img_byte_arr, format=save_format)
-                zip_file.writestr(output_name, img_byte_arr.getvalue())
-                image_count += 1
-        
-        add_log(f"ZIP file created: contains {image_count} images", "INFO")
-        
-        # 保存历史记录（使用已复制的图片数据）
-        from manga_translator.server.request_extraction import save_translation_to_history
-        for img_data in result_images:
-            i = img_data['index']
-            original_name = filenames[i] if i < len(filenames) else f"batch_{i+1}.png"
-            try:
-                # 创建一个临时 ctx 对象用于保存历史
-                class TempCtx:
-                    pass
-                temp_ctx = TempCtx()
-                temp_ctx.result = img_data['image']
-                temp_ctx.text_regions = results[i].text_regions if results[i] and hasattr(results[i], 'text_regions') else None
-                
-                await save_translation_to_history(
-                    temp_ctx, username, f"{task_id}_{i}", "normal", 
-                    original_name, config
-                )
-            except Exception as e:
-                add_log(f"Failed to save history (image {i+1}): {e}", "WARNING")
-        
-        # 如果启用了保存到服务器 result 目录，直接按相对目录结构写入服务端 result 目录
-        saved_to_server_count = 0
-        server_save_errors: list[str] = []
-        if getattr(config, "_save_to_server", False):
-            for img_data in result_images:
-                i = img_data['index']
-                source_name = filenames[i] if i < len(filenames) else None
-                try:
-                    saved_rel = save_image_to_server_result(
-                        img_data['image'],
-                        username=username,
-                        admin_settings=admin_settings,
-                        config=config,
-                        source_path=source_name,
-                        output_folder=getattr(config, "_server_output_folder", None),
-                        fallback_stem=f"translated_{i+1}",
-                    )
-                    saved_to_server_count += 1
-                    add_log(f"Saved batch result to server directory: result/{saved_rel}", "INFO")
-                except Exception as e:
-                    server_save_errors.append(str(e))
-                    add_log(f"Failed to save batch image {i+1} to server directory: {e}", "ERROR")
-
-            if result_images and saved_to_server_count == 0 and server_save_errors:
-                raise HTTPException(500, detail=f"保存到服务器目录失败: {server_save_errors[0]}")
-        
-        # 读取 ZIP 文件内容
-        with open(tmp_file_name, 'rb') as f:
-            zip_data = f.read()
     finally:
-        # 清理临时文件
-        if tmp_file_name:
-            try:
-                os.unlink(tmp_file_name)
-            except (FileNotFoundError, PermissionError) as unlink_err:
-                if isinstance(unlink_err, PermissionError) and os.path.exists(tmp_file_name):
-                    import atexit
-                    atexit.register(lambda: os.unlink(tmp_file_name) if os.path.exists(tmp_file_name) else None)
-        
-        # 显式清理复制的图片内存
-        for img_data in result_images:
-            try:
-                if img_data.get('image'):
-                    img_data['image'].close()
-            except Exception:
-                pass
-        result_images.clear()
-    
-    # 返回 ZIP 数据，不使用 Content-Disposition: attachment（避免 IDM 拦截）
-    # 使用 inline 或不设置，让浏览器直接处理而不触发下载
-    response_headers = {
-        "Content-Length": str(len(zip_data)),
-        "X-Content-Type": "application/zip"  # 自定义 header 告诉前端这是 ZIP
-    }
-    if getattr(config, "_save_to_server", False):
-        response_headers["X-Server-Saved-Count"] = str(saved_to_server_count)
-        if server_save_errors:
-            # URL-encode to pure ASCII so Starlette can safely encode response headers into Latin-1
-            response_headers["X-Server-Save-Error"] = quote(str(server_save_errors[0]), safe="")
-
-    return StreamingResponse(
-        io.BytesIO(zip_data),
-        media_type="application/octet-stream",  # 使用通用二进制类型，避免 IDM 识别为 ZIP
-        headers=response_headers
-    )
+        # Track task end
+        track_task_end(username)
+        # Unregister active task
+        unregister_active_task(task_id)
 
 
 @router.post("/queue-size", response_model=int, tags=["api", "json"])

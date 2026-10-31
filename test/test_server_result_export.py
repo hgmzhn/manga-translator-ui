@@ -656,10 +656,12 @@ def test_server_result_export_failure_propagation(
     async def fake_save_history(*args, **kwargs):
         return None
 
+    task_events: list[tuple[str, str]] = []
     monkeypatch.setattr(translation_routes, "verify_translation_auth", fake_verify_auth)
     monkeypatch.setattr(translation_routes, "apply_user_env_vars", fake_apply_env)
-    monkeypatch.setattr(translation_routes, "track_task_start", lambda u: None)
-    monkeypatch.setattr(translation_routes, "track_task_end", lambda u: None)
+    monkeypatch.setattr(translation_routes, "track_task_start", lambda u: task_events.append(("start", str(u))))
+    monkeypatch.setattr(translation_routes, "track_task_end", lambda u: task_events.append(("end", str(u))))
+    monkeypatch.setattr(task_manager_module, "unregister_active_task", lambda tid: task_events.append(("unregister", str(tid))))
     monkeypatch.setattr(translation_routes, "log_translation_task_created", lambda *a, **kw: None)
     monkeypatch.setattr(task_manager_module, "run_in_translator_thread", fake_run_in_translator_thread)
     monkeypatch.setattr(translation_routes, "get_batch_ctx", fake_get_batch_ctx)
@@ -725,6 +727,9 @@ def test_server_result_export_failure_propagation(
     assert "Disk full" in batch_resp.json().get("detail", "")
     assert len(created_tmp_zips) == 1
     assert not os.path.exists(created_tmp_zips[0])
+    assert ("start", "admin") in task_events
+    assert ("end", "admin") in task_events
+    assert any(evt[0] == "unregister" for evt in task_events)
 
     # 3. 批量接口部分成功、部分失败时，返回 200 并携带 X-Server-Save-Error 与已保存计数
     saved_counter = {"calls": 0}
