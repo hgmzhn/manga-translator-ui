@@ -900,6 +900,10 @@ class GraphicsViewInputMixin:
         self.scene.update()
         self.viewport().update()
 
+    @staticmethod
+    def _is_eraser_tool(tool: str) -> bool:
+        return tool in ("eraser", "paint_erase", "stamp_erase")
+
     @pyqtSlot(str)
     def _on_active_tool_changed(self, tool: str):
         if tool == self._active_tool:
@@ -912,13 +916,25 @@ class GraphicsViewInputMixin:
             self._clone_sample_image_point = None
             self._clone_offset = None
             self._clear_clone_marker()
+        if hasattr(self, "model") and self.model is not None:
+            if self._is_eraser_tool(tool):
+                self._brush_size = self.model.get_eraser_size()
+            else:
+                self._brush_size = self.model.get_brush_size()
         self._update_cursor()
         self.viewport().update()
 
     @pyqtSlot(int)
     def _on_brush_size_changed(self, size: int):
-        self._brush_size = size
-        self._update_cursor()
+        if not self._is_eraser_tool(self._active_tool):
+            self._brush_size = size
+            self._update_cursor()
+
+    @pyqtSlot(int)
+    def _on_eraser_size_changed(self, size: int):
+        if self._is_eraser_tool(self._active_tool):
+            self._brush_size = size
+            self._update_cursor()
 
     @pyqtSlot(str)
     def _on_brush_color_changed(self, color: str):

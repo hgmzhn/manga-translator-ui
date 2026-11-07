@@ -310,3 +310,75 @@ def test_nonempty_mask_without_artifact_requires_backend_inpaint():
     assert np.array_equal(export_base.mask, mask)
     assert export_base.inpaint_key == session.get_inpaint_key()
     assert session.get_committed_inpaint_artifact() is None
+
+
+def test_brush_and_eraser_sizes_are_independently_stored_and_switched():
+    session = _session()
+    assert session.get_brush_size() == 30
+    assert session.get_eraser_size() == 30
+
+    assert session.set_brush_size(15)
+    assert session.get_brush_size() == 15
+    assert session.get_eraser_size() == 30
+
+    assert session.set_eraser_size(60)
+    assert session.get_eraser_size() == 60
+    assert session.get_brush_size() == 15
+
+    session.set_active_tool("brush")
+    assert not session.is_eraser_tool()
+    assert session.get_active_brush_size() == 15
+
+    session.set_active_tool("eraser")
+    assert session.is_eraser_tool()
+    assert session.get_active_brush_size() == 60
+
+    session.set_active_tool("paint_erase")
+    assert session.is_eraser_tool()
+    assert session.get_active_brush_size() == 60
+
+    session.set_active_tool("stamp_erase")
+    assert session.is_eraser_tool()
+    assert session.get_active_brush_size() == 60
+
+    session.set_active_tool("clone")
+    assert not session.is_eraser_tool()
+    assert session.get_active_brush_size() == 15
+
+    # set_active_brush_size dispatches by active tool
+    session.set_active_tool("eraser")
+    assert session.set_active_brush_size(80)
+    assert session.get_eraser_size() == 80
+    assert session.get_brush_size() == 15
+
+    session.set_active_tool("brush")
+    assert session.set_active_brush_size(25)
+    assert session.get_brush_size() == 25
+    assert session.get_eraser_size() == 80
+
+
+def test_editor_model_emits_brush_and_eraser_size_signals_independently():
+    model = EditorModel()
+    brush_events = []
+    eraser_events = []
+    model.brush_size_changed.connect(brush_events.append)
+    model.eraser_size_changed.connect(eraser_events.append)
+
+    model.set_brush_size(18)
+    assert brush_events == [18]
+    assert eraser_events == []
+
+    model.set_eraser_size(55)
+    assert brush_events == [18]
+    assert eraser_events == [55]
+
+    model.set_active_tool("eraser")
+    model.set_active_brush_size(70)
+    assert brush_events == [18]
+    assert eraser_events == [55, 70]
+
+    model.set_active_tool("brush")
+    model.set_active_brush_size(22)
+    assert brush_events == [18, 22]
+    assert eraser_events == [55, 70]
+

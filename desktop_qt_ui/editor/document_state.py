@@ -287,6 +287,7 @@ class EditorWorkspaceState:
     source_opacity: float = 0.0
     active_tool: str = "select"
     brush_size: int = 30
+    eraser_size: int = 30
     brush_color: str = "#ffffff"
 
     def set_source_opacity(self, value: float) -> bool:

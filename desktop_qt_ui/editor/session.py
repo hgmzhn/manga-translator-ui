@@ -289,6 +289,30 @@ class EditorSession:
     def get_brush_size(self) -> int:
         return self._workspace.brush_size
 
+    def set_eraser_size(self, size: int) -> bool:
+        size = int(size)
+        if self._workspace.eraser_size == size:
+            return False
+        self._workspace.eraser_size = size
+        return True
+
+    def get_eraser_size(self) -> int:
+        return self._workspace.eraser_size
+
+    def is_eraser_tool(self, tool: Optional[str] = None) -> bool:
+        target = self._workspace.active_tool if tool is None else tool
+        return target in ("eraser", "paint_erase", "stamp_erase")
+
+    def get_active_brush_size(self) -> int:
+        if self.is_eraser_tool():
+            return self._workspace.eraser_size
+        return self._workspace.brush_size
+
+    def set_active_brush_size(self, size: int) -> bool:
+        if self.is_eraser_tool():
+            return self.set_eraser_size(size)
+        return self.set_brush_size(size)
+
     def set_brush_color(self, color: str) -> bool:
         value = str(color or "").strip() or "#ff0000"
         if self._workspace.brush_color == value:

@@ -32,6 +32,7 @@ class EditorModel(QObject):
     original_image_alpha_changed = pyqtSignal(float)
     active_tool_changed = pyqtSignal(str)
     brush_size_changed = pyqtSignal(int)
+    eraser_size_changed = pyqtSignal(int)
     brush_color_changed = pyqtSignal(str)
     paint_overlay_changed = pyqtSignal(object)
     stamp_overlay_changed = pyqtSignal(object)
@@ -280,6 +281,25 @@ class EditorModel(QObject):
 
     def get_brush_size(self) -> int:
         return self.session.get_brush_size()
+
+    def set_eraser_size(self, size: int):
+        if self.session.set_eraser_size(size):
+            self.eraser_size_changed.emit(size)
+
+    def get_eraser_size(self) -> int:
+        return self.session.get_eraser_size()
+
+    def is_eraser_tool(self, tool: Optional[str] = None) -> bool:
+        return self.session.is_eraser_tool(tool)
+
+    def get_active_brush_size(self) -> int:
+        return self.session.get_active_brush_size()
+
+    def set_active_brush_size(self, size: int):
+        if self.is_eraser_tool():
+            self.set_eraser_size(size)
+        else:
+            self.set_brush_size(size)
 
     def set_brush_color(self, color: str):
         if self.session.set_brush_color(color):
