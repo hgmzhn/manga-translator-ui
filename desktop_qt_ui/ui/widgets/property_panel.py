@@ -2253,6 +2253,7 @@ class PropertyPanel(QWidget):
 
     def sync_active_tool_from_model(self, tool: str):
         """当 model 的 active_tool 变化时，UI 同步高亮对应按钮并切换标签页。"""
+        self.update_brush_size_ui(tool)
         # 'select' 在蒙版页和画板页都有按钮，按当前所在标签页决定亮哪个，
         # 避免在画板页点击「选择」时被强制切回蒙版页。
         if tool == "select":
@@ -2293,7 +2294,6 @@ class PropertyPanel(QWidget):
             if self.paint_segmented_widget is not None:
                 self.paint_segmented_widget.blockSignals(False)
         self.sync_sidebar_layout()
-        self.update_brush_size_ui(tool)
 
     def _on_alignment_changed(self, text: str):
         if self.block_updates:
