@@ -429,11 +429,11 @@ def test_editor_ui_interaction_brush_and_eraser_size_switching():
     assert model.get_brush_size() == 18
     assert model.get_eraser_size() == 30
     assert graphics_view._brush_size == 18
-    assert "画笔" in panel.brush_size_title_label.text()
+    assert panel.brush_size_title_label.text() == panel._t("Brush Size:")
 
     # 2. 切换至橡皮擦工具，滑块显示橡皮擦初始尺寸，调节橡皮擦尺寸
     model.set_active_tool("eraser")
-    assert "橡皮擦" in panel.brush_size_title_label.text()
+    assert panel.brush_size_title_label.text() == panel._t("Eraser Size:")
     assert panel.brush_size_slider.value() == 30
     assert graphics_view._brush_size == 30
 
@@ -461,14 +461,14 @@ def test_editor_ui_interaction_brush_and_eraser_size_switching():
 
     # 4. 切换到 draw_textbox 模式，验证标题和滑块切回画笔且不修改橡皮擦
     model.set_active_tool("draw_textbox")
-    assert "画笔" in panel.brush_size_title_label.text()
+    assert panel.brush_size_title_label.text() == panel._t("Brush Size:")
     assert panel.brush_size_slider.value() == 18
     assert model.get_brush_size() == 18
     assert model.get_eraser_size() == 73
 
     # 5. 切回橡皮擦，验证尺寸完整恢复
     model.set_active_tool("eraser")
-    assert "橡皮擦" in panel.brush_size_title_label.text()
+    assert panel.brush_size_title_label.text() == panel._t("Eraser Size:")
     assert panel.brush_size_slider.value() == 73
     assert graphics_view._brush_size == 73
 
