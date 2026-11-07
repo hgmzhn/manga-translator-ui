@@ -283,19 +283,24 @@ class EditorModel(QObject):
         return self.session.get_brush_size()
 
     def set_eraser_size(self, size: int):
+        """设置橡皮擦大小并在成功变更时发出通知信号。"""
         if self.session.set_eraser_size(size):
             self.eraser_size_changed.emit(size)
 
     def get_eraser_size(self) -> int:
+        """获取当前橡皮擦大小。"""
         return self.session.get_eraser_size()
 
     def is_eraser_tool(self, tool: Optional[str] = None) -> bool:
+        """判断工具是否为橡皮擦类工具。"""
         return self.session.is_eraser_tool(tool)
 
     def get_active_brush_size(self) -> int:
+        """获取当前活动工具的笔刷尺寸。"""
         return self.session.get_active_brush_size()
 
     def set_active_brush_size(self, size: int):
+        """设置当前活动工具的笔刷尺寸。"""
         if self.is_eraser_tool():
             self.set_eraser_size(size)
         else:

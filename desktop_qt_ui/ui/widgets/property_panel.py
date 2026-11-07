@@ -2123,6 +2123,7 @@ class PropertyPanel(QWidget):
             self.mask_tool_changed.emit("stamp_erase")
 
     def _is_eraser_active(self, tool: Optional[str] = None) -> bool:
+        """判断当前或指定的工具是否属于橡皮擦类工具。"""
         if tool is not None:
             return tool in ("eraser", "paint_erase", "stamp_erase")
         if hasattr(self, "model") and self.model is not None:
@@ -2138,6 +2139,7 @@ class PropertyPanel(QWidget):
         return False
 
     def _apply_size_to_sliders(self, size: int):
+        """将尺寸同步设置到所有画笔滑块及其数值标签，阻止信号循环。"""
         for slider, label in (
             (getattr(self, "brush_size_slider", None), getattr(self, "brush_size_value_label", None)),
             (getattr(self, "paint_size_slider", None), getattr(self, "paint_size_value_label", None)),

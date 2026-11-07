@@ -313,6 +313,7 @@ def test_nonempty_mask_without_artifact_requires_backend_inpaint():
 
 
 def test_brush_and_eraser_sizes_are_independently_stored_and_switched():
+    """测试画笔与橡皮擦尺寸在 EditorSession 中独立存储与切换。"""
     session = _session()
     assert session.get_brush_size() == 30
     assert session.get_eraser_size() == 30
@@ -358,6 +359,7 @@ def test_brush_and_eraser_sizes_are_independently_stored_and_switched():
 
 
 def test_editor_model_emits_brush_and_eraser_size_signals_independently():
+    """测试 EditorModel 针对画笔与橡皮擦独立发射尺寸变更信号。"""
     model = EditorModel()
     brush_events = []
     eraser_events = []
@@ -384,6 +386,7 @@ def test_editor_model_emits_brush_and_eraser_size_signals_independently():
 
 
 def test_editor_ui_interaction_brush_and_eraser_size_switching():
+    """测试界面交互：画笔与橡皮擦切换、滑块与标题响应、画布 Shift+滚轮事件联动。"""
     from types import SimpleNamespace
     from PyQt6.QtCore import QPoint, QPointF, Qt
     from PyQt6.QtGui import QWheelEvent

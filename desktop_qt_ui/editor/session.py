@@ -290,6 +290,7 @@ class EditorSession:
         return self._workspace.brush_size
 
     def set_eraser_size(self, size: int) -> bool:
+        """设置橡皮擦大小。若数值未变化返回 False。"""
         size = int(size)
         if self._workspace.eraser_size == size:
             return False
@@ -297,18 +298,22 @@ class EditorSession:
         return True
 
     def get_eraser_size(self) -> int:
+        """获取当前橡皮擦大小。"""
         return self._workspace.eraser_size
 
     def is_eraser_tool(self, tool: Optional[str] = None) -> bool:
+        """判断指定工具（默认当前活动工具）是否为橡皮擦类工具。"""
         target = self._workspace.active_tool if tool is None else tool
         return target in ("eraser", "paint_erase", "stamp_erase")
 
     def get_active_brush_size(self) -> int:
+        """获取当前活动工具对应的尺寸（橡皮擦或画笔）。"""
         if self.is_eraser_tool():
             return self._workspace.eraser_size
         return self._workspace.brush_size
 
     def set_active_brush_size(self, size: int) -> bool:
+        """设置当前活动工具对应的尺寸（橡皮擦或画笔）。"""
         if self.is_eraser_tool():
             return self.set_eraser_size(size)
         return self.set_brush_size(size)

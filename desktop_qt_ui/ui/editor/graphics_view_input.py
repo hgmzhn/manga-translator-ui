@@ -902,6 +902,7 @@ class GraphicsViewInputMixin:
 
     @staticmethod
     def _is_eraser_tool(tool: str) -> bool:
+        """判断工具是否属于橡皮擦类型。"""
         return tool in ("eraser", "paint_erase", "stamp_erase")
 
     @pyqtSlot(str)
@@ -932,6 +933,7 @@ class GraphicsViewInputMixin:
 
     @pyqtSlot(int)
     def _on_eraser_size_changed(self, size: int):
+        """当橡皮擦尺寸改变且当前处于橡皮擦工具时，更新画布光标尺寸。"""
         if self._is_eraser_tool(self._active_tool):
             self._brush_size = size
             self._update_cursor()
