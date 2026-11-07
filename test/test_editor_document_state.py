@@ -382,3 +382,94 @@ def test_editor_model_emits_brush_and_eraser_size_signals_independently():
     assert brush_events == [18, 22]
     assert eraser_events == [55, 70]
 
+
+def test_editor_ui_interaction_brush_and_eraser_size_switching():
+    from types import SimpleNamespace
+    from PyQt6.QtCore import QPoint, QPointF, Qt
+    from PyQt6.QtGui import QWheelEvent
+    from PyQt6.QtWidgets import QApplication, QWidget
+    from services import ServiceManager
+    from ui.editor.graphics_view import GraphicsView
+    from ui.editor.shortcut_manager import EditorShortcutManager
+    from ui.widgets.property_panel import PropertyPanel
+
+    ServiceManager.initialize(str(_bootstrap.ROOT))
+    _app = QApplication.instance() or QApplication([])
+
+    class _DummyView(QWidget):
+        def __init__(self, m, gv, p):
+            super().__init__()
+            self.model = m
+            self.graphics_view = gv
+            self.property_panel = p
+            self.controller = None
+            self.file_list = SimpleNamespace(
+                select_prev_image=lambda: None,
+                select_next_image=lambda: None,
+            )
+
+    model = EditorModel()
+    graphics_view = GraphicsView(model)
+    panel = PropertyPanel(model, None)
+
+    # 接线：与 EditorView 的实际信号槽连接完全一致
+    panel.mask_tool_changed.connect(model.set_active_tool)
+    panel.brush_size_changed.connect(model.set_brush_size)
+    panel.eraser_size_changed.connect(model.set_eraser_size)
+    model.brush_size_changed.connect(panel.on_model_brush_size_changed)
+    model.eraser_size_changed.connect(panel.on_model_eraser_size_changed)
+    model.active_tool_changed.connect(panel.sync_active_tool_from_model)
+
+    dummy_view = _DummyView(model, graphics_view, panel)
+    shortcut_mgr = EditorShortcutManager(dummy_view)
+
+    # 1. 初始为画笔工具，调节画笔尺寸
+    model.set_active_tool("brush")
+    panel.brush_size_slider.setValue(18)
+    assert model.get_brush_size() == 18
+    assert model.get_eraser_size() == 30
+    assert graphics_view._brush_size == 18
+    assert "画笔" in panel.brush_size_title_label.text()
+
+    # 2. 切换至橡皮擦工具，滑块显示橡皮擦初始尺寸，调节橡皮擦尺寸
+    model.set_active_tool("eraser")
+    assert "橡皮擦" in panel.brush_size_title_label.text()
+    assert panel.brush_size_slider.value() == 30
+    assert graphics_view._brush_size == 30
+
+    panel.brush_size_slider.setValue(72)
+    assert model.get_eraser_size() == 72
+    assert model.get_brush_size() == 18
+    assert graphics_view._brush_size == 72
+
+    # 3. 在橡皮擦状态下测试画布 Shift+滚轮事件
+    wheel_up = QWheelEvent(
+        QPointF(10, 10),
+        QPointF(10, 10),
+        QPoint(0, 0),
+        QPoint(0, 120),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.ShiftModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+    shortcut_mgr.eventFilter(graphics_view.viewport(), wheel_up)
+    assert model.get_eraser_size() == 73
+    assert model.get_brush_size() == 18
+    assert panel.brush_size_slider.value() == 73
+    assert graphics_view._brush_size == 73
+
+    # 4. 切换到 draw_textbox 模式，验证标题和滑块切回画笔且不修改橡皮擦
+    model.set_active_tool("draw_textbox")
+    assert "画笔" in panel.brush_size_title_label.text()
+    assert panel.brush_size_slider.value() == 18
+    assert model.get_brush_size() == 18
+    assert model.get_eraser_size() == 73
+
+    # 5. 切回橡皮擦，验证尺寸完整恢复
+    model.set_active_tool("eraser")
+    assert "橡皮擦" in panel.brush_size_title_label.text()
+    assert panel.brush_size_slider.value() == 73
+    assert graphics_view._brush_size == 73
+
+
