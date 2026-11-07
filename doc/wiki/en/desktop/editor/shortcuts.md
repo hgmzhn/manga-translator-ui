@@ -49,7 +49,7 @@ The following table lists every keyboard shortcut actually registered by `_setup
 
 | Combo | Effect | Limits |
 | --- | --- | --- |
-| `Shift + wheel` | Changes the shared brush size by ±1 per notch | Clamped to `5`–`200`; the event is swallowed and does not zoom the canvas |
+| `Shift + wheel` | Changes the active tool's size (brush or eraser) by ±1 per notch | Clamped to `5`–`200`; the event is swallowed and does not zoom the canvas |
 | Any `Ctrl`-containing wheel combo | Changes the font size of all selected regions by ±5% (minimum 1) | Swallowed even with no selection; never falls through to canvas zoom |
 | Plain wheel | Zooms the canvas anchored at the mouse position | Scale clamped to `0.05`–`50.0`, handled by `GraphicsView.wheelEvent()` |
 
