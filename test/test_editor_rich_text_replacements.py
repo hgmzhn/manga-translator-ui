@@ -9,10 +9,12 @@ import copy
 import logging
 import re
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
 
+from PyQt6.QtCore import QCoreApplication, QEvent, QObject
 from PyQt6.QtGui import QUndoStack
 from PyQt6.QtWidgets import QApplication
 
@@ -21,9 +23,10 @@ from editor.rich_text_editor_state import RichTextEditorState
 from manga_translator.rendering import text_render
 from manga_translator.rendering.rich_text import plain_text_of
 from manga_translator.rendering.rich_text_sync import apply_replacements_to_document
+from ui.widgets.rich_text_floating_editor import RichTextFloatingEditor
 
 
-class TranslationHarness:
+class TranslationHarness(QObject):
     """Use real controller and undo paths while isolating document geometry."""
 
     update_translation_raw = EditorController.update_translation_raw
@@ -35,6 +38,7 @@ class TranslationHarness:
     _build_region_update_command = EditorController._build_region_update_command
 
     def __init__(self, region):
+        super().__init__()
         self.region = copy.deepcopy(region)
         self.model = self
         self.logger = logging.getLogger(__name__)
@@ -117,10 +121,36 @@ class RichTextReplacementTests(unittest.TestCase):
             patch("manga_translator.rendering.rich_text_sync.load_replacements", return_value={"common": [(re.compile("a"), "aa")]}),
             patch("editor.editor_controller._sync_white_frame_size_for_font_change"),
         ):
-            controller.update_translation_rich(0, styled, "aa")
+            controller.update_translation_rich(0, styled, "aa", False)
         self.assertEqual(controller.region["translation"], "aa")
         self.assertEqual(controller.region["translation_raw"], "a")
         self.assertEqual(controller.region["translation_rich"], styled)
+
+    def test_live_input_matching_replaced_text_still_updates_raw_and_styles(self):
+        region = {"translation": "", "direction": "h"}
+        state = RichTextEditorState()
+        state.bind_region(0, region)
+        controller = TranslationHarness(region)
+        with (
+            patch("manga_translator.rendering.rich_text_sync.load_replacements", return_value={"common": [(re.compile("a"), "aa")]}),
+            patch("editor.editor_controller._sync_white_frame_size_for_font_change"),
+        ):
+            for count in (1, 2):
+                state.apply_qt_contents_change("a" * count, count - 1, 0, 1)
+                controller.update_translation_rich(*state.mark_document_emitted())
+                self.assertEqual(controller.region["translation"], "aa" * count)
+                self.assertEqual(controller.region["translation_raw"], "a" * count)
+
+            for rebind, style in ((False, "bold"), (True, "italic")):
+                if rebind:
+                    state.bind_region(0, controller.region)
+                styled = copy.deepcopy(state.document)
+                styled["blocks"][0]["inlines"][0]["style"][style] = True
+                state.replace_document(styled)
+                controller.update_translation_rich(*state.mark_document_emitted())
+                self.assertEqual(controller.region["translation"], "aaaa")
+                self.assertEqual(controller.region["translation_raw"], "aa")
+                self.assertTrue(controller.region["translation_rich"]["blocks"][0]["inlines"][0]["style"][style])
 
     def test_replacements_preserve_ruby_tcy_styles_and_line_breaks(self):
         run = {"type": "text", "text": "...", "style": {"color": "#ff0000"}}
@@ -128,13 +158,41 @@ class RichTextReplacementTests(unittest.TestCase):
             {"type": "paragraph", "inlines": [{"type": "ruby", "base": [run], "text": [{"type": "text", "text": "...", "style": {}}]}]},
             {"type": "paragraph", "inlines": [{"type": "tcy", "content": [run]}]},
         ]}
-        result = apply_replacements_to_document(document, 0, {"common": [(re.compile(r"\.{3}"), "…")]}).to_dict()
+        result = apply_replacements_to_document(document, "h", {"common": [(re.compile(r"\.{3}"), "…")]}).to_dict()
         self.assertEqual(plain_text_of(result), "…\n…")
         ruby = result["blocks"][0]["inlines"][0]
         self.assertEqual(ruby["type"], "ruby")
         self.assertEqual(ruby["base"][0]["style"]["color"], "#ff0000")
         self.assertEqual(ruby["text"][0]["text"], "...")
         self.assertEqual(result["blocks"][1]["inlines"][0]["type"], "tcy")
+
+    def test_widget_signal_carries_body_changes_to_controller(self):
+        config = SimpleNamespace(app=SimpleNamespace(saved_rich_text_presets=[]))
+        service = SimpleNamespace(
+            get_config=lambda: config, get_config_reference=lambda: config
+        )
+        with (
+            patch("ui.widgets.rich_text_floating_editor.get_config_service", return_value=service),
+            patch("ui.widgets.rich_text_floating_editor.get_i18n_manager", return_value=None),
+            patch("manga_translator.rendering.rich_text_sync.load_replacements", return_value={"common": [(re.compile("a"), "aa")]}),
+            patch("editor.editor_controller._sync_white_frame_size_for_font_change"),
+        ):
+            editor = RichTextFloatingEditor()
+            try:
+                region = {"translation": "", "direction": "h"}
+                controller = TranslationHarness(region)
+                editor.rich_text_changed.connect(controller.update_translation_rich)
+                editor.set_region(0, region)
+                for text in ("a", "aa"):
+                    editor.text_box.setPlainText(text)
+                    editor.flush_pending_changes()
+                    self.assertEqual(controller.region["translation"], text * 2)
+                    self.assertEqual(controller.region["translation_raw"], text)
+            finally:
+                editor.close()
+                editor.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+                self.app.processEvents()
 
 
 if __name__ == "__main__":

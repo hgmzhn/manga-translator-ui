@@ -156,12 +156,12 @@ def apply_replacements_to_entries(
 
 
 def apply_replacements_to_document(
-    document_value: Any, direction: int, replacements: Optional[dict] = None
+    document_value: Any, direction_value: Any, replacements: Optional[dict] = None
 ) -> RichTextDocument:
     """替换富文本正文，并保留命中字符的样式及 ruby/tcy 节点。"""
     document = ensure_rich_text_document(document_value)
     entries = apply_replacements_to_entries(
-        _rule_entries_from_document(document), direction, replacements
+        _rule_entries_from_document(document), _direction_to_int(direction_value), replacements
     )
     return _document_from_rule_entries(_text_of(entries), entries)
 

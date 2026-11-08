@@ -88,7 +88,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
     dragged onto another panel or monitor.
     """
 
-    rich_text_changed = pyqtSignal(int, object, str)
+    rich_text_changed = pyqtSignal(int, object, str, bool)
     # ``True`` means the consumer should preserve the current top edge while
     # applying a size change to a side-docked editor.
     layout_size_changed = pyqtSignal(bool)
@@ -793,10 +793,10 @@ class RichTextFloatingEditor(SimpleCardWidget):
         payload = self._state.mark_document_emitted()
         if payload is None:
             return
-        region_index, document, storage_text = payload
+        region_index, document, storage_text, text_changed = payload
         self._applying_own_change = True
         try:
-            self.rich_text_changed.emit(region_index, document, storage_text)
+            self.rich_text_changed.emit(region_index, document, storage_text, text_changed)
         finally:
             self._applying_own_change = False
 

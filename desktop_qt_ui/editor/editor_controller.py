@@ -858,34 +858,34 @@ class EditorController(QObject):
             merge_key=f"region:{region_index}:translation_raw",
         )
 
-    @pyqtSlot(int, object, str)
+    @pyqtSlot(int, object, str, bool)
     def update_translation_rich(
-        self, region_index: int, rich_document, plain_text: str
+        self, region_index: int, rich_document, plain_text: str, text_changed: bool
     ):
         old_region_data = self.model.get_region_by_index(region_index)
         if not old_region_data:
             return
 
         old_region_data = self._merge_live_geometry_state(region_index, old_region_data)
-        text_changed = old_region_data.get("translation", "") != plain_text
         translation = plain_text
-        if text_changed:
+        # 浮窗保留输入正文，样式写回也需映射到替换结果；重绑定后的正文则已替换。
+        if text_changed or old_region_data.get("translation", "") != plain_text:
             from manga_translator.rendering.rich_text_sync import (
                 apply_replacements_to_document,
             )
 
             from .rich_text_editing import plain_text_to_storage_text
 
-            direction_value = old_region_data.get("direction", "h")
-            direction = 0 if direction_value in ("h", "horizontal", "hr") else 1
             try:
-                replaced = apply_replacements_to_document(rich_document, direction)
+                replaced = apply_replacements_to_document(
+                    rich_document, old_region_data.get("direction", "h")
+                )
                 rich_document = replaced.to_dict()
                 translation = plain_text_to_storage_text(replaced.plain_text())
             except Exception as exc:
                 self.logger.warning("Rich text replacements failed; preserving input: %s", exc)
 
-        # 样式编辑保留 raw，避免对已经替换过的正文再次执行非幂等规则。
+        # 正文变化由浮窗判定，不能拿输入与已替换的译文比较。
         translation_raw = (
             plain_text
             if text_changed

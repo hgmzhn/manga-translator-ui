@@ -271,7 +271,7 @@ class RichTextEditorState:
         self.pending_style_edit = None
         return True
 
-    def mark_document_emitted(self) -> tuple[int, dict, str] | None:
+    def mark_document_emitted(self) -> tuple[int, dict, str, bool] | None:
         if not self.has_region or not self.pending_document_change:
             return None
         self.pending_document_change = False
@@ -282,7 +282,7 @@ class RichTextEditorState:
             # 正文改变后无法可靠反推替换前译文；仅改样式时则必须保留 raw。
             self.region_data["translation_raw"] = storage_text
         self.region_data["translation_rich"] = copy.deepcopy(self.document)
-        return self.region_index, copy.deepcopy(self.document), storage_text
+        return self.region_index, copy.deepcopy(self.document), storage_text, text_changed
 
     def same_bound_content(self, region_index: int, region_data: dict) -> bool:
         if int(region_index) != self.region_index or not self.region_data:
