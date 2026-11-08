@@ -22,7 +22,7 @@ When the auto-generated repair mask misses text ghosts, covers too much backgrou
 
 ### Choose the layer and tool in the Property Editor
 
-After opening the editor, the left panel defaults to “Property Editor”. The “Image Editing” group offers three tabs, `Mask`, `Paint`, and `Clone Stamp`; each tab provides a set of mutually exclusive tool buttons. All three tabs share one button group, so checking a tool on any tab unchecks the buttons on the other tabs. When you switch tabs and the current tool does not belong to the new tab, the active tool is reset to that tab’s “No Selection” button, avoiding cross-tab tool conflicts. Brush tools and eraser tools independently remember their size; the slider automatically switches to display and adjust "Brush Size:" or "Eraser Size:" based on the active tool.
+After opening the editor, the left panel defaults to “Property Editor”. The “Image Editing” group offers three tabs, `Mask`, `Paint`, and `Clone Stamp`; each tab provides a set of mutually exclusive tool buttons. All three tabs share one button group, so checking a tool on any tab unchecks the buttons on the other tabs. When you switch tabs and the current tool does not belong to the new tab, the active tool is reset to that tab’s “No Selection” button, avoiding cross-tab tool conflicts. The three tool tabs independently remember their brush sizes, and within each tab, brush tools and eraser tools also independently remember their size; the slider automatically switches to display and adjust "Brush Size:" or "Eraser Size:" based on the active tool.
 
 ### Mask tab: brush and eraser
 
