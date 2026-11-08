@@ -148,7 +148,7 @@ When a region has no explicit direction, the Property Editor infers the displaye
 - Typography writeback depends on single selection or style-only multi selection: with multiple regions selected the text-content group is disabled and only typography changes broadcast to all selected regions.
 - A text control being edited is not overwritten by ordinary refreshes; only asynchronous writebacks (`source="async"`) force-refresh text fields, protecting the caret and IME composition.
 - The Property Editor’s sliders, number inputs, and dropdowns swallow the wheel only when they hold keyboard focus; otherwise the wheel goes to the parent scroll area and does not change values by accident.
-- `Ctrl+wheel` resizes the font of all selected regions and `Shift+wheel` changes the shared brush size; both combinations are intercepted by the shortcut manager, see [Shortcuts](./shortcuts.md).
+- `Ctrl+wheel` resizes the font of all selected regions and `Shift+wheel` changes the current image-tool tab's brush size; both combinations are intercepted by the shortcut manager, see [Shortcuts](./shortcuts.md).
 - Font size, letter spacing, line spacing, and direction are font-affecting fields; after writeback the white-frame size is resynced. The sync changes only the frame’s width, height, and center while keeping the body center fixed.
 - The “Alignment:” field is text alignment inside the box; the six-way align/distribute actions in the “Arrange” menu align text boxes to each other. Do not mix the two.
 - An unavailable font does not block rendering: it falls back to the default font with a warning; hand-editing JSON with a font-file path instead of a family name will not take effect.
