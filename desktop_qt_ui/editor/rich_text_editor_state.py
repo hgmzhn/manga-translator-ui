@@ -272,6 +272,7 @@ class RichTextEditorState:
         return True
 
     def mark_document_emitted(self) -> tuple[int, dict, str, bool] | None:
+        """取出待提交文档，并以浮窗自己的输入历史判断正文是否变化。"""
         if not self.has_region or not self.pending_document_change:
             return None
         self.pending_document_change = False

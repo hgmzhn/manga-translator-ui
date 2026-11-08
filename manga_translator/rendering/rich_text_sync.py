@@ -32,11 +32,12 @@ from .rich_text import (
 )
 from .rich_text_rules import (
     _document_from_rule_entries,
+    _normalize_rule_linebreak_entries,
     _rule_entries_from_document,
     _RuleEntry,
     apply_rich_text_rules,
 )
-from .text_replacements import load_replacements
+from .text_replacements import _apply_replacement_rules, load_replacements
 
 logger = logging.getLogger(__name__)
 
@@ -117,53 +118,72 @@ def apply_replacements_to_entries(
     direction: int,
     replacements: Optional[dict] = None,
 ) -> List[_RuleEntry]:
-    """在字符条目列表上跑替换规则(text_replacements 的条目版)。
+    """复用纯文本替换顺序与换行保护，同时维护每个字符的样式和节点。
 
-    与纯文本版的差异:纯文本版用占位符保护 ``[BR]`` 等换行标记,这里文本
-    是 ``\\n`` 口径,等价地跳过跨换行的命中。替换出的新字符继承被替换段
-    首字符的样式;区间未完整落在同一 ruby/tcy 节点内时结果不带节点。
+    非空命中继承段首样式，同节点内的替换保留节点；零宽插入沿用编辑插入
+    策略。匹配时换行采用模型的 BR 口径，结束后把生成的 BR 恢复为段落。
     """
     if replacements is None:
         replacements = load_replacements()
 
-    group_key = "vertical" if direction == 1 else "horizontal"
-    for key in ("common", group_key):
-        for pattern, repl in replacements.get(key, []):
-            text = _text_of(entries)
-            matches = list(pattern.finditer(text))
-            for match in reversed(matches):
-                if match.start() == match.end():
-                    continue
-                if "\n" in match.group(0):
-                    continue
-                try:
-                    replacement_text = match.expand(repl)
-                except Exception:
-                    replacement_text = repl
-                span = entries[match.start() : match.end()]
+    def substitute(pattern, repl, text):
+        """Mirror re.sub's match order while copying unchanged character entries."""
+        nonlocal entries
+        result: List[_RuleEntry] = []
+        cursor = 0
+
+        def replace(match):
+            """Attach replacement characters to their source span or insertion neighbors."""
+            nonlocal cursor
+            start, end = match.span()
+            result.extend(entries[cursor:start])
+            replacement_text = repl(match) if callable(repl) else match.expand(repl)
+            span = entries[start:end]
+            if not span:
+                offset = min(1, start)
+                neighbors = entries[max(0, start - 1):start + 1]
+                inserted = _apply_edit_ops(neighbors, [(offset, 0, replacement_text)])
+                result.extend(inserted[offset:offset + len(replacement_text)])
+            else:
                 first = span[0]
                 node = first.node if all(e.node is first.node for e in span) else None
-                new_entries: List[_RuleEntry] = []
                 for char in replacement_text:
                     if char == "\n":
-                        new_entries.append(_RuleEntry("\n", {}))
+                        result.append(_RuleEntry("\n", {}))
                     else:
-                        new_entries.append(
+                        result.append(
                             _RuleEntry(char, copy.deepcopy(first.style), node=node)
                         )
-                entries[match.start() : match.end()] = new_entries
+            cursor = end
+            return replacement_text
+
+        replaced_text = pattern.sub(replace, text)
+        result.extend(entries[cursor:])
+        entries = result
+        return replaced_text
+
+    text = substitute(re.compile(r"\n+"), "[BR]", _text_of(entries))
+    text = _apply_replacement_rules(text, direction, replacements, substitute)
+    _, entries = _normalize_rule_linebreak_entries(text, entries)
     return entries
 
 
 def apply_replacements_to_document(
-    document_value: Any, direction_value: Any, replacements: Optional[dict] = None
+    document_value: Any, direction_value: Any, replacements: Optional[dict] = None,
+    *, apply_rules: bool = False, old_translation: Optional[str] = None,
 ) -> RichTextDocument:
-    """替换富文本正文，并保留命中字符的样式及 ruby/tcy 节点。"""
+    """替换富文本并可选地为替换后新命中应用自动样式，保留手工节点和旧样式。"""
     document = ensure_rich_text_document(document_value)
     entries = apply_replacements_to_entries(
         _rule_entries_from_document(document), _direction_to_int(direction_value), replacements
     )
-    return _document_from_rule_entries(_text_of(entries), entries)
+    document = _document_from_rule_entries(_text_of(entries), entries)
+    if apply_rules:
+        document = _apply_editor_rules_stage(
+            document, True, re.sub(r"\n+", "[BR]", document.plain_text()),
+            old_translation, direction_value, None,
+        )
+    return document
 
 
 def _map_styles_to_raw(

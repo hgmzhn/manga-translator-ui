@@ -11,7 +11,7 @@
 import logging
 import os
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import yaml
 
@@ -390,26 +390,10 @@ def load_replacements(file_path: Optional[str] = None) -> dict:
     return parsed
 
 
-def apply_replacements(text: str, direction: int, replacements: Optional[dict] = None,
-                       file_path: Optional[str] = None) -> str:
-    """
-    对译文应用替换规则。
-    自动跳过 [BR]、<br>、【BR】 等换行标记，避免标记内容被误替换。
-
-    参数:
-        text: 原始译文
-        direction: 0=横排, 1=竖排
-        replacements: 预加载的规则字典（可选，避免重复加载）
-        file_path: YAML 配置文件路径（当 replacements 为 None 时使用）
-
-    返回:
-        替换后的文本
-    """
+def _apply_replacement_rules(text: str, direction: int, replacements: dict, substitute) -> str:
+    """共享保护标记、分组顺序与恢复步骤；substitute 提供字符串或带样式的正则替换。"""
     if not text:
         return text
-
-    if replacements is None:
-        replacements = load_replacements(file_path)
 
     # 保护标记：提取 [BR]、<br>、【BR】 等，用占位符替代
     _PROTECTED_RE = re.compile(
@@ -421,25 +405,42 @@ def apply_replacements(text: str, direction: int, replacements: Optional[dict] =
     protected_tokens = []
 
     def _protect(match):
+        """暂存原始换行标记，返回供后续规则处理的占位符。"""
         protected_tokens.append(match.group(0))
         return f'\x00PROT{len(protected_tokens) - 1}\x00'
 
-    text = _PROTECTED_RE.sub(_protect, text)
+    text = substitute(_PROTECTED_RE, _protect, text)
 
     # 1. 先应用 common 规则
     for pattern, repl in replacements.get('common', []):
-        text = pattern.sub(repl, text)
+        text = substitute(pattern, repl, text)
 
     # 2. 根据方向应用对应分组
     group_key = 'vertical' if direction == 1 else 'horizontal'
     for pattern, repl in replacements.get(group_key, []):
-        text = pattern.sub(repl, text)
+        text = substitute(pattern, repl, text)
 
     # 恢复保护的标记
     for i, token in enumerate(protected_tokens):
-        text = text.replace(f'\x00PROT{i}\x00', token)
+        text = substitute(re.compile(re.escape(f'\x00PROT{i}\x00')), lambda match: token, text)
 
     return text
+
+
+def apply_replacements(text: str, direction: int, replacements: Optional[dict] = None,
+                       file_path: Optional[str] = None) -> str:
+    """按 common、方向分组顺序替换译文，并保护现有的 BR 换行标记。
+
+    direction 为 0（横排）或 1（竖排）；未提供 replacements 时从 file_path
+    或默认配置加载规则。空文本原样返回，正则替换错误交由调用方处理。
+    """
+    if not text:
+        return text
+    if replacements is None:
+        replacements = load_replacements(file_path)
+    return _apply_replacement_rules(
+        text, direction, replacements, lambda pattern, repl, current: pattern.sub(repl, current)
+    )
 
 
 def build_h2v_dict(file_path: Optional[str] = None) -> dict:

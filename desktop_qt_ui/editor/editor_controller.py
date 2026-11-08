@@ -862,6 +862,7 @@ class EditorController(QObject):
     def update_translation_rich(
         self, region_index: int, rich_document, plain_text: str, text_changed: bool
     ):
+        """提交浮窗输入及样式；正文先替换再检查自动样式新命中，raw 保留输入。"""
         old_region_data = self.model.get_region_by_index(region_index)
         if not old_region_data:
             return
@@ -878,7 +879,9 @@ class EditorController(QObject):
 
             try:
                 replaced = apply_replacements_to_document(
-                    rich_document, old_region_data.get("direction", "h")
+                    rich_document, old_region_data.get("direction", "h"),
+                    apply_rules=text_changed and self._auto_rich_text_rules_enabled(),
+                    old_translation=old_region_data.get("translation", ""),
                 )
                 rich_document = replaced.to_dict()
                 translation = plain_text_to_storage_text(replaced.plain_text())

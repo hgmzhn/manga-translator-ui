@@ -789,6 +789,7 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self._queue_layout_refresh()
 
     def _emit_pending_document(self) -> None:
+        """同步发出文档及正文变化标志，并在模型通知期间保护当前输入和撤销栈。"""
         self._emit_debounce_timer.stop()
         payload = self._state.mark_document_emitted()
         if payload is None:

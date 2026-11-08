@@ -37,6 +37,7 @@ Use the floating rich-text editor when a line of translation needs inline stylin
 3. Qt undo/redo is enabled on the body; consecutive rich-text write-backs are merged into one undoable step by the controller using `merge_key`.
 4. With “Auto Apply Rich Text Rules While Editing” on (default), each edit applies the rich-text rules incrementally to the document: rules only add styles and never change characters, and matched ranges that already carry manual rich-text traces are skipped entirely.
 5. Committing a body edit also applies the same text replacement rules as the “Show Translation (Raw)” path in the property panel. For example, the default rules turn `...` into the appropriate horizontal or vertical ellipsis. Replacements preserve character styles, ruby, and TCY nodes. Style-only edits keep the raw translation: while the floating editor still shows the typed input, its styles are mapped to the replacement result; already replaced body text is not replaced again.
+6. Replacements support zero-width regular expressions such as `^` and `$`, with the same line-break protection as raw translation editing. Generated `[BR]`, `<br/>`, and `【BR】` markers become paragraph breaks. When “Auto Apply Rich Text Rules While Editing” is enabled, body commits also check new style matches created by replacements, such as an ellipsis size rule after `...` becomes `…`. Manual styles and styles cleared from unchanged matches remain protected.
 
 ### Apply styles with the toolbar and style cards {#toolbar-and-style-cards}
 
