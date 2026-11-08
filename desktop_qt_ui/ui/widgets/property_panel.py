@@ -322,6 +322,7 @@ class PropertyPanel(QWidget):
             combo.blockSignals(False)
 
     def _create_mask_edit_section(self, layout):
+        """创建蒙版、画笔和印章工具页，各页使用独立大小滑块与共享工具互斥组。"""
         self.mask_edit_frame, mask_card = self._make_group(self._t("Image Editing"))
         frame_layout = QVBoxLayout(mask_card)
         frame_layout.setContentsMargins(6, 8, 6, 6)
@@ -2207,6 +2208,7 @@ class PropertyPanel(QWidget):
             tab_index = current_index if current_index in select_buttons else 0
         else:
             mapping = {
+                "pen": (self.brush_button, 0),
                 "brush": (self.brush_button, 0),
                 "eraser": (self.eraser_button, 0),
                 "paint": (getattr(self, "paint_brush_button", None), 1),
