@@ -304,6 +304,21 @@ class _RuleEntry:
     automatic_style: dict = field(default_factory=dict)
     automatic_node: Optional[dict] = None
     source_ids: tuple[int, ...] = ()
+    output_id: tuple = ()
+
+    @property
+    def output_key(self) -> tuple:
+        """Keep original characters distinct from products of replacement rules."""
+        return self.source_ids, self.output_id, self.char
+
+
+@dataclass
+class _RuleBaseline:
+    """The last text seen while rules were unavailable, before the next edit."""
+
+    text: str
+    source_ids: list[tuple[int, ...]]
+    output_keys: list[tuple]
 
 
 @dataclass
@@ -320,19 +335,22 @@ class EditorRuleContext:
     approved: set[tuple] = field(default_factory=set)
     overrides: dict[tuple, dict[int, set[str]]] = field(default_factory=dict)
     applied: dict[tuple, tuple[frozenset[int], frozenset[str], bool]] = field(default_factory=dict)
+    deferred_baseline: Optional[_RuleBaseline] = None
 
-    def match_key(self, rule: dict, match) -> tuple:
+    def match_key(self, rule: dict, match, baseline: Optional[_RuleBaseline] = None) -> tuple:
         """Identify a rule match by its text and surviving input character identities."""
+        source_ids = baseline.source_ids if baseline is not None else self.source_ids
+        output_keys = baseline.output_keys if baseline is not None else self.output_keys
         origins = frozenset(
-            source for group in self.source_ids[match.start():match.end()] for source in group
+            source for group in source_ids[match.start():match.end()] for source in group
         )
         return (
             rule["pattern"].pattern, rule["pattern"].flags,
             repr(rule.get("style")), rule.get("ruby"), rule.get("tcy"),
             match.group(),
-            tuple(self.output_keys[match.start():match.end()]) if self.output_keys else tuple(
-                (group, 0, char) for group, char in zip(
-                    self.source_ids[match.start():match.end()], match.group(), strict=True,
+            tuple(output_keys[match.start():match.end()]) if output_keys else tuple(
+                (group, (), char) for group, char in zip(
+                    source_ids[match.start():match.end()], match.group(), strict=True,
                 )
             ),
             origins,
@@ -340,18 +358,24 @@ class EditorRuleContext:
 
     def restore_output_effects(self, entries: List[_RuleEntry]) -> None:
         """Recover exact output effects instead of expanding a lossy raw preview's styles."""
-        counts: dict[tuple, int] = {}
-        self.output_keys = []
+        self.output_keys = [entry.output_key for entry in entries]
+        # A preview reconstructs node objects. Rejoin inserted characters only when
+        # the same preview group maps unambiguously to one cached logical node.
+        owners: dict[int, dict[int, dict]] = {}
         for entry in entries:
-            character_source = (entry.source_ids, entry.char)
-            ordinal = counts.get(character_source, 0)
-            counts[character_source] = ordinal + 1
-            key = (entry.source_ids, ordinal, entry.char)
-            self.output_keys.append(key)
-            if key in self.previous_effects:
-                style, node = self.previous_effects[key]
+            previous = self.previous_effects.get(entry.output_key)
+            if entry.automatic_node is not None and previous is not None and previous[1] is not None:
+                node = previous[1]
+                owners.setdefault(id(entry.automatic_node), {})[id(node)] = node
+        for entry in entries:
+            if entry.output_key in self.previous_effects:
+                style, node = self.previous_effects[entry.output_key]
                 entry.automatic_style = copy.deepcopy(style)
                 entry.automatic_node = node
+            elif entry.automatic_node is not None:
+                candidates = owners.get(id(entry.automatic_node), {})
+                if len(candidates) == 1:
+                    entry.automatic_node = next(iter(candidates.values()))
         self.source_ids = [entry.source_ids for entry in entries]
         self.automatic_styles = [entry.automatic_style for entry in entries]
         self.automatic_nodes = [entry.automatic_node for entry in entries]
@@ -362,6 +386,36 @@ class EditorRuleContext:
             for match in rule["pattern"].finditer(text):
                 if match.start() != match.end():
                     self.suppressed.add(self.match_key(rule, match))
+
+    def defer_existing(self, text: str) -> None:
+        """Remember old matches without requiring the rule file to be readable."""
+        self.deferred_baseline = _RuleBaseline(text, list(self.source_ids), list(self.output_keys))
+
+    def suppress_deferred(self, rules: dict, direction: Any) -> None:
+        """Seed old-match protection on recovery before evaluating newly edited text."""
+        baseline = self.deferred_baseline
+        if baseline is None:
+            return
+        for rule in _iter_rules(rules, direction):
+            for match in rule["pattern"].finditer(baseline.text):
+                if match.start() != match.end():
+                    key = self.match_key(rule, match, baseline)
+                    if key not in self.approved:
+                        self.suppressed.add(key)
+        self.deferred_baseline = None
+
+    def clear_output_effects(self, sources: set[int]) -> None:
+        """Clear all products of selected input, including effects hidden by projection."""
+        for key in self.previous_effects:
+            if sources.intersection(key[0]):
+                self.previous_effects[key] = ({}, None)
+        self.record_overrides({source: {"*"} for source in sources})
+
+    def record_overrides(self, fields_by_source: dict[int, set[str]]) -> None:
+        """Remember user edits even when a previously matched rule is temporarily absent."""
+        for key in self.approved | self.suppressed | self.applied.keys():
+            for source in key[-1] & fields_by_source.keys():
+                self.overrides.setdefault(key, {}).setdefault(source, set()).update(fields_by_source[source])
 
     def overridden_fields(self, match_key: tuple, index: int) -> set[str]:
         """Return only explicit overrides on the source characters at this output position."""
@@ -509,7 +563,7 @@ def _normalize_rule_linebreak_entries(text: str, entries: List[_RuleEntry]) -> t
             normalized_entries.append(entries[index])
         normalized_text.append("\n")
         origins = tuple(dict.fromkeys(source for entry in entries[match.start():match.end()] for source in entry.source_ids))
-        normalized_entries.append(_RuleEntry("\n", {}, source_ids=origins))
+        normalized_entries.append(_RuleEntry("\n", {}, source_ids=origins, output_id=entries[match.start()].output_id))
         cursor = match.end()
     for index in range(cursor, len(text)):
         normalized_text.append(text[index])
@@ -558,6 +612,7 @@ def apply_rich_text_rules(
         return None
     rules = rules if rules is not None else load_rich_text_rules(file_path)
     if editor_context:
+        editor_context.suppress_deferred(rules, direction)
         editor_context.applied.clear()
         editor_context.discard_live_projection(match_text, direction, rules)
         for index, entry in enumerate(entries):
@@ -608,7 +663,7 @@ def apply_rich_text_rules(
                 entry = entries[index]
                 overrides = editor_context.overridden_fields(match_key, index) if editor_context else set()
                 entry.automatic_style = _merge_style(
-                    entry.automatic_style, {key: value for key, value in rule["style"].items() if key not in overrides}
+                    entry.automatic_style, {key: value for key, value in rule["style"].items() if "*" not in overrides and key not in overrides}
                 )
             node = None
             if rule.get("ruby"):
@@ -622,7 +677,8 @@ def apply_rich_text_rules(
             if node is not None and _LINE_BREAK_RE.search(match_text, start, end) is None:
                 if editor_context:
                     for index in range(start, end):
-                        if entries[index].node is None and "__node" not in editor_context.overridden_fields(match_key, index):
+                        overrides = editor_context.overridden_fields(match_key, index)
+                        if entries[index].node is None and not {"*", "__node"}.intersection(overrides):
                             entries[index].automatic_node = node
                             changed = True
                 elif all(entry.node is None for entry in target):

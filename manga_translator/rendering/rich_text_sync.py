@@ -21,6 +21,7 @@ richtext.v1 文档的字符条目上,让样式跟随未改动的字符,不做任
 from __future__ import annotations
 
 import copy
+import hashlib
 import logging
 import re
 from typing import Any, List, Optional, Sequence
@@ -55,7 +56,7 @@ def _copy_entries(entries: Sequence[_RuleEntry]) -> List[_RuleEntry]:
         _RuleEntry(
             entry.char, copy.deepcopy(entry.style), node=entry.node,
             automatic_style=copy.deepcopy(entry.automatic_style),
-            automatic_node=entry.automatic_node, source_ids=entry.source_ids,
+            automatic_node=entry.automatic_node, source_ids=entry.source_ids, output_id=entry.output_id,
         )
         for entry in entries
     ]
@@ -137,7 +138,7 @@ def apply_replacements_to_entries(
     if replacements is None:
         replacements = load_replacements()
 
-    def substitute(pattern, repl, text):
+    def substitute(pattern, repl, text, rule_id=None):
         """Mirror re.sub's match order while copying unchanged character entries."""
         nonlocal entries
         result: List[_RuleEntry] = []
@@ -156,21 +157,36 @@ def apply_replacements_to_entries(
                 inserted = _apply_edit_ops(neighbors, [(offset, 0, replacement_text)])
                 generated = inserted[offset:offset + len(replacement_text)]
                 anchor = entries[start] if start < len(entries) else entries[start - 1] if start else None
-                for entry in generated:
+                side = "before" if start < len(entries) else "after"
+                identity = (rule_id, anchor.output_key if anchor is not None else (), side)
+                product = hashlib.sha256(repr(identity).encode("utf-8")).digest()
+                for index, entry in enumerate(generated):
                     entry.source_ids = anchor.source_ids if anchor is not None else ()
+                    if entry.source_ids and rule_id is not None:
+                        entry.output_id = (product, index)
                 result.extend(generated)
             else:
                 first = span[0]
                 node = first.node if all(e.node is first.node for e in span) else None
                 automatic_node = first.automatic_node if all(e.automatic_node is first.automatic_node for e in span) else None
                 source_ids = tuple(dict.fromkeys(source for entry in span for source in entry.source_ids))
-                for char in replacement_text:
+                parents = tuple(entry.output_key for entry in span)
+                # Bound identity size: recursive tuples make repeated two-character
+                # substitutions exponentially expensive to hash in the rule cache.
+                product = hashlib.sha256(repr((rule_id, parents)).encode("utf-8")).digest()
+                for index, char in enumerate(replacement_text):
+                    output_id = (product, index) if rule_id is not None and source_ids else first.output_id
+                    origins = source_ids
+                    if replacement_text == match.group():
+                        # Identity is unchanged, but the established replacement
+                        # style/node inheritance policy still applies below.
+                        origins, output_id = span[index].source_ids, span[index].output_id
                     if char == "\n":
-                        result.append(_RuleEntry("\n", {}, source_ids=source_ids))
+                        result.append(_RuleEntry("\n", {}, source_ids=origins, output_id=output_id))
                     else:
                         result.append(
                             _RuleEntry(
-                                char, copy.deepcopy(first.style), node=node, source_ids=source_ids,
+                                char, copy.deepcopy(first.style), node=node, source_ids=origins, output_id=output_id,
                                 automatic_style=copy.deepcopy(first.automatic_style), automatic_node=automatic_node,
                             )
                         )
@@ -213,6 +229,8 @@ def apply_replacements_to_document(
             )
         except Exception as exc:
             logger.warning("Automatic floating text styles failed; preserving replacements: %s", exc)
+            if editor_context:
+                editor_context.defer_existing(document.plain_text())
             ruled = None
     if editor_context:
         editor_context.previous_effects = {

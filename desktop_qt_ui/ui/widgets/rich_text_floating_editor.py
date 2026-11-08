@@ -665,14 +665,16 @@ class RichTextFloatingEditor(SimpleCardWidget):
             document = apply_ruby_to_range(document, start, end, preset["ruby"])
         elif preset["tcy"]:
             document = apply_tcy_to_range(document, start, end)
-        self._commit_document(document)
+        self._commit_document(document, cleared_range=(start, end))
 
     def _clear_all_styles_from_explicit_range(self, start: int, end: int) -> None:
         if self._updating or not self._state.has_region or start >= end:
             return
         self._state.ruby_draft = None
         self._state.clear_pending_style_edit()
-        self._commit_document(clear_styles_from_range(self._state.document, start, end))
+        self._commit_document(
+            clear_styles_from_range(self._state.document, start, end), cleared_range=(start, end)
+        )
 
     def _sync_window_width_to_sidebar(self) -> None:
         self.setFixedWidth(
@@ -685,8 +687,8 @@ class RichTextFloatingEditor(SimpleCardWidget):
         self._sync_window_width_to_sidebar()
         self._queue_layout_refresh(emit_position=True)
 
-    def _commit_document(self, document: dict) -> None:
-        if self._state.replace_document(document):
+    def _commit_document(self, document: dict, *, cleared_range: tuple[int, int] | None = None) -> None:
+        if self._state.replace_document(document, cleared_range=cleared_range):
             self._emit_pending_document()
         self._refresh_inspector()
 

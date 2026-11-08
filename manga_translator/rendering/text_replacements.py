@@ -411,14 +411,12 @@ def _apply_replacement_rules(text: str, direction: int, replacements: dict, subs
 
     text = substitute(_PROTECTED_RE, _protect, text)
 
-    # 1. 先应用 common 规则
-    for pattern, repl in replacements.get('common', []):
-        text = substitute(pattern, repl, text)
-
-    # 2. 根据方向应用对应分组
+    # 给用户规则稳定的身份；保护和恢复标记不创建新的字符身份。
     group_key = 'vertical' if direction == 1 else 'horizontal'
-    for pattern, repl in replacements.get(group_key, []):
-        text = substitute(pattern, repl, text)
+    for group in ('common', group_key):
+        for index, (pattern, repl) in enumerate(replacements.get(group, [])):
+            rule_id = (group, index, pattern.pattern, pattern.flags, repr(repl))
+            text = substitute(pattern, repl, text, rule_id)
 
     # 恢复保护的标记
     for i, token in enumerate(protected_tokens):
@@ -439,7 +437,7 @@ def apply_replacements(text: str, direction: int, replacements: Optional[dict] =
     if replacements is None:
         replacements = load_replacements(file_path)
     return _apply_replacement_rules(
-        text, direction, replacements, lambda pattern, repl, current: pattern.sub(repl, current)
+        text, direction, replacements, lambda pattern, repl, current, rule_id=None: pattern.sub(repl, current)
     )
 
 

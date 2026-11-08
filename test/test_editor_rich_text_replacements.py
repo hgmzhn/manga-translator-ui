@@ -27,6 +27,7 @@ from editor.editor_model import EditorModel
 from editor.render_text_value import render_text_value_from_region
 from editor.rich_text_editing import (
     apply_style_to_range,
+    clear_styles_from_range,
     document_from_region,
     plain_text_to_storage_text,
     remove_ruby_from_range,
@@ -615,6 +616,170 @@ class RichTextReplacementTests(unittest.TestCase):
         self._commit_input(state, controller, "ax")
         self.assertEqual(controller.region["translation"], "Pax")
         self.assertEqual(self._output_style(controller, 1), {})
+
+    def test_same_character_prefix_preserves_original_match_identity(self):
+        """A generated a must not take the protected identity of the bound a."""
+        state, _ = self._automatic_editor(
+            [{"pattern": "a", "style": {"bold": True}}],
+            replacements={"common": [(re.compile("^"), "a")]},
+        )
+        region = {"translation": "a", "direction": "h"}
+        state.bind_region(0, region)
+        controller = TranslationHarness(region)
+        for text in ("ax", "axy"):
+            self._commit_input(state, controller, text)
+            self.assertEqual(self._output_style(controller, 0), {"bold": True})
+            self.assertEqual(self._output_style(controller, 1), {})
+
+    def test_inserting_inside_automatic_ruby_keeps_one_annotation(self):
+        """Check the entire Ruby group, not only the first node's type."""
+        state, controller = self._automatic_editor(
+            [{"pattern": "AB", "ruby": "note"}], replacements={},
+        )
+        for text in ("AB", "AXB", "AXYB", "AYB"):
+            self._commit_input(state, controller, text)
+            inlines = controller.region["translation_rich"]["blocks"][0]["inlines"]
+            self.assertEqual(len(inlines), 1)
+            self.assertEqual(inlines[0]["base"][0]["text"], text)
+            self.assertEqual(inlines[0]["text"][0]["text"], "note")
+
+    def test_adjacent_automatic_annotations_remain_separate(self):
+        """Equal annotation text is not a reason to merge independent Ruby groups."""
+        state, controller = self._automatic_editor([{"pattern": "AB", "ruby": "note"}], replacements={})
+        for text in ("ABAB", "AXBAB", "AXBAYB", "AXBZAYB"):
+            self._commit_input(state, controller, text)
+        inlines = controller.region["translation_rich"]["blocks"][0]["inlines"]
+        self.assertEqual([node["type"] for node in inlines], ["ruby", "text", "ruby"])
+        self.assertEqual(inlines[0]["base"][0]["text"], "AXB")
+        self.assertEqual(inlines[1]["text"], "Z")
+        self.assertEqual(inlines[2]["base"][0]["text"], "AYB")
+
+    def test_clear_all_removes_hidden_output_styles(self):
+        """The real clear button must clear every output of the selected source."""
+        config = SimpleNamespace(app=SimpleNamespace(editor_auto_rich_text_rules=True, saved_rich_text_presets={}))
+        service = SimpleNamespace(get_config=lambda: config, get_config_reference=lambda: config)
+        state, controller = self._automatic_editor(
+            [{"pattern": "X", "style": {"bold": True}}, {"pattern": "Y", "style": {"scale": 2.0}}],
+            replacements={"common": [(re.compile("a"), "XY")]},
+        )
+        with patch("ui.widgets.rich_text_floating_editor.get_config_service", return_value=service), patch(
+            "ui.widgets.rich_text_floating_editor.get_i18n_manager", return_value=None
+        ):
+            editor = RichTextFloatingEditor()
+            try:
+                editor.rich_text_changed.connect(controller.update_translation_rich)
+                editor.set_region(0, controller.region)
+                editor.text_box.insertPlainText("aa")
+                editor.flush_pending_changes()
+                editor._clear_all_styles_from_explicit_range(0, 1)
+                for index in (0, 1):
+                    self.assertEqual(self._output_style(controller, index), {})
+                self.assertEqual(self._output_style(controller, 2), {"bold": True})
+                self.assertEqual(self._output_style(controller, 3), {"scale": 2.0})
+                editor.text_box.insertPlainText("x")
+                editor.flush_pending_changes()
+                self.assertEqual(self._output_style(controller, 1), {})
+                editor._state.set_selection(1, 2)
+                preset = {"style": {"italic": True}, "ruby": "fresh", "tcy": False}
+                with patch.object(editor._preset_store, "load", return_value={"new": preset}):
+                    editor._apply_rich_text_preset("new")
+                editor.text_box.insertPlainText("y")
+                editor.flush_pending_changes()
+                for index in (2, 3):
+                    self.assertEqual(self._output_style(controller, index), {"italic": True})
+                inlines = controller.region["translation_rich"]["blocks"][0]["inlines"]
+                ruby = [node for node in inlines if node["type"] == "ruby"]
+                self.assertEqual(len(ruby), 1)
+                self.assertEqual(ruby[0]["base"][0]["text"], "XY")
+                self.assertEqual(ruby[0]["text"][0]["text"], "fresh")
+            finally:
+                editor.close()
+                editor.deleteLater()
+                QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+                self.app.processEvents()
+
+    def test_clear_all_works_when_only_hidden_outputs_have_styles(self):
+        """An unchanged preview still carries a real clear-all operation during failure."""
+        state, controller = self._automatic_editor(
+            [{"pattern": "Y", "style": {"scale": 2.0}, "ruby": "note"}],
+            replacements={"common": [(re.compile("a"), "XY")]},
+        )
+        self._commit_input(state, controller, "a")
+        cleared = clear_styles_from_range(state.document, 0, 1)
+        self.assertEqual(cleared, state.document)
+        with patch("manga_translator.rendering.rich_text_rules.load_rich_text_rules", side_effect=OSError("unreadable")):
+            state.replace_document(cleared, cleared_range=(0, 1))
+            controller.update_translation_rich(*state.mark_document_emitted())
+        self._commit_input(state, controller, "axa")
+        self.assertEqual(self._output_style(controller, 1), {})
+        self.assertEqual(self._output_style(controller, 4), {"scale": 2.0})
+        inlines = controller.region["translation_rich"]["blocks"][0]["inlines"]
+        self.assertEqual(sum(node["type"] == "ruby" for node in inlines), 1)
+
+    def test_clears_survive_temporarily_empty_rules(self):
+        """Clearing historical matches must survive removing and restoring their rules."""
+        state, controller = self._automatic_editor(
+            [{"pattern": "X", "style": {"bold": True}}, {"pattern": "Y", "style": {"scale": 2.0}}],
+            replacements={"common": [(re.compile("a"), "XY")]},
+        )
+        self._commit_input(state, controller, "a")
+        with patch("manga_translator.rendering.rich_text_rules.load_rich_text_rules", return_value=_parse_rules({})):
+            self._commit_input(state, controller, "ax")
+            state.replace_document(clear_styles_from_range(state.document, 0, 1), cleared_range=(0, 1))
+            controller.update_translation_rich(*state.mark_document_emitted())
+        self._commit_input(state, controller, "axya")
+        self.assertEqual(self._output_style(controller, 0), {})
+        self.assertEqual(self._output_style(controller, 1), {})
+        self.assertEqual(self._output_style(controller, -2), {"bold": True})
+        self.assertEqual(self._output_style(controller, -1), {"scale": 2.0})
+
+    def test_rule_recovery_protects_text_entered_while_disabled(self):
+        """Preserve old effects, skip failure-period matches, and style new matches."""
+        state, controller = self._automatic_editor([{"pattern": "AB", "style": {"bold": True}}], replacements={})
+        self._commit_input(state, controller, "AB")
+        state.auto_rules_provider = lambda: False
+        with patch("manga_translator.rendering.rich_text_rules.load_rich_text_rules", side_effect=OSError("unreadable")):
+            self._commit_input(state, controller, "ABxAB")
+        state.auto_rules_provider = lambda: True
+        self._commit_input(state, controller, "ABxAByAB")
+        self.assertEqual(self._output_style(controller, 0), {"bold": True})
+        self.assertEqual(self._output_style(controller, 3), {})
+        self.assertEqual(self._output_style(controller, 6), {"bold": True})
+
+    def test_same_text_replacement_keeps_first_character_style_policy(self):
+        """Identity preservation must not change the shared replacement style contract."""
+        document = document_from_region({"translation": "AB"})
+        document = apply_style_to_range(document, 0, 1, {"bold": True})
+        document = apply_style_to_range(document, 1, 2, {"italic": True})
+        result = apply_replacements_to_document(document, "h", {"common": [(re.compile("AB"), "AB")]})
+        self.assertEqual([entry.style for entry in _rule_entries_from_document(result)], [{"bold": True}] * 2)
+
+    def test_long_replacement_chain_preserves_distinct_output_styles(self):
+        """Many short substitutions must retain stable per-output formatting on follow-up."""
+        replacements = {"common": [(re.compile("AB" if index % 2 == 0 else "CD"), "CD" if index % 2 == 0 else "AB") for index in range(40)]}
+        state, controller = self._automatic_editor(
+            [{"pattern": "A", "style": {"bold": True}}, {"pattern": "B", "style": {"scale": 2.0}}],
+            replacements=replacements,
+        )
+        for text in ("AB", "ABx"):
+            self._commit_input(state, controller, text)
+            self.assertEqual(self._output_style(controller, 0), {"bold": True})
+            self.assertEqual(self._output_style(controller, 1), {"scale": 2.0})
+
+    def test_recovering_rules_preserves_bound_matches_but_allows_new_ones(self):
+        """A failed initial rule load must not turn old text into new matches."""
+        state, _ = self._automatic_editor(
+            [{"pattern": "AB", "style": {"bold": True}}], replacements={},
+        )
+        with patch("manga_translator.rendering.rich_text_rules.load_rich_text_rules", side_effect=OSError("unreadable")):
+            region = {"translation": "ABxA", "direction": "h"}
+            state.bind_region(0, region)
+        controller = TranslationHarness(region)
+        self._commit_input(state, controller, "ABxAB")
+        self.assertEqual(self._output_style(controller, 0), {})
+        self.assertEqual(self._output_style(controller, 1), {})
+        self.assertEqual(self._output_style(controller, 3), {"bold": True})
+        self.assertEqual(self._output_style(controller, 4), {"bold": True})
 
     def test_rule_failure_preserves_distinct_expansion_styles_and_nodes(self):
         """An unreadable style file must retain X and Y effects in output coordinates."""

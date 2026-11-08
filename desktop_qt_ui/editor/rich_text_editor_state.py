@@ -89,6 +89,7 @@ class RichTextEditorState:
             self._rule_context.suppress_existing(plain_text_of(self.document), self.region_data.get("direction", "h"))
         except Exception as exc:
             logging.getLogger(__name__).warning("Failed to seed floating text rules; preserving input: %s", exc)
+            self._rule_context.defer_existing(plain_text_of(self.document))
         self._needs_replacements = False
 
     @property
@@ -244,9 +245,9 @@ class RichTextEditorState:
             self.document = copy.deepcopy(preview_document)
             self._prepared_document = copy.deepcopy(preview_document)
 
-    def replace_document(self, document: dict) -> bool:
+    def replace_document(self, document: dict, *, cleared_range: tuple[int, int] | None = None) -> bool:
         """Apply explicit style changes to manual input and suppress affected automatic matches."""
-        if document == self.document:
+        if document == self.document and cleared_range is None:
             return False
         if plain_text_of(document) != plain_text_of(self.document):
             self._manual_document = copy.deepcopy(document)
@@ -258,8 +259,13 @@ class RichTextEditorState:
             before = _rule_entries_from_document(ensure_rich_text_document(self.document))
             after = _rule_entries_from_document(ensure_rich_text_document(document))
             manual = _rule_entries_from_document(ensure_rich_text_document(self._manual_document))
+            cleared_sources = set(self._source_ids[slice(*cleared_range)]) if cleared_range is not None else set()
+            self._rule_context.clear_output_effects(cleared_sources)
             changed_fields: dict[int, set[str]] = {}
             for source, old, new, base in zip(self._source_ids, before, after, manual):
+                if source in cleared_sources:
+                    base.style = copy.deepcopy(new.style)
+                    base.node = new.node
                 for key in old.style.keys() | new.style.keys():
                     if old.style.get(key) != new.style.get(key):
                         if key in new.style:
@@ -276,11 +282,7 @@ class RichTextEditorState:
                     style.pop(field, None)
                 if "__node" in fields:
                     self._rule_context.previous_effects[output_key] = (style, None)
-            for key, (sources, style_fields, has_node) in self._rule_context.applied.items():
-                for source in sources:
-                    affected = changed_fields.get(source, set()) & (set(style_fields) | ({"__node"} if has_node else set()))
-                    if affected:
-                        self._rule_context.overrides.setdefault(key, {}).setdefault(source, set()).update(affected)
+            self._rule_context.record_overrides(changed_fields)
             self._manual_document = _document_from_rule_entries(plain_text_of(document), manual).to_dict()
         self._prepare_document(document)
         self.editor_text = plain_text_of(document)
