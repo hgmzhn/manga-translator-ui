@@ -927,6 +927,7 @@ class GraphicsViewInputMixin:
 
     @pyqtSlot(int)
     def _on_brush_size_changed(self, size: int):
+        """当画笔尺寸改变且当前处于画笔类工具时，更新画布光标尺寸。"""
         if not self._is_eraser_tool(self._active_tool):
             self._brush_size = size
             self._update_cursor()
