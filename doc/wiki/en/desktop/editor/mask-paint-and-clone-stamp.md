@@ -22,13 +22,13 @@ When the auto-generated repair mask misses text ghosts, covers too much backgrou
 
 ### Choose the layer and tool in the Property Editor
 
-After opening the editor, the left panel defaults to “Property Editor”. The “Image Editing” group offers three tabs, `Mask`, `Paint`, and `Clone Stamp`; each tab provides a set of mutually exclusive tool buttons. All three tabs share one button group, so checking a tool on any tab unchecks the buttons on the other tabs. When you switch tabs and the current tool does not belong to the new tab, the active tool is reset to that tab’s “No Selection” button, avoiding cross-tab tool conflicts. The three tabs also share one “Brush Size:” field.
+After opening the editor, the left panel defaults to “Property Editor”. The “Image Editing” group offers three tabs, `Mask`, `Paint`, and `Clone Stamp`; each tab provides a set of mutually exclusive tool buttons. All three tabs share one button group, so checking a tool on any tab unchecks the buttons on the other tabs. When you switch tabs and the current tool does not belong to the new tab, the active tool is reset to that tab’s “No Selection” button, avoiding cross-tab tool conflicts. The three tool tabs independently remember their brush sizes, and within each tab, brush tools and eraser tools also independently remember their size; the slider automatically switches to display and adjust "Brush Size:" or "Eraser Size:" based on the active tool.
 
 ### Mask tab: brush and eraser
 
 1. Open the “Mask” tab.
 2. Click “Brush” or “Eraser”; alternatively press `W` / `E` to switch without opening the panel.
-3. Drag the “Brush Size:” slider to adjust stroke thickness; the range is 5–200 with an initial value of 30. On the canvas, `Shift+wheel` adjusts the same field by ±1 per notch.
+3. Drag the slider to adjust stroke thickness (brush and eraser sizes are remembered independently, range 5–200, default 30). On the canvas, `Shift+wheel` adjusts the active tool's size by ±1 per notch.
 4. Press and drag the left button on the canvas: the brush writes 255 at the stroke position, and the eraser clears the stroke position to 0. On release, the whole stroke is committed as one undoable command and triggers one auto-inpaint pass.
 5. Check “Show Refined Mask” to display the refined mask as a semi-transparent red overlay on the canvas; click “Clear All Masks” to clear the refined mask entirely.
 
@@ -120,7 +120,7 @@ Mask strokes, clearing all masks, paint/stamp strokes, and layer clearing all en
 - Mask-family tools depend on the inpainter configuration being loadable (model, size, precision). If loading fails or the model is missing, the mask still updates but the inpainted image does not refresh and an error is logged.
 - The left button of brush-like tools always draws; it cannot select or drag regions. Switch back to “No Selection” for region operations.
 - Switching tabs resets the active tool to the new tab’s “No Selection”, so the mask brush and the color brush are never active at the same time.
-- `Shift+wheel` adjusts the shared brush size (5–200) shared by all three tabs and never zooms the canvas; `Ctrl+wheel` adjusts the font size of selected regions. Both belong to [Shortcuts](./shortcuts.md).
+- `Shift+wheel` adjusts the active tool's size (5–200, brush or eraser) and never zooms the canvas; `Ctrl+wheel` adjusts the font size of selected regions. Both belong to [Shortcuts](./shortcuts.md).
 - While the clone stamp is active, right-click is occupied by sampling and the context menu is fully suppressed; `Escape`/focus loss discards uncommitted strokes.
 - Stroke data is kept at full base-image resolution (RGBA layers are H×W×4), so very large images consume significant memory; display layers are downsampled, but dabs and stamps always run at full resolution.
 - The paint/stamp layers and the refined mask are written into the project file on export; the export and write-back formats are covered in [Import, Export, and Write-back](./import-export-and-writeback.md).

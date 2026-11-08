@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 
 from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QWheelEvent
@@ -187,6 +188,7 @@ class PropertyPanel(QWidget):
     # Mask signals
     mask_tool_changed = pyqtSignal(str)
     brush_size_changed = pyqtSignal(int)
+    eraser_size_changed = pyqtSignal(int)
     toggle_mask_visibility = pyqtSignal(bool)
     clear_all_masks_requested = pyqtSignal()
     # Paint overlay signals
@@ -1041,7 +1043,9 @@ class PropertyPanel(QWidget):
             self._set_group_title(self.action_frame, self._t("Actions"))
 
         # 刷新标签
-        if hasattr(self, "brush_size_title_label"):
+        if hasattr(self, "update_brush_size_ui"):
+            self.update_brush_size_ui()
+        elif hasattr(self, "brush_size_title_label"):
             self.brush_size_title_label.setText(self._t("Brush Size:"))
         if hasattr(self, "ocr_model_row_label"):
             self.ocr_model_row_label.setText(self._t("OCR Model:"))
@@ -1119,16 +1123,12 @@ class PropertyPanel(QWidget):
         if hasattr(self, "stamp_eraser_button"):
             self.stamp_eraser_button.setText(self._t("Eraser"))
             set_hover_hint(self.stamp_eraser_button, self._t("Eraser Tool") + " (E)")
-        if hasattr(self, "stamp_size_title_label"):
-            self.stamp_size_title_label.setText(self._t("Brush Size:"))
         if hasattr(self, "clear_stamp_overlay_button"):
             self.clear_stamp_overlay_button.setText(self._t("Clear Stamp Layer"))
         if hasattr(self, "show_paint_overlay_checkbox"):
             self.show_paint_overlay_checkbox.setText(self._t("Show Paint Layer"))
         if hasattr(self, "show_stamp_overlay_checkbox"):
             self.show_stamp_overlay_checkbox.setText(self._t("Show Stamp Layer"))
-        if hasattr(self, "paint_size_title_label"):
-            self.paint_size_title_label.setText(self._t("Brush Size:"))
         if hasattr(self, "paint_color_label"):
             self.paint_color_label.setText(self._t("Brush Color:"))
         if hasattr(self, "paint_color_picker"):
@@ -2122,26 +2122,155 @@ class PropertyPanel(QWidget):
         elif button is self.stamp_eraser_button:
             self.mask_tool_changed.emit("stamp_erase")
 
+    def _is_eraser_active(self, tool: Optional[str] = None) -> bool:
+        """判断当前或指定的工具是否属于橡皮擦类工具。"""
+        if tool is not None:
+            return tool in ("eraser", "paint_erase", "stamp_erase")
+        if hasattr(self, "model") and self.model is not None:
+            return self.model.is_eraser_tool()
+        checked = getattr(self, "mask_tool_group", None)
+        if checked is not None:
+            btn = checked.checkedButton()
+            return btn in (
+                getattr(self, "eraser_button", None),
+                getattr(self, "paint_eraser_button", None),
+                getattr(self, "stamp_eraser_button", None),
+            )
+        return False
+
+    def _apply_size_to_sliders(self, size: Optional[int] = None):
+        """刷新所有工具页的滑块显示。"""
+        self.update_brush_size_ui()
+
+    def update_brush_size_ui(self, tool: Optional[str] = None):
+        """根据当前工具组及工具（画笔或橡皮擦）独立刷新各页滑块数值与标题文本。"""
+        if tool is None and hasattr(self, "model") and self.model is not None:
+            tool = self.model.get_active_tool()
+
+        active_group = (
+            self.model.get_active_group()
+            if hasattr(self, "model") and self.model is not None
+            else "mask"
+        )
+
+        group_configs = (
+            (
+                "mask",
+                getattr(self, "brush_size_slider", None),
+                getattr(self, "brush_size_value_label", None),
+                getattr(self, "brush_size_title_label", None),
+                getattr(self, "eraser_button", None),
+            ),
+            (
+                "paint",
+                getattr(self, "paint_size_slider", None),
+                getattr(self, "paint_size_value_label", None),
+                getattr(self, "paint_size_title_label", None),
+                getattr(self, "paint_eraser_button", None),
+            ),
+            (
+                "stamp",
+                getattr(self, "stamp_size_slider", None),
+                getattr(self, "stamp_size_value_label", None),
+                getattr(self, "stamp_size_title_label", None),
+                getattr(self, "stamp_eraser_button", None),
+            ),
+        )
+
+        for group_name, slider, val_label, title_label, eraser_btn in group_configs:
+            if slider is None:
+                continue
+
+            if group_name == active_group and tool is not None:
+                is_eraser = self._is_eraser_active(tool)
+            elif eraser_btn is not None:
+                is_eraser = eraser_btn.isChecked()
+            else:
+                is_eraser = False
+
+            if title_label is not None:
+                title_label.setText(
+                    self._t("Eraser Size:") if is_eraser else self._t("Brush Size:")
+                )
+
+            size = 30
+            if hasattr(self, "model") and self.model is not None:
+                size = (
+                    self.model.get_eraser_size(group_name)
+                    if is_eraser
+                    else self.model.get_brush_size(group_name)
+                )
+
+            slider.blockSignals(True)
+            slider.setValue(size)
+            slider.blockSignals(False)
+            slider.update()
+            if val_label is not None:
+                val_label.setText(str(size))
+
+    def on_model_brush_size_changed(self, size: int):
+        """当模型中的画笔大小变化时，刷新各工具页的 UI 显示。"""
+        self.update_brush_size_ui()
+
+    def on_model_eraser_size_changed(self, size: int):
+        """当模型中的橡皮擦大小变化时，刷新各工具页的 UI 显示。"""
+        self.update_brush_size_ui()
+
     def _on_brush_size_changed(self, value):
-        """三个大小滑块共享同一个模型字段；同步其余滑块显示，避免循环触发。"""
+        """滑块调整尺寸；根据当前被拖动的滑块所属工具页独立分发画笔或橡皮擦尺寸。"""
         sender = self.sender()
-        for slider, label in (
-            (self.brush_size_slider, self.brush_size_value_label),
-            (self.paint_size_slider, self.paint_size_value_label),
-            (self.stamp_size_slider, self.stamp_size_value_label),
-        ):
-            label.setText(str(value))
-            if slider is not sender and slider.value() != value:
-                slider.blockSignals(True)
-                slider.setValue(value)
-                slider.blockSignals(False)
-        self.brush_size_changed.emit(value)
+        if sender is getattr(self, "paint_size_slider", None):
+            group = "paint"
+            val_label = getattr(self, "paint_size_value_label", None)
+            eraser_btn = getattr(self, "paint_eraser_button", None)
+        elif sender is getattr(self, "stamp_size_slider", None):
+            group = "stamp"
+            val_label = getattr(self, "stamp_size_value_label", None)
+            eraser_btn = getattr(self, "stamp_eraser_button", None)
+        else:
+            group = "mask"
+            val_label = getattr(self, "brush_size_value_label", None)
+            eraser_btn = getattr(self, "eraser_button", None)
+
+        if val_label is not None:
+            val_label.setText(str(value))
+
+        active_group = (
+            self.model.get_active_group()
+            if hasattr(self, "model") and self.model is not None
+            else "mask"
+        )
+        if group == active_group and hasattr(self, "model") and self.model is not None:
+            is_eraser = self.model.is_eraser_tool()
+        elif eraser_btn is not None:
+            is_eraser = eraser_btn.isChecked()
+        else:
+            is_eraser = False
+
+        if hasattr(self, "model") and self.model is not None:
+            if is_eraser:
+                self.model.set_eraser_size(value, group=group)
+            else:
+                self.model.set_brush_size(value, group=group)
+            # 仅当调整的滑块属于当前活动工具组时，才向外转发不带 group 的通知信号，
+            # 避免触发 view.py 的无参数槽函数导致覆盖当前活动组尺寸。
+            if group == active_group:
+                if is_eraser:
+                    self.eraser_size_changed.emit(value)
+                else:
+                    self.brush_size_changed.emit(value)
+        else:
+            if is_eraser:
+                self.eraser_size_changed.emit(value)
+            else:
+                self.brush_size_changed.emit(value)
 
     def _on_paint_color_changed(self, hex_color: str):
+        """画笔颜色变更回调，发射颜色变更信号。"""
         self.brush_color_changed.emit(hex_color)
 
     def _on_paint_tab_changed(self, index: int):
-        """切换标签页时，自动把活跃工具切回当前页的选择工具，避免跨页工具冲突。"""
+        """切换标签页时，通知模型切换活动工具组，并把活跃工具切回当前页的选择工具。"""
         try:
             page_buttons = {
                 0: (self.select_button, self.brush_button, self.eraser_button),
@@ -2161,32 +2290,19 @@ class PropertyPanel(QWidget):
             if checked not in buttons:
                 buttons[0].setChecked(True)
                 if self.model.get_active_tool() == "select":
-                    self.sync_brush_size_from_model(self.model.get_brush_size())
+                    self.update_brush_size_ui("select")
                 self.mask_tool_changed.emit("select")
+
+            group = {0: "mask", 1: "paint", 2: "stamp"}.get(index, "mask")
+            if hasattr(self, "model") and self.model is not None:
+                self.model.set_active_group(group)
+            self.update_brush_size_ui()
         except Exception:
             pass
 
-    def sync_brush_size_from_model(self, size: int):
-        """从模型同步画笔大小到 UI，并刷新当前工具对应的滑块外观。"""
-        for slider, label in (
-            (self.brush_size_slider, self.brush_size_value_label),
-            (
-                getattr(self, "paint_size_slider", None),
-                getattr(self, "paint_size_value_label", None),
-            ),
-            (
-                getattr(self, "stamp_size_slider", None),
-                getattr(self, "stamp_size_value_label", None),
-            ),
-        ):
-            if slider is None:
-                continue
-            slider.blockSignals(True)
-            slider.setValue(size)
-            slider.blockSignals(False)
-            slider.update()
-            if label is not None:
-                label.setText(str(size))
+    def sync_brush_size_from_model(self, size: Optional[int] = None):
+        """从模型同步尺寸到 UI，并刷新当前工具对应的滑块外观。"""
+        self.update_brush_size_ui()
 
     def sync_brush_color_from_model(self, hex_color: str):
         """从模型同步画笔颜色到 UI（不触发信号）"""
@@ -2195,6 +2311,7 @@ class PropertyPanel(QWidget):
 
     def sync_active_tool_from_model(self, tool: str):
         """当 model 的 active_tool 变化时，UI 同步高亮对应按钮并切换标签页。"""
+        self.update_brush_size_ui(tool)
         # 'select' 在蒙版页和画板页都有按钮，按当前所在标签页决定亮哪个，
         # 避免在画板页点击「选择」时被强制切回蒙版页。
         if tool == "select":
@@ -2235,7 +2352,6 @@ class PropertyPanel(QWidget):
             if self.paint_segmented_widget is not None:
                 self.paint_segmented_widget.blockSignals(False)
         self.sync_sidebar_layout()
-        self.sync_brush_size_from_model(self.model.get_brush_size())
 
     def _on_alignment_changed(self, text: str):
         if self.block_updates:

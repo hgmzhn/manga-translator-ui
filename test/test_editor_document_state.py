@@ -310,3 +310,244 @@ def test_nonempty_mask_without_artifact_requires_backend_inpaint():
     assert np.array_equal(export_base.mask, mask)
     assert export_base.inpaint_key == session.get_inpaint_key()
     assert session.get_committed_inpaint_artifact() is None
+
+
+def test_brush_and_eraser_sizes_are_independently_stored_and_switched():
+    """测试画笔与橡皮擦尺寸以及各工具组（蒙版/画笔/印章）在 EditorSession 中独立存储与切换。"""
+    session = _session()
+    assert session.get_brush_size() == 30
+    assert session.get_eraser_size() == 30
+
+    # 1. 蒙版组（mask）：画笔与橡皮擦独立设置
+    assert session.set_brush_size(15, group="mask")
+    assert session.get_brush_size("mask") == 15
+    assert session.get_eraser_size("mask") == 30
+
+    assert session.set_eraser_size(60, group="mask")
+    assert session.get_eraser_size("mask") == 60
+    assert session.get_brush_size("mask") == 15
+
+    session.set_active_tool("brush")
+    assert not session.is_eraser_tool()
+    assert session.get_active_group() == "mask"
+    assert session.get_active_brush_size() == 15
+
+    session.set_active_tool("eraser")
+    assert session.is_eraser_tool()
+    assert session.get_active_group() == "mask"
+    assert session.get_active_brush_size() == 60
+
+    # 2. 画笔组（paint）：画笔与橡皮擦独立，且与蒙版组隔离
+    session.set_active_tool("paint")
+    assert not session.is_eraser_tool()
+    assert session.get_active_group() == "paint"
+    assert session.get_active_brush_size() == 30  # 默认值
+    assert session.set_active_brush_size(61)
+    assert session.get_brush_size("paint") == 61
+    assert session.get_brush_size("mask") == 15
+
+    session.set_active_tool("paint_erase")
+    assert session.is_eraser_tool()
+    assert session.get_active_group() == "paint"
+    assert session.get_active_brush_size() == 30  # 默认值
+    assert session.set_active_brush_size(22)
+    assert session.get_eraser_size("paint") == 22
+    assert session.get_eraser_size("mask") == 60
+
+    # 3. 印章组（stamp）：印章与橡皮擦独立，且与其他组隔离
+    session.set_active_tool("clone")
+    assert not session.is_eraser_tool()
+    assert session.get_active_group() == "stamp"
+    assert session.get_active_brush_size() == 30
+    assert session.set_active_brush_size(93)
+    assert session.get_brush_size("stamp") == 93
+
+    session.set_active_tool("stamp_erase")
+    assert session.is_eraser_tool()
+    assert session.get_active_group() == "stamp"
+    assert session.get_active_brush_size() == 30
+    assert session.set_active_brush_size(55)
+    assert session.get_eraser_size("stamp") == 55
+
+    # 4. 再次遍历所有工具，验证 6 种尺寸全部完整保留互不覆盖
+    for tool, expected in (
+        ("brush", 15),
+        ("pen", 15),
+        ("eraser", 60),
+        ("paint", 61),
+        ("paint_erase", 22),
+        ("clone", 93),
+        ("stamp_erase", 55),
+    ):
+        session.set_active_tool(tool)
+        assert session.get_active_brush_size() == expected
+
+
+def test_editor_model_emits_brush_and_eraser_size_signals_independently():
+    """测试 EditorModel 针对画笔与橡皮擦独立发射尺寸变更信号。"""
+    model = EditorModel()
+    brush_events = []
+    eraser_events = []
+    model.brush_size_changed.connect(brush_events.append)
+    model.eraser_size_changed.connect(eraser_events.append)
+
+    model.set_brush_size(18)
+    assert brush_events == [18]
+    assert eraser_events == []
+
+    model.set_eraser_size(55)
+    assert brush_events == [18]
+    assert eraser_events == [55]
+
+    model.set_active_tool("eraser")
+    model.set_active_brush_size(70)
+    assert brush_events == [18]
+    assert eraser_events == [55, 70]
+
+    model.set_active_tool("brush")
+    model.set_active_brush_size(22)
+    assert brush_events == [18, 22]
+    assert eraser_events == [55, 70]
+
+
+def test_editor_ui_interaction_brush_and_eraser_size_switching():
+    """测试界面交互：画笔与橡皮擦切换、多工具页独立记忆、滑块与标题响应、画布 Shift+滚轮事件联动。"""
+    from types import SimpleNamespace
+    from PyQt6.QtCore import QPoint, QPointF, Qt
+    from PyQt6.QtGui import QWheelEvent
+    from PyQt6.QtWidgets import QApplication, QWidget
+    from services import ServiceManager
+    from ui.editor.graphics_view import GraphicsView
+    from ui.editor.shortcut_manager import EditorShortcutManager
+    from ui.widgets.property_panel import PropertyPanel
+
+    ServiceManager.initialize(str(_bootstrap.ROOT))
+    _app = QApplication.instance() or QApplication([])
+
+    class _DummyView(QWidget):
+        def __init__(self, m, gv, p):
+            super().__init__()
+            self.model = m
+            self.graphics_view = gv
+            self.property_panel = p
+            self.controller = None
+            self.file_list = SimpleNamespace(
+                select_prev_image=lambda: None,
+                select_next_image=lambda: None,
+            )
+
+    model = EditorModel()
+    graphics_view = GraphicsView(model)
+    panel = PropertyPanel(model, None)
+
+    # 接线：与 EditorView 的实际信号槽连接完全一致
+    panel.mask_tool_changed.connect(model.set_active_tool)
+    panel.brush_size_changed.connect(model.set_brush_size)
+    panel.eraser_size_changed.connect(model.set_eraser_size)
+    model.brush_size_changed.connect(panel.on_model_brush_size_changed)
+    model.eraser_size_changed.connect(panel.on_model_eraser_size_changed)
+    model.active_tool_changed.connect(panel.sync_active_tool_from_model)
+
+    dummy_view = _DummyView(model, graphics_view, panel)
+    shortcut_mgr = EditorShortcutManager(dummy_view)
+
+    # 1. 蒙版页：设置画笔尺寸为 18
+    model.set_active_tool("brush")
+    panel.brush_size_slider.setValue(18)
+    assert model.get_brush_size("mask") == 18
+    assert model.get_eraser_size("mask") == 30
+    assert graphics_view._brush_size == 18
+    assert panel.brush_size_title_label.text() == panel._t("Brush Size:")
+
+    # 2. 蒙版页：切换至橡皮擦工具，设置橡皮擦尺寸为 72
+    model.set_active_tool("eraser")
+    assert panel.brush_size_title_label.text() == panel._t("Eraser Size:")
+    assert panel.brush_size_slider.value() == 30
+    assert graphics_view._brush_size == 30
+
+    panel.brush_size_slider.setValue(72)
+    assert model.get_eraser_size("mask") == 72
+    assert model.get_brush_size("mask") == 18
+    assert graphics_view._brush_size == 72
+
+    # 3. 在橡皮擦状态下测试画布 Shift+滚轮事件
+    wheel_up = QWheelEvent(
+        QPointF(10, 10),
+        QPointF(10, 10),
+        QPoint(0, 0),
+        QPoint(0, 120),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.ShiftModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+    shortcut_mgr.eventFilter(graphics_view.viewport(), wheel_up)
+    assert model.get_eraser_size("mask") == 73
+    assert model.get_brush_size("mask") == 18
+    assert panel.brush_size_slider.value() == 73
+    assert graphics_view._brush_size == 73
+
+    # 4. 切换到 draw_textbox 模式，验证标题和滑块切回画笔且不修改橡皮擦
+    model.set_active_tool("draw_textbox")
+    assert panel.brush_size_title_label.text() == panel._t("Brush Size:")
+    assert panel.brush_size_slider.value() == 18
+    assert model.get_brush_size("mask") == 18
+    assert model.get_eraser_size("mask") == 73
+
+    # 5. 切换到画笔页（Tab 1）并激活画笔，调整画笔尺寸为 61
+    panel.activate_image_edit_tab(1)
+    panel.activate_image_edit_tool(1)  # paint brush
+    assert model.get_active_tool() == "paint"
+    panel.paint_size_slider.setValue(61)
+    assert model.get_brush_size("paint") == 61
+    assert model.get_brush_size("mask") == 18  # 蒙版画笔未被污染
+    assert panel.brush_size_slider.value() == 18
+
+    # 6. 切换到印章页（Tab 2）并激活印章，调整印章尺寸为 93
+    panel.activate_image_edit_tab(2)
+    panel.activate_image_edit_tool(1)  # clone stamp
+    assert model.get_active_tool() == "clone"
+    panel.stamp_size_slider.setValue(93)
+    assert model.get_brush_size("stamp") == 93
+    assert model.get_brush_size("paint") == 61  # 画笔页未被污染
+    assert model.get_brush_size("mask") == 18  # 蒙版页未被污染
+
+    # 7. 在印章工具下触发 Shift+滚轮，验证只影响印章组
+    shortcut_mgr.eventFilter(graphics_view.viewport(), wheel_up)
+    assert model.get_brush_size("stamp") == 94
+    assert model.get_brush_size("paint") == 61
+    assert model.get_brush_size("mask") == 18
+    assert panel.stamp_size_slider.value() == 94
+
+    # 8. 切回蒙版页橡皮擦，验证蒙版橡皮擦尺寸 73 完整保留
+    panel.activate_image_edit_tab(0)
+    panel.activate_image_edit_tool(2)  # eraser
+    assert model.get_active_tool() == "eraser"
+    assert panel.brush_size_title_label.text() == panel._t("Eraser Size:")
+    assert panel.brush_size_slider.value() == 73
+    assert graphics_view._brush_size == 73
+
+    # 9. 非活动页滑块调整：在蒙版页调整画笔页滑块，不覆盖活动组尺寸，画布保持原尺寸
+    panel.paint_size_slider.setValue(110)
+    assert model.get_brush_size("paint") == 110
+    assert model.get_eraser_size("mask") == 73  # 蒙版橡皮擦未被覆盖
+    assert model.get_brush_size("mask") == 18   # 蒙版画笔未被覆盖
+    assert graphics_view._brush_size == 73      # 画布光标仍保持当前工具尺寸
+
+    # 10. 切页保护：落笔时保存尺寸，切页时不被新页尺寸污染
+    panel.activate_image_edit_tool(1)  # switch to mask brush (size 18)
+    assert graphics_view._brush_size == 18
+    graphics_view._is_drawing = True
+    graphics_view._current_stroke_size = 18
+    mask = graphics_view._build_stroke_mask([(10, 10), (20, 20)], (100, 100))
+    # 模拟在绘制中切换到印章页（尺寸 94）
+    model.set_active_group("stamp")
+    # 验证无论活动组如何变化，进行中的笔画仍按其初始尺寸 18 绘制
+    assert getattr(graphics_view, "_current_stroke_size", None) == 18
+    mask_after = graphics_view._build_stroke_mask([(10, 10), (20, 20)], (100, 100))
+    assert np.array_equal(mask, mask_after)
+    graphics_view._end_stroke(commit=False)
+    assert getattr(graphics_view, "_current_stroke_size", None) is None
+
+
+

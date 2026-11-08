@@ -505,9 +505,9 @@ class EditorShortcutManager(ShortcutManager):
             if obj == self.editor_view.graphics_view.viewport():
                 modifiers = event.modifiers()
 
-                # Shift + 滚轮：调整画笔大小（无论当前是什么工具）
+                # Shift + 滚轮：调整画笔/橡皮擦大小（按当前活动工具）
                 if modifiers == Qt.KeyboardModifier.ShiftModifier:
-                    current_size = self.editor_view.model.get_brush_size()
+                    current_size = self.editor_view.model.get_active_brush_size()
                     # 尝试获取滚轮方向
                     angle_delta = event.angleDelta().y()
                     if angle_delta == 0:
@@ -515,7 +515,7 @@ class EditorShortcutManager(ShortcutManager):
 
                     delta = 1 if angle_delta > 0 else -1
                     new_size = max(5, min(200, current_size + delta))
-                    self.editor_view.model.set_brush_size(new_size)
+                    self.editor_view.model.set_active_brush_size(new_size)
                     return True  # 阻止事件继续传递
 
                 # Ctrl + 滚轮（含 Ctrl+Shift 等组合）：调整选中文本框的字体大小；
