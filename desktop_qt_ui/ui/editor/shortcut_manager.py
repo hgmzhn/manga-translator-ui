@@ -498,14 +498,14 @@ class EditorShortcutManager(ShortcutManager):
 
         支持的快捷键：
         - Ctrl + 滚轮：等比例缩放选中文本框（包括框的大小和字体）
-        - Shift + 滚轮：调整蒙版画笔大小
+        - Shift + 滚轮：调整当前图像工具页的笔刷大小
         """
         if event.type() == QEvent.Type.Wheel:
             # 检查是否是 graphics_view 的 viewport
             if obj == self.editor_view.graphics_view.viewport():
                 modifiers = event.modifiers()
 
-                # Shift + 滚轮：调整画笔大小（无论当前是什么工具）
+                # Shift + 滚轮：调整当前页的大小，同页选择工具下也可调整。
                 if modifiers == Qt.KeyboardModifier.ShiftModifier:
                     current_size = self.editor_view.model.get_brush_size()
                     # 尝试获取滚轮方向

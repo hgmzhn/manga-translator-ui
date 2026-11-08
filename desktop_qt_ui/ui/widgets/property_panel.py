@@ -443,7 +443,7 @@ class PropertyPanel(QWidget):
         paint_tools_layout.addWidget(self.paint_eraser_button)
         paint_layout.addLayout(paint_tools_layout)
 
-        # 画笔大小（与蒙版页共享同一个模型字段）
+        # 画笔页单独记住大小，同页的绘制与擦除工具共用。
         paint_size_layout = QHBoxLayout()
         paint_size_layout.setContentsMargins(0, 0, 0, 0)
         paint_size_layout.setSpacing(6)

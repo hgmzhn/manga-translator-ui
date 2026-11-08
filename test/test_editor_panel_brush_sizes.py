@@ -9,11 +9,16 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from PyQt6.QtCore import QCoreApplication, QEvent
-from PyQt6.QtWidgets import QApplication
+import numpy as np
 
+from PyQt6.QtCore import QCoreApplication, QEvent, QPoint, QPointF, Qt
+from PyQt6.QtGui import QWheelEvent
+from PyQt6.QtWidgets import QApplication, QGraphicsView
+
+from editor.document_state import DocumentSnapshot
 from editor.editor_model import EditorModel
 from editor.session import EditorSession
+from ui.editor.shortcut_manager import EditorShortcutManager
 from ui.widgets.property_panel import PropertyPanel
 
 
@@ -30,6 +35,8 @@ class EditorPanelInteractionTests(unittest.TestCase):
         session.set_brush_size(61)
         session.set_active_tool("clone")
         session.set_brush_size(93)
+        for name in ("first.png", "second.png"):
+            session.load_document(DocumentSnapshot(name, np.zeros((2, 2, 3), dtype=np.uint8)))
         for tool, expected in (
             ("brush", 17),
             ("eraser", 17),
@@ -68,12 +75,16 @@ class EditorPanelInteractionTests(unittest.TestCase):
 
     def test_tab_switch_keeps_sliders_and_active_brush_in_sync(self):
         model, panel = self._create_panel()
+        view = QGraphicsView()
+        self.addCleanup(view.deleteLater)
+        shortcuts = SimpleNamespace(editor_view=SimpleNamespace(model=model, graphics_view=view))
 
         panel.brush_size_slider.setValue(17)
         panel.activate_image_edit_tab(1)
         panel.paint_size_slider.setValue(61)
         panel.activate_image_edit_tab(2)
         panel.stamp_size_slider.setValue(93)
+        expected_sizes = [17, 61, 93]
         for index, slider, expected in (
             (0, panel.brush_size_slider, 17),
             (1, panel.paint_size_slider, 61),
@@ -85,8 +96,18 @@ class EditorPanelInteractionTests(unittest.TestCase):
                 self.assertEqual(model.get_brush_size(), expected)
                 panel.activate_image_edit_tool(1)
                 self.assertEqual(model.get_active_tool(), ("brush", "paint", "clone")[index])
-                model.set_brush_size(expected + 1)  # Shift+wheel uses this API.
+                event = QWheelEvent(
+                    QPointF(10, 10), QPointF(10, 10), QPoint(), QPoint(0, 120),
+                    Qt.MouseButton.NoButton, Qt.KeyboardModifier.ShiftModifier,
+                    Qt.ScrollPhase.NoScrollPhase, False,
+                )
+                self.assertTrue(EditorShortcutManager.eventFilter(shortcuts, view.viewport(), event))
                 self.assertEqual(slider.value(), expected + 1)
+                expected_sizes[index] = expected + 1
+                self.assertEqual(
+                    [model.get_brush_size(group) for group in ("mask", "paint", "stamp")],
+                    expected_sizes,
+                )
 
 
 if __name__ == "__main__":
