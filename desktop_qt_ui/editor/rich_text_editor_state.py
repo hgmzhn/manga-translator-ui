@@ -188,6 +188,9 @@ class RichTextEditorState:
         self._rule_context.suppressed = {key for key in self._rule_context.suppressed if key[-1] <= live}
         self._rule_context.approved = {key for key in self._rule_context.approved if key[-1] <= live}
         self._rule_context.overrides = {key: fields for key, fields in self._rule_context.overrides.items() if key[-1] <= live}
+        self._rule_context.previous_effects = {
+            key: effect for key, effect in self._rule_context.previous_effects.items() if set(key[0]) <= live
+        }
         if new_text != plain_text_of(previous):
             self._needs_replacements = True
         self._prepare_document(preview)
@@ -238,8 +241,8 @@ class RichTextEditorState:
             )
         except Exception as exc:
             logging.getLogger(__name__).warning("Floating text formatting failed; preserving input: %s", exc)
-            self.document = copy.deepcopy(self._manual_document)
-            self._prepared_document = copy.deepcopy(self._manual_document)
+            self.document = copy.deepcopy(preview_document)
+            self._prepared_document = copy.deepcopy(preview_document)
 
     def replace_document(self, document: dict) -> bool:
         """Apply explicit style changes to manual input and suppress affected automatic matches."""
@@ -267,6 +270,12 @@ class RichTextEditorState:
                 if old.node != new.node:
                     base.node = new.node
                     changed_fields.setdefault(source, set()).add("__node")
+            for output_key, (style, node) in self._rule_context.previous_effects.items():
+                fields = set().union(*(changed_fields.get(source, set()) for source in output_key[0]))
+                for field in fields:
+                    style.pop(field, None)
+                if "__node" in fields:
+                    self._rule_context.previous_effects[output_key] = (style, None)
             for key, (sources, style_fields, has_node) in self._rule_context.applied.items():
                 for source in sources:
                     affected = changed_fields.get(source, set()) & (set(style_fields) | ({"__node"} if has_node else set()))

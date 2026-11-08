@@ -154,7 +154,11 @@ def apply_replacements_to_entries(
                 offset = min(1, start)
                 neighbors = entries[max(0, start - 1):start + 1]
                 inserted = _apply_edit_ops(neighbors, [(offset, 0, replacement_text)])
-                result.extend(inserted[offset:offset + len(replacement_text)])
+                generated = inserted[offset:offset + len(replacement_text)]
+                anchor = entries[start] if start < len(entries) else entries[start - 1] if start else None
+                for entry in generated:
+                    entry.source_ids = anchor.source_ids if anchor is not None else ()
+                result.extend(generated)
             else:
                 first = span[0]
                 node = first.node if all(e.node is first.node for e in span) else None
@@ -200,9 +204,8 @@ def apply_replacements_to_document(
     entries = apply_replacements_to_entries(entries, _direction_to_int(direction_value), replacements)
     document = _document_from_rule_entries(_text_of(entries), entries)
     if editor_context:
-        editor_context.source_ids = [entry.source_ids for entry in entries]
-        editor_context.automatic_styles = [entry.automatic_style for entry in entries]
-        editor_context.automatic_nodes = [entry.automatic_node for entry in entries]
+        editor_context.restore_output_effects(entries)
+    ruled = None
     if apply_rules:
         try:
             ruled = apply_rich_text_rules(
@@ -211,8 +214,15 @@ def apply_replacements_to_document(
         except Exception as exc:
             logger.warning("Automatic floating text styles failed; preserving replacements: %s", exc)
             ruled = None
-        if ruled is not None:
-            return ruled
+    if editor_context:
+        editor_context.previous_effects = {
+            key: (copy.deepcopy(style), node)
+            for key, style, node in zip(
+                editor_context.output_keys, editor_context.automatic_styles, editor_context.automatic_nodes, strict=True,
+            )
+        }
+    if ruled is not None:
+        return ruled
     if editor_context:
         for index, entry in enumerate(entries):
             entry.style = _add_missing_style(entry.style, editor_context.automatic_styles[index])

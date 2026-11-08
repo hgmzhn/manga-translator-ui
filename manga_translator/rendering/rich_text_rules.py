@@ -313,6 +313,8 @@ class EditorRuleContext:
     source_ids: list[tuple[int, ...]] = field(default_factory=list)
     automatic_styles: list[dict] = field(default_factory=list)
     automatic_nodes: list[Optional[dict]] = field(default_factory=list)
+    output_keys: list[tuple] = field(default_factory=list)
+    previous_effects: dict[tuple, tuple[dict, Optional[dict]]] = field(default_factory=dict)
     allow_new: bool = True
     suppressed: set[tuple] = field(default_factory=set)
     approved: set[tuple] = field(default_factory=set)
@@ -327,8 +329,32 @@ class EditorRuleContext:
         return (
             rule["pattern"].pattern, rule["pattern"].flags,
             repr(rule.get("style")), rule.get("ruby"), rule.get("tcy"),
-            match.group(), origins,
+            match.group(),
+            tuple(self.output_keys[match.start():match.end()]) if self.output_keys else tuple(
+                (group, 0, char) for group, char in zip(
+                    self.source_ids[match.start():match.end()], match.group(), strict=True,
+                )
+            ),
+            origins,
         )
+
+    def restore_output_effects(self, entries: List[_RuleEntry]) -> None:
+        """Recover exact output effects instead of expanding a lossy raw preview's styles."""
+        counts: dict[tuple, int] = {}
+        self.output_keys = []
+        for entry in entries:
+            character_source = (entry.source_ids, entry.char)
+            ordinal = counts.get(character_source, 0)
+            counts[character_source] = ordinal + 1
+            key = (entry.source_ids, ordinal, entry.char)
+            self.output_keys.append(key)
+            if key in self.previous_effects:
+                style, node = self.previous_effects[key]
+                entry.automatic_style = copy.deepcopy(style)
+                entry.automatic_node = node
+        self.source_ids = [entry.source_ids for entry in entries]
+        self.automatic_styles = [entry.automatic_style for entry in entries]
+        self.automatic_nodes = [entry.automatic_node for entry in entries]
 
     def suppress_existing(self, text: str, direction: Any) -> None:
         """Bound text is already formatted; do not restore styles cleared on old matches."""
@@ -624,6 +650,9 @@ def apply_rich_text_rules(
         if entry.node is None and entry.automatic_node is not None:
             entry.node = entry.automatic_node
             changed = True
+    if editor_context:
+        editor_context.automatic_styles = [entry.automatic_style for entry in entries]
+        editor_context.automatic_nodes = [entry.automatic_node for entry in entries]
     if not changed and (existing_document is not None or not matched):
         return None
 

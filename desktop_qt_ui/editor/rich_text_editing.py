@@ -56,6 +56,8 @@ def utf16_offset_to_python_index(
     """
     text = str(text or "")
     offset = max(0, min(int(offset), utf16_length(text)))
+    if offset == 0:
+        return 0
     units = 0
     for index, char in enumerate(text):
         next_units = units + (2 if ord(char) > 0xFFFF else 1)

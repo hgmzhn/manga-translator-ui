@@ -557,6 +557,98 @@ class RichTextReplacementTests(unittest.TestCase):
                 self._commit_input(state, controller, "hellox")
                 self.assertEqual(controller.region["translation"], "Phellox")
 
+    def test_replacement_load_failure_preserves_existing_automatic_formatting(self):
+        """Invalid replacement YAML must retain generated bold and Ruby on later edits."""
+        state, controller = self._automatic_editor([{"pattern": "AB", "style": {"bold": True}, "ruby": "note"}], replacements={})
+        self._commit_input(state, controller, "AB")
+        with tempfile.TemporaryDirectory(dir=_bootstrap.ROOT / "test") as temporary:
+            path = Path(temporary) / "replacements.yaml"
+            path.write_text("common:\n  - pattern: 123\n    replace: X\n", encoding="utf-8")
+            with patch("manga_translator.rendering.rich_text_sync.load_replacements", side_effect=lambda: load_replacements(str(path))):
+                for text in ("ABx", "ABxy"):
+                    self._commit_input(state, controller, text)
+                    self.assertEqual(controller.region["translation"], text)
+                    self.assertEqual(self._output_style(controller), {"bold": True})
+                    self.assertEqual(controller.region["translation_rich"]["blocks"][0]["inlines"][0]["type"], "ruby")
+        self._commit_input(state, controller, "ABxyz")
+        self.assertEqual(self._output_style(controller), {"bold": True})
+
+    def test_zero_width_matches_do_not_share_automatic_approval(self):
+        """A second generated P while rules are disabled must not reuse the first P's approval."""
+        state, controller = self._automatic_editor(
+            [{"pattern": "P", "style": {"color": "#ff0000"}}],
+            replacements={"common": [(re.compile("(?=a)"), "P")]},
+        )
+        self._commit_input(state, controller, "a")
+        self.assertEqual(self._output_style(controller), {"color": "#ff0000"})
+        state.auto_rules_provider = lambda: False
+        self._commit_input(state, controller, "aa")
+        self.assertEqual(controller.region["translation"], "PaPa")
+        self.assertEqual(self._output_style(controller, 0), {"color": "#ff0000"})
+        self.assertEqual(self._output_style(controller, 2), {})
+
+    def test_generated_match_identity_survives_input_inserted_before_it(self):
+        """Prepending a new source must not transfer the old generated matches' approval."""
+        state, controller = self._automatic_editor(
+            [{"pattern": "P", "style": {"color": "#ff0000"}}],
+            replacements={"common": [(re.compile("(?=a)"), "PP")]},
+        )
+        self._commit_input(state, controller, "a")
+        state.auto_rules_provider = lambda: False
+        state.apply_qt_contents_change("aa", 0, 0, 1)
+        controller.update_translation_rich(*state.mark_document_emitted())
+        self.assertEqual(controller.region["translation"], "PPaPPa")
+        for index in (0, 1):
+            self.assertEqual(self._output_style(controller, index), {})
+        for index in (3, 4):
+            self.assertEqual(self._output_style(controller, index), {"color": "#ff0000"})
+
+    def test_generated_prefix_does_not_reactivate_an_old_source_match(self):
+        """Adding a generated prefix must not turn a bound unstyled source match into a new one."""
+        state, _ = self._automatic_editor(
+            [{"pattern": "a", "style": {"bold": True}}],
+            replacements={"common": [(re.compile("(?=a)"), "P")]},
+        )
+        region = {"translation": "a", "direction": "h"}
+        state.bind_region(0, region)
+        controller = TranslationHarness(region)
+        self._commit_input(state, controller, "ax")
+        self.assertEqual(controller.region["translation"], "Pax")
+        self.assertEqual(self._output_style(controller, 1), {})
+
+    def test_rule_failure_preserves_distinct_expansion_styles_and_nodes(self):
+        """An unreadable style file must retain X and Y effects in output coordinates."""
+        state, controller = self._automatic_editor(
+            [{"pattern": "X", "style": {"bold": True}, "ruby": "first"}, {"pattern": "Y", "style": {"scale": 2.0}, "ruby": "second"}],
+            replacements={"common": [(re.compile("a"), "XY")]},
+        )
+        self._commit_input(state, controller, "a")
+        with patch("manga_translator.rendering.rich_text_rules.load_rich_text_rules", side_effect=OSError("unreadable rules")):
+            for text in ("ax", "axy"):
+                self._commit_input(state, controller, text)
+                self.assertEqual(self._output_style(controller, 0), {"bold": True})
+                self.assertEqual(self._output_style(controller, 1), {"scale": 2.0})
+                inlines = controller.region["translation_rich"]["blocks"][0]["inlines"]
+                self.assertEqual([inline["text"][0]["text"] for inline in inlines[:2]], ["first", "second"])
+        self._commit_input(state, controller, "axyz")
+        self.assertEqual(self._output_style(controller, 1), {"scale": 2.0})
+
+    def test_cleared_cached_output_style_stays_cleared_after_rule_recovery(self):
+        """Clearing projected bold during a rule failure must also clear its saved output effect."""
+        state, controller = self._automatic_editor(
+            [{"pattern": "X", "style": {"bold": True}}, {"pattern": "Y", "style": {"scale": 2.0}}],
+            replacements={"common": [(re.compile("a"), "XY")]},
+        )
+        self._commit_input(state, controller, "a")
+        with patch("manga_translator.rendering.rich_text_rules.load_rich_text_rules", side_effect=OSError("unreadable rules")):
+            state.replace_document(apply_style_to_range(state.document, 0, 1, {"bold": False}))
+            controller.update_translation_rich(*state.mark_document_emitted())
+            self.assertEqual(self._output_style(controller, 0), {})
+            self.assertEqual(self._output_style(controller, 1), {"scale": 2.0})
+        self._commit_input(state, controller, "ax")
+        self.assertEqual(self._output_style(controller, 0), {})
+        self.assertEqual(self._output_style(controller, 1), {"scale": 2.0})
+
     def test_paragraph_identity_prevents_restoring_cleared_cross_line_rule(self):
         """Styling x must not apply an old A-newline-B match whose styles are absent."""
         state, _ = self._automatic_editor([{"pattern": "A\nB", "style": {"scale": 2.0}}], replacements={})
