@@ -2252,11 +2252,18 @@ class PropertyPanel(QWidget):
                 self.model.set_eraser_size(value, group=group)
             else:
                 self.model.set_brush_size(value, group=group)
-
-        if is_eraser:
-            self.eraser_size_changed.emit(value)
+            # 仅当调整的滑块属于当前活动工具组时，才向外转发不带 group 的通知信号，
+            # 避免触发 view.py 的无参数槽函数导致覆盖当前活动组尺寸。
+            if group == active_group:
+                if is_eraser:
+                    self.eraser_size_changed.emit(value)
+                else:
+                    self.brush_size_changed.emit(value)
         else:
-            self.brush_size_changed.emit(value)
+            if is_eraser:
+                self.eraser_size_changed.emit(value)
+            else:
+                self.brush_size_changed.emit(value)
 
     def _on_paint_color_changed(self, hex_color: str):
         """画笔颜色变更回调，发射颜色变更信号。"""
@@ -2265,9 +2272,6 @@ class PropertyPanel(QWidget):
     def _on_paint_tab_changed(self, index: int):
         """切换标签页时，通知模型切换活动工具组，并把活跃工具切回当前页的选择工具。"""
         try:
-            group = {0: "mask", 1: "paint", 2: "stamp"}.get(index, "mask")
-            if hasattr(self, "model") and self.model is not None:
-                self.model.set_active_group(group)
             page_buttons = {
                 0: (self.select_button, self.brush_button, self.eraser_button),
                 1: (
@@ -2288,8 +2292,11 @@ class PropertyPanel(QWidget):
                 if self.model.get_active_tool() == "select":
                     self.update_brush_size_ui("select")
                 self.mask_tool_changed.emit("select")
-            else:
-                self.update_brush_size_ui()
+
+            group = {0: "mask", 1: "paint", 2: "stamp"}.get(index, "mask")
+            if hasattr(self, "model") and self.model is not None:
+                self.model.set_active_group(group)
+            self.update_brush_size_ui()
         except Exception:
             pass
 

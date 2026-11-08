@@ -527,5 +527,27 @@ def test_editor_ui_interaction_brush_and_eraser_size_switching():
     assert panel.brush_size_slider.value() == 73
     assert graphics_view._brush_size == 73
 
+    # 9. 非活动页滑块调整：在蒙版页调整画笔页滑块，不覆盖活动组尺寸，画布保持原尺寸
+    panel.paint_size_slider.setValue(110)
+    assert model.get_brush_size("paint") == 110
+    assert model.get_eraser_size("mask") == 73  # 蒙版橡皮擦未被覆盖
+    assert model.get_brush_size("mask") == 18   # 蒙版画笔未被覆盖
+    assert graphics_view._brush_size == 73      # 画布光标仍保持当前工具尺寸
+
+    # 10. 切页保护：落笔时保存尺寸，切页时不被新页尺寸污染
+    panel.activate_image_edit_tool(1)  # switch to mask brush (size 18)
+    assert graphics_view._brush_size == 18
+    graphics_view._is_drawing = True
+    graphics_view._current_stroke_size = 18
+    mask = graphics_view._build_stroke_mask([(10, 10), (20, 20)], (100, 100))
+    # 模拟在绘制中切换到印章页（尺寸 94）
+    model.set_active_group("stamp")
+    # 验证无论活动组如何变化，进行中的笔画仍按其初始尺寸 18 绘制
+    assert getattr(graphics_view, "_current_stroke_size", None) == 18
+    mask_after = graphics_view._build_stroke_mask([(10, 10), (20, 20)], (100, 100))
+    assert np.array_equal(mask, mask_after)
+    graphics_view._end_stroke(commit=False)
+    assert getattr(graphics_view, "_current_stroke_size", None) is None
+
 
 
