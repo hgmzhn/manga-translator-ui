@@ -7,17 +7,32 @@ document mutations, debounced body changes, and the fixed target of a Ruby edit.
 from __future__ import annotations
 
 import copy
+import logging
 from dataclasses import dataclass, field
 
-from manga_translator.rendering.rich_text import plain_text_of
+from manga_translator.rendering import rich_text_sync
+from manga_translator.rendering.rich_text import (
+    ensure_rich_text_document,
+    plain_text_of,
+)
+from manga_translator.rendering.rich_text_rules import (
+    EditorRuleContext,
+    _document_from_rule_entries,
+    _rule_entries_from_document,
+)
+from manga_translator.rendering.rich_text_sync import (
+    _direction_to_int,
+    _map_styles_to_raw,
+    apply_replacements_to_document,
+)
 
 from .rich_text_editing import (
     apply_qt_text_change,
     apply_ruby_to_range,
     document_from_region,
-    editor_text_to_plain_text,
     plain_text_to_storage_text,
     python_index_to_utf16_offset,
+    qt_text_change_range,
     utf16_range_to_python_range,
 )
 
@@ -49,6 +64,7 @@ class RichTextEditorState:
     """Non-visual editing state with Python character offsets only."""
 
     def __init__(self) -> None:
+        """Keep manual input, displayed styles and prepared output as separate session state."""
         self.region_index = -1
         self.region_data: dict = {}
         self.document: dict = document_from_region({})
@@ -60,6 +76,21 @@ class RichTextEditorState:
         self.pending_style_edit: PendingStyleEdit | None = None
         # 编辑时自动应用富文本规则的开关查询（由 UI 层注入，None=关闭）
         self.auto_rules_provider = None
+        self._reset_format_state()
+
+    def _reset_format_state(self) -> None:
+        """Treat bound content as manual and suppress its existing rule matches."""
+        self._manual_document = copy.deepcopy(self.document)
+        self._prepared_document = copy.deepcopy(self.document)
+        self._source_ids = list(range(len(plain_text_of(self.document))))
+        self._next_source_id = len(self._source_ids)
+        self._rule_context = EditorRuleContext([(source,) for source in self._source_ids])
+        try:
+            self._rule_context.suppress_existing(plain_text_of(self.document), self.region_data.get("direction", "h"))
+        except Exception as exc:
+            logging.getLogger(__name__).warning("Failed to seed floating text rules; preserving input: %s", exc)
+            self._rule_context.defer_existing(plain_text_of(self.document))
+        self._needs_replacements = False
 
     @property
     def has_region(self) -> bool:
@@ -73,6 +104,7 @@ class RichTextEditorState:
         return start, end
 
     def bind_region(self, region_index: int, region_data: dict) -> str:
+        """Bind a fresh document without sharing automatic provenance across regions."""
         self.region_index = int(region_index)
         self.region_data = copy.deepcopy(dict(region_data or {}))
         self.document = document_from_region(self.region_data)
@@ -82,9 +114,11 @@ class RichTextEditorState:
         self.pending_document_change = False
         self.ruby_draft = None
         self.pending_style_edit = None
+        self._reset_format_state()
         return self.editor_text
 
     def clear_region(self) -> None:
+        """Discard document and formatting provenance when no region is bound."""
         self.region_index = -1
         self.region_data = {}
         self.document = document_from_region({})
@@ -94,6 +128,7 @@ class RichTextEditorState:
         self.pending_document_change = False
         self.ruby_draft = None
         self.pending_style_edit = None
+        self._reset_format_state()
 
     def set_selection(self, start: int, end: int) -> bool:
         text_length = len(self.editor_text)
@@ -130,19 +165,36 @@ class RichTextEditorState:
         chars_removed: int,
         chars_added: int,
     ) -> bool:
+        """Apply the same precise Qt edit to manual text and stable character identities."""
         self.pending_style_edit = None
         previous = self.document
         old_editor_text = self.editor_text
-        self.document = apply_qt_text_change(
-            self.document,
+        preview = apply_qt_text_change(
+            previous, old_editor_text, new_editor_text, position, chars_removed, chars_added
+        )
+        self._manual_document = apply_qt_text_change(
+            self._manual_document,
             self.editor_text,
             new_editor_text,
             position,
             chars_removed,
             chars_added,
         )
-        if self._auto_rules_enabled():
-            self.document = self._with_auto_rules(old_editor_text, self.document)
+        new_text, start, removed, added = qt_text_change_range(
+            old_editor_text, new_editor_text, position, chars_removed, chars_added
+        )
+        self._source_ids[start:start + removed] = range(self._next_source_id, self._next_source_id + added)
+        self._next_source_id += added
+        live = set(self._source_ids)
+        self._rule_context.suppressed = {key for key in self._rule_context.suppressed if key[-1] <= live}
+        self._rule_context.approved = {key for key in self._rule_context.approved if key[-1] <= live}
+        self._rule_context.overrides = {key: fields for key, fields in self._rule_context.overrides.items() if key[-1] <= live}
+        self._rule_context.previous_effects = {
+            key: effect for key, effect in self._rule_context.previous_effects.items() if set(key[0]) <= live
+        }
+        if new_text != plain_text_of(previous):
+            self._needs_replacements = True
+        self._prepare_document(preview)
         self.editor_text = str(new_editor_text or "")
         self.set_selection(self.selection_start, self.selection_end)
         changed = self.document != previous
@@ -156,30 +208,83 @@ class RichTextEditorState:
         except Exception:
             return False
 
-    def _with_auto_rules(self, old_editor_text: str, document: dict) -> dict:
-        """打字后按新旧文本匹配对比应用自动富文本规则（规则只加样式不改字）。"""
-        from manga_translator.rendering.rich_text_rules import apply_rich_text_rules
-
+    def _prepare_document(self, preview_document: dict) -> None:
+        """Format manual input in output coordinates, then project only its preview back."""
+        direction = self.region_data.get("direction", "h")
+        context = self._rule_context
+        context.source_ids = [(source,) for source in self._source_ids]
+        manual_entries = _rule_entries_from_document(ensure_rich_text_document(self._manual_document))
+        preview_entries = _rule_entries_from_document(ensure_rich_text_document(preview_document))
+        context.automatic_styles = [
+            {key: value for key, value in preview.style.items() if key not in manual.style}
+            for manual, preview in zip(manual_entries, preview_entries)
+        ]
+        context.automatic_nodes = [
+            preview.node if preview.node != manual.node else None
+            for manual, preview in zip(manual_entries, preview_entries)
+        ]
+        enabled = self._auto_rules_enabled()
+        context.allow_new = enabled
         try:
-            ruled = apply_rich_text_rules(
-                document,
-                self.region_data.get("direction", "h"),
-                previous_text=editor_text_to_plain_text(old_editor_text),
-                styled_match_policy="skip",
+            replacements = rich_text_sync.load_replacements() if self._needs_replacements else {}
+            prepared = apply_replacements_to_document(
+                self._manual_document, direction, replacements,
+                apply_rules=True, editor_context=context,
             )
-        except Exception:
-            return document
-        if ruled is None:
-            return document
-        ruled_dict = ruled.to_dict()
-        if plain_text_of(ruled_dict) != plain_text_of(document):
-            return document
-        return ruled_dict
+            raw_text = plain_text_of(self._manual_document)
+            preview = _map_styles_to_raw(
+                raw_text, _rule_entries_from_document(prepared), _direction_to_int(direction), replacements
+            )
+            self._prepared_document = prepared.to_dict()
+            self.document = (
+                _document_from_rule_entries(raw_text, preview).to_dict()
+                if preview is not None else copy.deepcopy(self._manual_document)
+            )
+        except Exception as exc:
+            logging.getLogger(__name__).warning("Floating text formatting failed; preserving input: %s", exc)
+            self.document = copy.deepcopy(preview_document)
+            self._prepared_document = copy.deepcopy(preview_document)
 
-    def replace_document(self, document: dict) -> bool:
-        if document == self.document:
+    def replace_document(self, document: dict, *, cleared_range: tuple[int, int] | None = None) -> bool:
+        """Apply explicit style changes to manual input and suppress affected automatic matches."""
+        if document == self.document and cleared_range is None:
             return False
-        self.document = document
+        if plain_text_of(document) != plain_text_of(self.document):
+            self._manual_document = copy.deepcopy(document)
+            count = len(plain_text_of(document))
+            self._source_ids = list(range(self._next_source_id, self._next_source_id + count))
+            self._next_source_id += count
+            self._needs_replacements = True
+        else:
+            before = _rule_entries_from_document(ensure_rich_text_document(self.document))
+            after = _rule_entries_from_document(ensure_rich_text_document(document))
+            manual = _rule_entries_from_document(ensure_rich_text_document(self._manual_document))
+            cleared_sources = set(self._source_ids[slice(*cleared_range)]) if cleared_range is not None else set()
+            self._rule_context.clear_output_effects(cleared_sources)
+            changed_fields: dict[int, set[str]] = {}
+            for source, old, new, base in zip(self._source_ids, before, after, manual):
+                if source in cleared_sources:
+                    base.style = copy.deepcopy(new.style)
+                    base.node = new.node
+                for key in old.style.keys() | new.style.keys():
+                    if old.style.get(key) != new.style.get(key):
+                        if key in new.style:
+                            base.style[key] = copy.deepcopy(new.style[key])
+                        else:
+                            base.style.pop(key, None)
+                        changed_fields.setdefault(source, set()).add(key)
+                if old.node != new.node:
+                    base.node = new.node
+                    changed_fields.setdefault(source, set()).add("__node")
+            for output_key, (style, node) in self._rule_context.previous_effects.items():
+                fields = set().union(*(changed_fields.get(source, set()) for source in output_key[0]))
+                for field in fields:
+                    style.pop(field, None)
+                if "__node" in fields:
+                    self._rule_context.previous_effects[output_key] = (style, None)
+            self._rule_context.record_overrides(changed_fields)
+            self._manual_document = _document_from_rule_entries(plain_text_of(document), manual).to_dict()
+        self._prepare_document(document)
         self.editor_text = plain_text_of(document)
         self.set_selection(self.selection_start, self.selection_end)
         self.pending_document_change = True
@@ -201,6 +306,7 @@ class RichTextEditorState:
             self.ruby_draft.text = str(text or "")
 
     def commit_ruby(self, text: str | None = None) -> bool:
+        """Commit the Ruby draft through the same manual-style provenance boundary."""
         draft = self.ruby_draft
         if draft is None:
             return False
@@ -218,9 +324,7 @@ class RichTextEditorState:
         draft.committed_text = draft.text
         if updated == self.document:
             return False
-        self.document = updated
-        self.pending_document_change = True
-        return True
+        return self.replace_document(updated)
 
     def finish_ruby_edit(self, text: str | None = None) -> bool:
         changed = self.commit_ruby(text)
@@ -271,7 +375,8 @@ class RichTextEditorState:
         self.pending_style_edit = None
         return True
 
-    def mark_document_emitted(self) -> tuple[int, dict, str] | None:
+    def mark_document_emitted(self) -> tuple[int, dict, str, bool] | None:
+        """取出待提交文档，并以浮窗自己的输入历史判断正文是否变化。"""
         if not self.has_region or not self.pending_document_change:
             return None
         self.pending_document_change = False
@@ -282,7 +387,7 @@ class RichTextEditorState:
             # 正文改变后无法可靠反推替换前译文；仅改样式时则必须保留 raw。
             self.region_data["translation_raw"] = storage_text
         self.region_data["translation_rich"] = copy.deepcopy(self.document)
-        return self.region_index, copy.deepcopy(self.document), storage_text
+        return self.region_index, copy.deepcopy(self._prepared_document), storage_text, text_changed
 
     def same_bound_content(self, region_index: int, region_data: dict) -> bool:
         if int(region_index) != self.region_index or not self.region_data:

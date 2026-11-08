@@ -21,6 +21,7 @@ richtext.v1 文档的字符条目上,让样式跟随未改动的字符,不做任
 from __future__ import annotations
 
 import copy
+import hashlib
 import logging
 import re
 from typing import Any, List, Optional, Sequence
@@ -31,12 +32,15 @@ from .rich_text import (
     normalize_rich_linebreaks,
 )
 from .rich_text_rules import (
+    EditorRuleContext,
+    _add_missing_style,
     _document_from_rule_entries,
+    _normalize_rule_linebreak_entries,
     _rule_entries_from_document,
     _RuleEntry,
     apply_rich_text_rules,
 )
-from .text_replacements import load_replacements
+from .text_replacements import _apply_replacement_rules, load_replacements
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +50,14 @@ def _text_of(entries: Sequence[_RuleEntry]) -> str:
 
 
 def _copy_entries(entries: Sequence[_RuleEntry]) -> List[_RuleEntry]:
+    """Copy styles and provenance while retaining manual and automatic node identities."""
     # node 保持同一对象引用:重建文档时按 identity 分组,深拷贝会拆散节点。
     return [
-        _RuleEntry(entry.char, copy.deepcopy(entry.style), node=entry.node)
+        _RuleEntry(
+            entry.char, copy.deepcopy(entry.style), node=entry.node,
+            automatic_style=copy.deepcopy(entry.automatic_style),
+            automatic_node=entry.automatic_node, source_ids=entry.source_ids, output_id=entry.output_id,
+        )
         for entry in entries
     ]
 
@@ -80,6 +89,7 @@ def _apply_edit_ops(entries: List[_RuleEntry], ops: Sequence[Any]) -> List[_Rule
         prev_entry = entries[position - 1] if position > 0 else None
         next_entry = entries[position] if position < len(entries) else None
         inherited_style: dict = {}
+        inherited_automatic: dict = {}
         if (
             prev_entry is not None
             and next_entry is not None
@@ -88,6 +98,8 @@ def _apply_edit_ops(entries: List[_RuleEntry], ops: Sequence[Any]) -> List[_Rule
             and prev_entry.style == next_entry.style
         ):
             inherited_style = prev_entry.style
+        if prev_entry is not None and next_entry is not None and prev_entry.automatic_style == next_entry.automatic_style:
+            inherited_automatic = prev_entry.automatic_style
         # 节点归属独立判断:夹在同一节点内部必须并入,否则节点会被切成两份。
         inherited_node = None
         if (
@@ -105,7 +117,8 @@ def _apply_edit_ops(entries: List[_RuleEntry], ops: Sequence[Any]) -> List[_Rule
             else:
                 new_entries.append(
                     _RuleEntry(
-                        char, copy.deepcopy(inherited_style), node=inherited_node
+                        char, copy.deepcopy(inherited_style), node=inherited_node,
+                        automatic_style=copy.deepcopy(inherited_automatic),
                     )
                 )
         entries[position:position] = new_entries
@@ -117,42 +130,124 @@ def apply_replacements_to_entries(
     direction: int,
     replacements: Optional[dict] = None,
 ) -> List[_RuleEntry]:
-    """在字符条目列表上跑替换规则(text_replacements 的条目版)。
+    """复用纯文本替换顺序与换行保护，同时维护每个字符的样式和节点。
 
-    与纯文本版的差异:纯文本版用占位符保护 ``[BR]`` 等换行标记,这里文本
-    是 ``\\n`` 口径,等价地跳过跨换行的命中。替换出的新字符继承被替换段
-    首字符的样式;区间未完整落在同一 ruby/tcy 节点内时结果不带节点。
+    非空命中继承段首样式，同节点内的替换保留节点；零宽插入沿用编辑插入
+    策略。匹配时换行采用模型的 BR 口径，结束后把生成的 BR 恢复为段落。
     """
     if replacements is None:
         replacements = load_replacements()
 
-    group_key = "vertical" if direction == 1 else "horizontal"
-    for key in ("common", group_key):
-        for pattern, repl in replacements.get(key, []):
-            text = _text_of(entries)
-            matches = list(pattern.finditer(text))
-            for match in reversed(matches):
-                if match.start() == match.end():
-                    continue
-                if "\n" in match.group(0):
-                    continue
-                try:
-                    replacement_text = match.expand(repl)
-                except Exception:
-                    replacement_text = repl
-                span = entries[match.start() : match.end()]
+    def substitute(pattern, repl, text, rule_id=None):
+        """Mirror re.sub's match order while copying unchanged character entries."""
+        nonlocal entries
+        result: List[_RuleEntry] = []
+        cursor = 0
+
+        def replace(match):
+            """Attach replacement characters to their source span or insertion neighbors."""
+            nonlocal cursor
+            start, end = match.span()
+            result.extend(entries[cursor:start])
+            replacement_text = repl(match) if callable(repl) else match.expand(repl)
+            span = entries[start:end]
+            if not span:
+                offset = min(1, start)
+                neighbors = entries[max(0, start - 1):start + 1]
+                inserted = _apply_edit_ops(neighbors, [(offset, 0, replacement_text)])
+                generated = inserted[offset:offset + len(replacement_text)]
+                anchor = entries[start] if start < len(entries) else entries[start - 1] if start else None
+                side = "before" if start < len(entries) else "after"
+                identity = (rule_id, anchor.output_key if anchor is not None else (), side)
+                product = hashlib.sha256(repr(identity).encode("utf-8")).digest()
+                for index, entry in enumerate(generated):
+                    entry.source_ids = anchor.source_ids if anchor is not None else ()
+                    if entry.source_ids and rule_id is not None:
+                        entry.output_id = (product, index)
+                result.extend(generated)
+            else:
                 first = span[0]
                 node = first.node if all(e.node is first.node for e in span) else None
-                new_entries: List[_RuleEntry] = []
-                for char in replacement_text:
+                automatic_node = first.automatic_node if all(e.automatic_node is first.automatic_node for e in span) else None
+                source_ids = tuple(dict.fromkeys(source for entry in span for source in entry.source_ids))
+                parents = tuple(entry.output_key for entry in span)
+                # Bound identity size: recursive tuples make repeated two-character
+                # substitutions exponentially expensive to hash in the rule cache.
+                product = hashlib.sha256(repr((rule_id, parents)).encode("utf-8")).digest()
+                for index, char in enumerate(replacement_text):
+                    output_id = (product, index) if rule_id is not None and source_ids else first.output_id
+                    origins = source_ids
+                    if replacement_text == match.group():
+                        # Identity is unchanged, but the established replacement
+                        # style/node inheritance policy still applies below.
+                        origins, output_id = span[index].source_ids, span[index].output_id
                     if char == "\n":
-                        new_entries.append(_RuleEntry("\n", {}))
+                        result.append(_RuleEntry("\n", {}, source_ids=origins, output_id=output_id))
                     else:
-                        new_entries.append(
-                            _RuleEntry(char, copy.deepcopy(first.style), node=node)
+                        result.append(
+                            _RuleEntry(
+                                char, copy.deepcopy(first.style), node=node, source_ids=origins, output_id=output_id,
+                                automatic_style=copy.deepcopy(first.automatic_style), automatic_node=automatic_node,
+                            )
                         )
-                entries[match.start() : match.end()] = new_entries
+            cursor = end
+            return replacement_text
+
+        replaced_text = pattern.sub(replace, text)
+        result.extend(entries[cursor:])
+        entries = result
+        return replaced_text
+
+    text = substitute(re.compile(r"\n+"), "[BR]", _text_of(entries))
+    text = _apply_replacement_rules(text, direction, replacements, substitute)
+    _, entries = _normalize_rule_linebreak_entries(text, entries)
     return entries
+
+
+def apply_replacements_to_document(
+    document_value: Any, direction_value: Any, replacements: Optional[dict] = None,
+    *, apply_rules: bool = False, editor_context: Optional[EditorRuleContext] = None,
+) -> RichTextDocument:
+    """替换富文本并可选地为替换后新命中应用自动样式，保留手工节点和旧样式。"""
+    document = ensure_rich_text_document(document_value)
+    entries = _rule_entries_from_document(document)
+    if editor_context:
+        for entry, origins in zip(entries, editor_context.source_ids, strict=True):
+            entry.source_ids = origins
+        for index, entry in enumerate(entries):
+            entry.automatic_style = copy.deepcopy(editor_context.automatic_styles[index])
+            entry.automatic_node = editor_context.automatic_nodes[index]
+    entries = apply_replacements_to_entries(entries, _direction_to_int(direction_value), replacements)
+    document = _document_from_rule_entries(_text_of(entries), entries)
+    if editor_context:
+        editor_context.restore_output_effects(entries)
+    ruled = None
+    if apply_rules:
+        try:
+            ruled = apply_rich_text_rules(
+                document, direction_value, styled_match_policy="skip", editor_context=editor_context,
+            )
+        except Exception as exc:
+            logger.warning("Automatic floating text styles failed; preserving replacements: %s", exc)
+            if editor_context:
+                editor_context.defer_existing(document.plain_text())
+            ruled = None
+    if editor_context:
+        editor_context.previous_effects = {
+            key: (copy.deepcopy(style), node)
+            for key, style, node in zip(
+                editor_context.output_keys, editor_context.automatic_styles, editor_context.automatic_nodes, strict=True,
+            )
+        }
+    if ruled is not None:
+        return ruled
+    if editor_context:
+        for index, entry in enumerate(entries):
+            entry.style = _add_missing_style(entry.style, editor_context.automatic_styles[index])
+            if entry.node is None:
+                entry.node = editor_context.automatic_nodes[index]
+        document = _document_from_rule_entries(_text_of(entries), entries)
+    return document
 
 
 def _map_styles_to_raw(

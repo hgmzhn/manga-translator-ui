@@ -858,27 +858,40 @@ class EditorController(QObject):
             merge_key=f"region:{region_index}:translation_raw",
         )
 
-    @pyqtSlot(int, object, str)
+    @pyqtSlot(int, object, str, bool)
     def update_translation_rich(
-        self, region_index: int, rich_document, plain_text: str
+        self, region_index: int, rich_document, plain_text: str, text_changed: bool
     ):
+        """写回浮窗已准备好的最终富文本，raw 保留输入，正文变化由输入历史判定。"""
         old_region_data = self.model.get_region_by_index(region_index)
         if not old_region_data:
             return
 
         old_region_data = self._merge_live_geometry_state(region_index, old_region_data)
+        from manga_translator.rendering.rich_text import ensure_rich_text_document
+
+        from .rich_text_editing import plain_text_to_storage_text
+
+        prepared = ensure_rich_text_document(rich_document)
+        rich_document = prepared.to_dict()
+        translation = plain_text_to_storage_text(prepared.plain_text())
+
+        # 正文变化由浮窗判定，不能拿输入与已替换的译文比较。
+        translation_raw = (
+            plain_text
+            if text_changed
+            else old_region_data.get("translation_raw", plain_text)
+        )
         if (
             old_region_data.get("translation_rich") == rich_document
-            and old_region_data.get("translation", "") == plain_text
+            and old_region_data.get("translation", "") == translation
+            and old_region_data.get("translation_raw") == translation_raw
         ):
             return
 
         new_region_data = old_region_data.copy()
-        text_changed = old_region_data.get("translation", "") != plain_text
-        new_region_data["translation"] = plain_text
-        if text_changed or "translation_raw" not in old_region_data:
-            # 富文本正文改变后无法可靠反推替换前译文；纯样式修改保留原 raw。
-            new_region_data["translation_raw"] = plain_text
+        new_region_data["translation"] = translation
+        new_region_data["translation_raw"] = translation_raw
         new_region_data["translation_rich"] = rich_document
 
         _sync_white_frame_size_for_font_change(

@@ -56,6 +56,8 @@ def utf16_offset_to_python_index(
     """
     text = str(text or "")
     offset = max(0, min(int(offset), utf16_length(text)))
+    if offset == 0:
+        return 0
     units = 0
     for index, char in enumerate(text):
         next_units = units + (2 if ord(char) > 0xFFFF else 1)
@@ -402,6 +404,17 @@ def apply_qt_text_change(
     后文本，把 Qt 给出的 position/removed/added code units 转换成不会拆开
     emoji 等非 BMP 字符的 Python 区间。
     """
+    new_text, change_start, removed, added = qt_text_change_range(
+        old_editor_text, new_editor_text, position, chars_removed, chars_added
+    )
+    return _apply_plain_text_change(document, new_text, change_start, removed, added)
+
+
+def qt_text_change_range(
+    old_editor_text: str, new_editor_text: str,
+    position: int, chars_removed: int, chars_added: int,
+) -> tuple[str, int, int, int]:
+    """Return the Python-indexed edit shared by document and runtime provenance updates."""
     old_text = editor_text_to_plain_text(old_editor_text)
     new_text = editor_text_to_plain_text(new_editor_text)
     position = max(0, int(position))
@@ -439,8 +452,7 @@ def apply_qt_text_change(
         == added_seg[len(added_seg) - 1 - suffix]
     ):
         suffix += 1
-    return _apply_plain_text_change(
-        document,
+    return (
         new_text,
         change_start + prefix,
         len(removed_seg) - prefix - suffix,
