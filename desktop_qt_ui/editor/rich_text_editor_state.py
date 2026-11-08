@@ -85,7 +85,10 @@ class RichTextEditorState:
         self._source_ids = list(range(len(plain_text_of(self.document))))
         self._next_source_id = len(self._source_ids)
         self._rule_context = EditorRuleContext([(source,) for source in self._source_ids])
-        self._rule_context.suppress_existing(plain_text_of(self.document), self.region_data.get("direction", "h"))
+        try:
+            self._rule_context.suppress_existing(plain_text_of(self.document), self.region_data.get("direction", "h"))
+        except Exception as exc:
+            logging.getLogger(__name__).warning("Failed to seed floating text rules; preserving input: %s", exc)
         self._needs_replacements = False
 
     @property
@@ -204,7 +207,6 @@ class RichTextEditorState:
     def _prepare_document(self, preview_document: dict) -> None:
         """Format manual input in output coordinates, then project only its preview back."""
         direction = self.region_data.get("direction", "h")
-        replacements = rich_text_sync.load_replacements() if self._needs_replacements else {}
         context = self._rule_context
         context.source_ids = [(source,) for source in self._source_ids]
         manual_entries = _rule_entries_from_document(ensure_rich_text_document(self._manual_document))
@@ -217,13 +219,13 @@ class RichTextEditorState:
             preview.node if preview.node != manual.node else None
             for manual, preview in zip(manual_entries, preview_entries)
         ]
-        context.applied.clear()
         enabled = self._auto_rules_enabled()
         context.allow_new = enabled
         try:
+            replacements = rich_text_sync.load_replacements() if self._needs_replacements else {}
             prepared = apply_replacements_to_document(
                 self._manual_document, direction, replacements,
-                apply_rules=enabled or bool(context.approved), editor_context=context,
+                apply_rules=True, editor_context=context,
             )
             raw_text = plain_text_of(self._manual_document)
             preview = _map_styles_to_raw(
@@ -266,10 +268,10 @@ class RichTextEditorState:
                     base.node = new.node
                     changed_fields.setdefault(source, set()).add("__node")
             for key, (sources, style_fields, has_node) in self._rule_context.applied.items():
-                changed = set().union(*(changed_fields.get(source, set()) for source in sources))
-                affected = changed & (set(style_fields) | ({"__node"} if has_node else set()))
-                if affected:
-                    self._rule_context.overrides.setdefault(key, set()).update(affected)
+                for source in sources:
+                    affected = changed_fields.get(source, set()) & (set(style_fields) | ({"__node"} if has_node else set()))
+                    if affected:
+                        self._rule_context.overrides.setdefault(key, {}).setdefault(source, set()).update(affected)
             self._manual_document = _document_from_rule_entries(plain_text_of(document), manual).to_dict()
         self._prepare_document(document)
         self.editor_text = plain_text_of(document)

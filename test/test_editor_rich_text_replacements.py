@@ -8,11 +8,14 @@ import _bootstrap  # noqa: F401, I001
 import copy
 import logging
 import re
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
+from yaml import YAMLError
 
 from PyQt6.QtCore import QCoreApplication, QEvent, QObject
 from PyQt6.QtGui import QUndoStack
@@ -276,7 +279,7 @@ class RichTextReplacementTests(unittest.TestCase):
         with (
             patch("manga_translator.rendering.text_replacements.load_replacements", return_value=replacements),
             patch("manga_translator.rendering.rich_text_sync.load_replacements", return_value=replacements),
-            patch("manga_translator.rendering.rich_text_rules.load_rich_text_rules", return_value=rules),
+            patch("manga_translator.rendering.rich_text_rules.load_rich_text_rules", return_value=rules or {}),
             patch("editor.editor_controller._sync_white_frame_size_for_font_change"),
         ):
             raw.update_translation_raw(0, plain_text_to_storage_text(text))
@@ -448,6 +451,144 @@ class RichTextReplacementTests(unittest.TestCase):
             self._commit_input(state, controller, text)
             self.assertEqual(self._output_style(controller), {"bold": True})
             self.assertEqual(controller.region["translation_rich"]["blocks"][0]["inlines"][0]["type"], "ruby")
+
+    def test_invalid_rules_do_not_block_floating_window_construction(self):
+        """Bad YAML or file access must not prevent opening or editing with rules disabled."""
+        config = SimpleNamespace(app=SimpleNamespace(editor_auto_rich_text_rules=False, saved_rich_text_presets={}))
+        service = SimpleNamespace(get_config=lambda: config, get_config_reference=lambda: config)
+        for failure in (YAMLError("invalid rule YAML"), OSError("unreadable rule file")):
+            with self.subTest(failure=type(failure).__name__), (
+                patch("manga_translator.rendering.rich_text_rules.load_rich_text_rules", side_effect=failure)
+            ), patch("ui.widgets.rich_text_floating_editor.get_config_service", return_value=service), patch(
+                "ui.widgets.rich_text_floating_editor.get_i18n_manager", return_value=None
+            ), patch("manga_translator.rendering.rich_text_sync.load_replacements", return_value={"common": [(re.compile(r"\.{3}"), "…")]}), patch(
+                "editor.editor_controller._sync_white_frame_size_for_font_change"
+            ):
+                editor = RichTextFloatingEditor()
+                try:
+                    region = {"translation": "", "direction": "h"}
+                    controller = TranslationHarness(region)
+                    editor.rich_text_changed.connect(controller.update_translation_rich)
+                    editor.set_region(0, region)
+                    editor.text_box.insertPlainText("...")
+                    editor.flush_pending_changes()
+                    self.assertEqual(controller.region["translation"], "…")
+                    self.assertEqual(controller.region["translation_raw"], "...")
+                finally:
+                    editor.close()
+                    editor.deleteLater()
+                    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+                    self.app.processEvents()
+
+    def test_partial_style_clear_preserves_unselected_automatic_style(self):
+        """Clearing A's bold must keep B's bold inside the same AB rule match."""
+        state, controller = self._automatic_editor([{"pattern": "AB", "style": {"bold": True}}], replacements={})
+        self._commit_input(state, controller, "AB")
+        state.replace_document(apply_style_to_range(state.document, 0, 1, {"bold": False}))
+        controller.update_translation_rich(*state.mark_document_emitted())
+        for text in (None, "ABx"):
+            if text:
+                self._commit_input(state, controller, text)
+            self.assertEqual(self._output_style(controller, 0), {})
+            self.assertEqual(self._output_style(controller, 1), {"bold": True})
+
+    def test_partial_node_clear_preserves_unselected_automatic_node(self):
+        """Removing A's automatic Ruby must leave B annotated and both characters bold."""
+        state, controller = self._automatic_editor([{"pattern": "AB", "style": {"bold": True}, "ruby": "note"}], replacements={})
+        self._commit_input(state, controller, "AB")
+        state.replace_document(remove_ruby_from_range(state.document, 0, 1))
+        controller.update_translation_rich(*state.mark_document_emitted())
+        inlines = controller.region["translation_rich"]["blocks"][0]["inlines"]
+        self.assertEqual([inline["type"] for inline in inlines], ["text", "ruby"])
+        self.assertEqual(inlines[1]["base"][0]["text"], "B")
+        self.assertEqual(self._output_style(controller, 0), {"bold": True})
+        self.assertEqual(self._output_style(controller, 1), {"bold": True})
+
+    def test_disabled_rules_keep_style_and_node_after_partial_deletion(self):
+        """Preserve surviving ABC effects after disabling rules and deleting B."""
+        state, controller = self._automatic_editor([{"pattern": "ABC", "style": {"bold": True}, "ruby": "note"}], replacements={})
+        self._commit_input(state, controller, "ABC")
+        state.auto_rules_provider = lambda: False
+        self._commit_input(state, controller, "AC")
+        self.assertEqual(self._output_style(controller, 0), {"bold": True})
+        self.assertEqual(self._output_style(controller, 1), {"bold": True})
+        self.assertEqual(controller.region["translation_rich"]["blocks"][0]["inlines"][0]["type"], "ruby")
+
+    def test_reenabling_rules_does_not_restyle_text_entered_while_disabled(self):
+        """Remember matches typed while disabled without preventing later new matches."""
+        state, controller = self._automatic_editor([{"pattern": "AB", "style": {"bold": True}}], replacements={})
+        state.auto_rules_provider = lambda: False
+        self._commit_input(state, controller, "AB")
+        state.auto_rules_provider = lambda: True
+        self._commit_input(state, controller, "ABxAB")
+        self.assertEqual(self._output_style(controller, 0), {})
+        self.assertEqual(self._output_style(controller, 3), {"bold": True})
+
+    def test_rules_load_failure_preserves_existing_effects_and_clear_intent(self):
+        """Retain residues and explicit field clears while the rule file is unreadable."""
+        state, controller = self._automatic_editor([{"pattern": "AB", "style": {"bold": True}, "ruby": "note"}], replacements={})
+        self._commit_input(state, controller, "AB")
+        with patch("manga_translator.rendering.rich_text_rules.load_rich_text_rules", side_effect=OSError("unreadable rules")):
+            self._commit_input(state, controller, "ABx")
+            self.assertEqual(self._output_style(controller, 1), {"bold": True})
+            state.replace_document(apply_style_to_range(state.document, 0, 1, {"bold": False}))
+            controller.update_translation_rich(*state.mark_document_emitted())
+        self._commit_input(state, controller, "ABxy")
+        self.assertEqual(self._output_style(controller, 0), {})
+        self.assertEqual(self._output_style(controller, 1), {"bold": True})
+        self.assertEqual(controller.region["translation_rich"]["blocks"][0]["inlines"][0]["type"], "ruby")
+
+    def test_bad_replacement_config_preserves_input_and_recovers(self):
+        """A real invalid YAML rule value must not interrupt the text-change callback."""
+        with tempfile.TemporaryDirectory(dir=_bootstrap.ROOT / "test") as temporary:
+            path = Path(temporary) / "replacements.yaml"
+            path.write_text("common:\n  - pattern: 123\n    replace: X\n", encoding="utf-8")
+            state = RichTextEditorState()
+            region = {"translation": "", "direction": "h"}
+            state.bind_region(0, region)
+            controller = TranslationHarness(region)
+            with patch("manga_translator.rendering.rich_text_sync.load_replacements", side_effect=lambda: load_replacements(str(path))), patch(
+                "editor.editor_controller._sync_white_frame_size_for_font_change"
+            ):
+                self._commit_input(state, controller, "hello")
+                self.assertEqual(controller.region["translation"], "hello")
+                self.assertEqual(state.editor_text, "hello")
+                path.write_text("common:\n  - pattern: '^'\n    regex: true\n    replace: P\n", encoding="utf-8")
+                self._commit_input(state, controller, "hellox")
+                self.assertEqual(controller.region["translation"], "Phellox")
+
+    def test_paragraph_identity_prevents_restoring_cleared_cross_line_rule(self):
+        """Styling x must not apply an old A-newline-B match whose styles are absent."""
+        state, _ = self._automatic_editor([{"pattern": "A\nB", "style": {"scale": 2.0}}], replacements={})
+        region = {"translation": "A[BR]Bx", "direction": "h"}
+        state.bind_region(0, region)
+        controller = TranslationHarness(region)
+        state.replace_document(apply_style_to_range(state.document, 3, 4, {"bold": True}))
+        controller.update_translation_rich(*state.mark_document_emitted())
+        self.assertEqual(self._output_style(controller, 0), {})
+        self.assertEqual(self._output_style(controller, 2), {})
+        self.assertEqual(self._output_style(controller, 3), {"bold": True})
+
+    def test_overlapping_automatic_ruby_matches_plain_path(self):
+        """A later A rule must not split or replace an already generated AB node."""
+        rules = _parse_rules({"common": [{"pattern": "AB", "ruby": "first"}, {"pattern": "A", "ruby": "second"}]})
+        raw, floating = self._compare_paths("AB", {}, rules=rules)
+        self.assertEqual(floating["translation_rich"], raw["translation_rich"])
+
+    def test_partial_ruby_clear_does_not_activate_a_previously_blocked_rule(self):
+        """Clearing A's generated annotation must not replace it with a second rule."""
+        state, controller = self._automatic_editor([{"pattern": "AB", "ruby": "first"}, {"pattern": "A", "ruby": "second"}], replacements={})
+        self._commit_input(state, controller, "AB")
+        state.replace_document(remove_ruby_from_range(state.document, 0, 1))
+        controller.update_translation_rich(*state.mark_document_emitted())
+        inlines = controller.region["translation_rich"]["blocks"][0]["inlines"]
+        self.assertEqual([inline["type"] for inline in inlines], ["text", "ruby"])
+        self.assertEqual(inlines[0]["text"], "A")
+        self.assertEqual(inlines[1]["text"][0]["text"], "first")
+        self._commit_input(state, controller, "ABx")
+        inlines = controller.region["translation_rich"]["blocks"][0]["inlines"]
+        self.assertEqual([inline["type"] for inline in inlines], ["text", "ruby", "text"])
+        self.assertEqual(inlines[1]["base"][0]["text"], "B")
 
     def test_zero_width_insertions_use_existing_node_and_boundary_policy(self):
         """Keep insertions inside ruby/TCY, and leave boundary insertions unstyled."""

@@ -255,7 +255,7 @@ def _match_has_manual_trace(
             continue
         if not _style_is_subset(entry.style, rule_style):
             return True
-        node = entry.node
+        node = entry.node or entry.automatic_node
         if node is None:
             continue
         nodes_inside.add(id(node))
@@ -272,7 +272,8 @@ def _match_has_manual_trace(
         for index, entry in enumerate(entries):
             if start <= index < end:
                 continue
-            if entry.node is not None and id(entry.node) in nodes_inside:
+            node = entry.node or entry.automatic_node
+            if node is not None and id(node) in nodes_inside:
                 return True
     return False
 
@@ -315,7 +316,7 @@ class EditorRuleContext:
     allow_new: bool = True
     suppressed: set[tuple] = field(default_factory=set)
     approved: set[tuple] = field(default_factory=set)
-    overrides: dict[tuple, set[str]] = field(default_factory=dict)
+    overrides: dict[tuple, dict[int, set[str]]] = field(default_factory=dict)
     applied: dict[tuple, tuple[frozenset[int], frozenset[str], bool]] = field(default_factory=dict)
 
     def match_key(self, rule: dict, match) -> tuple:
@@ -335,6 +336,11 @@ class EditorRuleContext:
             for match in rule["pattern"].finditer(text):
                 if match.start() != match.end():
                     self.suppressed.add(self.match_key(rule, match))
+
+    def overridden_fields(self, match_key: tuple, index: int) -> set[str]:
+        """Return only explicit overrides on the source characters at this output position."""
+        overrides = self.overrides.get(match_key, {})
+        return set().union(*(overrides.get(source, set()) for source in self.source_ids[index]))
 
     def discard_live_projection(self, text: str, direction: Any, rules: dict) -> None:
         """Rebuild live matches in output coordinates instead of copying a lossy raw preview."""
@@ -476,7 +482,8 @@ def _normalize_rule_linebreak_entries(text: str, entries: List[_RuleEntry]) -> t
             normalized_text.append(text[index])
             normalized_entries.append(entries[index])
         normalized_text.append("\n")
-        normalized_entries.append(_RuleEntry("\n", {}))
+        origins = tuple(dict.fromkeys(source for entry in entries[match.start():match.end()] for source in entry.source_ids))
+        normalized_entries.append(_RuleEntry("\n", {}, source_ids=origins))
         cursor = match.end()
     for index in range(cursor, len(text)):
         normalized_text.append(text[index])
@@ -525,6 +532,7 @@ def apply_rich_text_rules(
         return None
     rules = rules if rules is not None else load_rich_text_rules(file_path)
     if editor_context:
+        editor_context.applied.clear()
         editor_context.discard_live_projection(match_text, direction, rules)
         for index, entry in enumerate(entries):
             entry.automatic_style = copy.deepcopy(editor_context.automatic_styles[index])
@@ -546,9 +554,14 @@ def apply_rich_text_rules(
             if start == end:
                 continue
             match_key = editor_context.match_key(rule, match) if editor_context else None
+            if editor_context:
+                editor_context.applied[match_key] = (
+                    match_key[-1], frozenset(rule["style"]), bool(rule.get("ruby") or rule.get("tcy")),
+                )
             if editor_context and match_key in editor_context.suppressed:
                 continue
             if editor_context and not editor_context.allow_new and match_key not in editor_context.approved:
+                editor_context.suppressed.add(match_key)
                 continue
             if old_spans is not None and _is_old_match(
                 start, end, affixes, len(previous_text), len(match_text), old_spans
@@ -557,18 +570,17 @@ def apply_rich_text_rules(
             if (not editor_context or match_key not in editor_context.approved) and styled_match_policy == "skip" and _match_has_manual_trace(
                 entries, start, end, rule, allow_tcy
             ):
+                if editor_context:
+                    editor_context.suppressed.add(match_key)
                 continue
             matched = True
             if editor_context:
                 editor_context.approved.add(match_key)
-                editor_context.applied[match_key] = (
-                    match_key[-1], frozenset(rule["style"]), bool(rule.get("ruby") or rule.get("tcy")),
-                )
-            overrides = editor_context.overrides.get(match_key, set()) if editor_context else set()
             for index in range(start, end):
                 if index >= len(entries) or entries[index].char == "\n":
                     continue
                 entry = entries[index]
+                overrides = editor_context.overridden_fields(match_key, index) if editor_context else set()
                 entry.automatic_style = _merge_style(
                     entry.automatic_style, {key: value for key, value in rule["style"].items() if key not in overrides}
                 )
@@ -581,13 +593,15 @@ def apply_rich_text_rules(
             elif allow_tcy and rule.get("tcy", False):
                 node = {"type": "tcy"}
             target = entries[start:end]
-            if node is not None and "__node" not in overrides and _LINE_BREAK_RE.search(match_text, start, end) is None:
-                if all(entry.node is None for entry in target):
+            if node is not None and _LINE_BREAK_RE.search(match_text, start, end) is None:
+                if editor_context:
+                    for index in range(start, end):
+                        if entries[index].node is None and "__node" not in editor_context.overridden_fields(match_key, index):
+                            entries[index].automatic_node = node
+                            changed = True
+                elif all(entry.node is None for entry in target):
                     for entry in target:
-                        if editor_context:
-                            entry.automatic_node = node
-                        else:
-                            entry.node = node
+                        entry.node = node
                     changed = True
                 elif styled_match_policy == "skip":
                     # 手工痕迹检查已保证区间内只有本规则的残留节点；若尚未被

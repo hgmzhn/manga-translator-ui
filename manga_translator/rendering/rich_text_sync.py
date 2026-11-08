@@ -32,6 +32,7 @@ from .rich_text import (
 )
 from .rich_text_rules import (
     EditorRuleContext,
+    _add_missing_style,
     _document_from_rule_entries,
     _normalize_rule_linebreak_entries,
     _rule_entries_from_document,
@@ -161,7 +162,7 @@ def apply_replacements_to_entries(
                 source_ids = tuple(dict.fromkeys(source for entry in span for source in entry.source_ids))
                 for char in replacement_text:
                     if char == "\n":
-                        result.append(_RuleEntry("\n", {}))
+                        result.append(_RuleEntry("\n", {}, source_ids=source_ids))
                     else:
                         result.append(
                             _RuleEntry(
@@ -191,18 +192,18 @@ def apply_replacements_to_document(
     document = ensure_rich_text_document(document_value)
     entries = _rule_entries_from_document(document)
     if editor_context:
-        for entry, origins in zip(entries, editor_context.source_ids):
+        for entry, origins in zip(entries, editor_context.source_ids, strict=True):
             entry.source_ids = origins
         for index, entry in enumerate(entries):
             entry.automatic_style = copy.deepcopy(editor_context.automatic_styles[index])
             entry.automatic_node = editor_context.automatic_nodes[index]
     entries = apply_replacements_to_entries(entries, _direction_to_int(direction_value), replacements)
     document = _document_from_rule_entries(_text_of(entries), entries)
+    if editor_context:
+        editor_context.source_ids = [entry.source_ids for entry in entries]
+        editor_context.automatic_styles = [entry.automatic_style for entry in entries]
+        editor_context.automatic_nodes = [entry.automatic_node for entry in entries]
     if apply_rules:
-        if editor_context:
-            editor_context.source_ids = [entry.source_ids for entry in entries]
-            editor_context.automatic_styles = [entry.automatic_style for entry in entries]
-            editor_context.automatic_nodes = [entry.automatic_node for entry in entries]
         try:
             ruled = apply_rich_text_rules(
                 document, direction_value, styled_match_policy="skip", editor_context=editor_context,
@@ -211,7 +212,13 @@ def apply_replacements_to_document(
             logger.warning("Automatic floating text styles failed; preserving replacements: %s", exc)
             ruled = None
         if ruled is not None:
-            document = ruled
+            return ruled
+    if editor_context:
+        for index, entry in enumerate(entries):
+            entry.style = _add_missing_style(entry.style, editor_context.automatic_styles[index])
+            if entry.node is None:
+                entry.node = editor_context.automatic_nodes[index]
+        document = _document_from_rule_entries(_text_of(entries), entries)
     return document
 
 
