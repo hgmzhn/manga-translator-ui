@@ -31,6 +31,7 @@ from .rich_text import (
     normalize_rich_linebreaks,
 )
 from .rich_text_rules import (
+    EditorRuleContext,
     _document_from_rule_entries,
     _normalize_rule_linebreak_entries,
     _rule_entries_from_document,
@@ -47,9 +48,14 @@ def _text_of(entries: Sequence[_RuleEntry]) -> str:
 
 
 def _copy_entries(entries: Sequence[_RuleEntry]) -> List[_RuleEntry]:
+    """Copy styles and provenance while retaining manual and automatic node identities."""
     # node 保持同一对象引用:重建文档时按 identity 分组,深拷贝会拆散节点。
     return [
-        _RuleEntry(entry.char, copy.deepcopy(entry.style), node=entry.node)
+        _RuleEntry(
+            entry.char, copy.deepcopy(entry.style), node=entry.node,
+            automatic_style=copy.deepcopy(entry.automatic_style),
+            automatic_node=entry.automatic_node, source_ids=entry.source_ids,
+        )
         for entry in entries
     ]
 
@@ -81,6 +87,7 @@ def _apply_edit_ops(entries: List[_RuleEntry], ops: Sequence[Any]) -> List[_Rule
         prev_entry = entries[position - 1] if position > 0 else None
         next_entry = entries[position] if position < len(entries) else None
         inherited_style: dict = {}
+        inherited_automatic: dict = {}
         if (
             prev_entry is not None
             and next_entry is not None
@@ -89,6 +96,8 @@ def _apply_edit_ops(entries: List[_RuleEntry], ops: Sequence[Any]) -> List[_Rule
             and prev_entry.style == next_entry.style
         ):
             inherited_style = prev_entry.style
+        if prev_entry is not None and next_entry is not None and prev_entry.automatic_style == next_entry.automatic_style:
+            inherited_automatic = prev_entry.automatic_style
         # 节点归属独立判断:夹在同一节点内部必须并入,否则节点会被切成两份。
         inherited_node = None
         if (
@@ -106,7 +115,8 @@ def _apply_edit_ops(entries: List[_RuleEntry], ops: Sequence[Any]) -> List[_Rule
             else:
                 new_entries.append(
                     _RuleEntry(
-                        char, copy.deepcopy(inherited_style), node=inherited_node
+                        char, copy.deepcopy(inherited_style), node=inherited_node,
+                        automatic_style=copy.deepcopy(inherited_automatic),
                     )
                 )
         entries[position:position] = new_entries
@@ -147,12 +157,17 @@ def apply_replacements_to_entries(
             else:
                 first = span[0]
                 node = first.node if all(e.node is first.node for e in span) else None
+                automatic_node = first.automatic_node if all(e.automatic_node is first.automatic_node for e in span) else None
+                source_ids = tuple(dict.fromkeys(source for entry in span for source in entry.source_ids))
                 for char in replacement_text:
                     if char == "\n":
                         result.append(_RuleEntry("\n", {}))
                     else:
                         result.append(
-                            _RuleEntry(char, copy.deepcopy(first.style), node=node)
+                            _RuleEntry(
+                                char, copy.deepcopy(first.style), node=node, source_ids=source_ids,
+                                automatic_style=copy.deepcopy(first.automatic_style), automatic_node=automatic_node,
+                            )
                         )
             cursor = end
             return replacement_text
@@ -170,19 +185,33 @@ def apply_replacements_to_entries(
 
 def apply_replacements_to_document(
     document_value: Any, direction_value: Any, replacements: Optional[dict] = None,
-    *, apply_rules: bool = False, old_translation: Optional[str] = None,
+    *, apply_rules: bool = False, editor_context: Optional[EditorRuleContext] = None,
 ) -> RichTextDocument:
     """替换富文本并可选地为替换后新命中应用自动样式，保留手工节点和旧样式。"""
     document = ensure_rich_text_document(document_value)
-    entries = apply_replacements_to_entries(
-        _rule_entries_from_document(document), _direction_to_int(direction_value), replacements
-    )
+    entries = _rule_entries_from_document(document)
+    if editor_context:
+        for entry, origins in zip(entries, editor_context.source_ids):
+            entry.source_ids = origins
+        for index, entry in enumerate(entries):
+            entry.automatic_style = copy.deepcopy(editor_context.automatic_styles[index])
+            entry.automatic_node = editor_context.automatic_nodes[index]
+    entries = apply_replacements_to_entries(entries, _direction_to_int(direction_value), replacements)
     document = _document_from_rule_entries(_text_of(entries), entries)
     if apply_rules:
-        document = _apply_editor_rules_stage(
-            document, True, re.sub(r"\n+", "[BR]", document.plain_text()),
-            old_translation, direction_value, None,
-        )
+        if editor_context:
+            editor_context.source_ids = [entry.source_ids for entry in entries]
+            editor_context.automatic_styles = [entry.automatic_style for entry in entries]
+            editor_context.automatic_nodes = [entry.automatic_node for entry in entries]
+        try:
+            ruled = apply_rich_text_rules(
+                document, direction_value, styled_match_policy="skip", editor_context=editor_context,
+            )
+        except Exception as exc:
+            logger.warning("Automatic floating text styles failed; preserving replacements: %s", exc)
+            ruled = None
+        if ruled is not None:
+            document = ruled
     return document
 
 

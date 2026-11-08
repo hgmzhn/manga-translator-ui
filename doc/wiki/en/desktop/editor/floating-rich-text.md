@@ -35,9 +35,10 @@ Use the floating rich-text editor when a line of translation needs inline stylin
 1. The body is a plain-text edit box (14 pt, 120 px high) showing the current region’s translation text. On load, `[BR]`, `<br>`, `【BR】`, and real newlines are normalized to line breaks; on save, line breaks are merged back into `[BR]` for `translation`.
 2. Type, delete, or paste to modify the body. Each change is committed automatically after a 180 ms debounce, and immediately on hide, close, region switch, or body focus loss.
 3. Qt undo/redo is enabled on the body; consecutive rich-text write-backs are merged into one undoable step by the controller using `merge_key`.
-4. With “Auto Apply Rich Text Rules While Editing” on (default), each edit applies the rich-text rules incrementally to the document: rules only add styles and never change characters, and matched ranges that already carry manual rich-text traces are skipped entirely.
+4. With “Auto Apply Rich Text Rules While Editing” on (default), each edit applies rich-text rules to the replacement result. Rules only add styles and never change characters. New matches with manual rich-text traces are skipped, while previously generated automatic effects survive later edits.
 5. Committing a body edit also applies the same text replacement rules as the “Show Translation (Raw)” path in the property panel. For example, the default rules turn `...` into the appropriate horizontal or vertical ellipsis. Replacements preserve character styles, ruby, and TCY nodes. Style-only edits keep the raw translation: while the floating editor still shows the typed input, its styles are mapped to the replacement result; already replaced body text is not replaced again.
 6. Replacements support zero-width regular expressions such as `^` and `$`, with the same line-break protection as raw translation editing. Generated `[BR]`, `<br/>`, and `【BR】` markers become paragraph breaks. When “Auto Apply Rich Text Rules While Editing” is enabled, body commits also check new style matches created by replacements, such as an ellipsis size rule after `...` becomes `…`. Manual styles and styles cleared from unchanged matches remain protected.
+7. The floating session keeps manual styles separate from automatic effects. Typing or editing another style preserves existing automatic scale and other effects. Clearing one automatic field leaves the other effects intact, and genuinely new matches can still apply. Disabling automatic rules stops new effects without stripping existing styles. Provenance stays in memory and does not change the project format; rebound content is protected as already edited.
 
 ### Apply styles with the toolbar and style cards {#toolbar-and-style-cards}
 
@@ -65,17 +66,16 @@ flowchart LR
     A["Canvas single selection"] --> B["RichTextFloatingEditor.set_region"]
     B --> C["Body input / toolbar / style cards / ruby"]
     C --> D["State machine apply_qt_contents_change / replace_document"]
-    D -->|"auto rules on"| E["apply_rich_text_rules adds styles only"]
-    D -->|"auto rules off"| F["mark_document_emitted after 180ms debounce"]
-    E --> F
-    F -->|"rich_text_changed(region_index, document, plain_text)"| G["EditorController.update_translation_rich"]
+    D --> E["Text replacements → optional automatic styles; session provenance"]
+    E --> F["mark_document_emitted after 180ms: final document and typed input"]
+    F -->|"rich_text_changed(region_index, document, plain_text, text_changed)"| G["EditorController.update_translation_rich"]
     G --> H["UpdateRegionCommand merge key region:index:translation_rich"]
     H --> I["EditorModel updates translation / translation_raw / translation_rich"]
     I -->|"regions_changed"| J["View _on_regions_changed_for_rich_editor"]
     J -->|"skips editor's own write-back"| K["refresh_region_if_changed refreshes document"]
 ```
 
-The diagram is the real data flow: body or style changes enter the editor state machine, optionally apply auto rich-text rules, then commit after a 180 ms debounce; the controller writes the whole document to the model and merges consecutive edits by `merge_key`; the model notifies the view, which skips the editor’s own write-back and only refreshes the document from model data.
+The diagram is the real data flow: the state machine prepares the final replacement document and automatic effects while preserving manual edits. After a 180 ms debounce, the controller writes that prepared document without formatting it again and merges consecutive edits by `merge_key`. The model notifies the view, which skips the editor's own write-back and only refreshes the document from model data.
 
 Flush trigger summary:
 
@@ -96,7 +96,7 @@ Flush trigger summary:
 ## Limitations and notes {#dependencies-and-conflicts}
 
 - The floating editor only works with a single selection; it is hidden for multi-selection, no selection, or when the popup toggle is off. Selection changes from the region list and property panel drive the floating window through the same model selection.
-- “Auto Apply Rich Text Rules While Editing” affects only the incremental style application inside the editor; the rule files, matching, and preview belong to the rich-text-rules pages. Rules add styles only, never change characters, and skip ranges that already carry manual rich-text traces.
+- “Auto Apply Rich Text Rules While Editing” controls new automatic effects inside the editor; rule files, matching, and preview belong to the rich-text-rules pages. Rules add styles only, never change characters, and skip new matches with manual rich-text traces. Disabling the switch does not clear existing styles.
 - Rich-text write-back shares the same fields as the property panel’s `translation`/`translation_raw` editing: body changes store the typed text in `translation_raw` and the replacement result in `translation`; style-only edits keep `translation_raw` without replacing already replaced body text again. Model changes refresh the editor document through `regions_changed` (skipping its own write-back) so a stale document never overwrites the model.
 - Reopening a hidden floating editor or rebuilding it after an external model change loads the replacement result as its body. Further body edits run the rules on that displayed text. Non-idempotent custom rules may then differ from editing “Show Translation (Raw)” throughout; the default ellipsis rules are unaffected.
 - Consecutive rich-text edits merge into one undo step by `merge_key` (`region:{index}:translation_rich`); the body’s own Qt undo/redo acts on text only.

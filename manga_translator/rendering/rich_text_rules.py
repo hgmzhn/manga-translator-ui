@@ -301,6 +301,59 @@ class _RuleEntry:
     style: dict
     node: Optional[dict] = None
     automatic_style: dict = field(default_factory=dict)
+    automatic_node: Optional[dict] = None
+    source_ids: tuple[int, ...] = ()
+
+
+@dataclass
+class EditorRuleContext:
+    """Session-only match identities; never serialized into richtext.v1 documents."""
+
+    source_ids: list[tuple[int, ...]] = field(default_factory=list)
+    automatic_styles: list[dict] = field(default_factory=list)
+    automatic_nodes: list[Optional[dict]] = field(default_factory=list)
+    allow_new: bool = True
+    suppressed: set[tuple] = field(default_factory=set)
+    approved: set[tuple] = field(default_factory=set)
+    overrides: dict[tuple, set[str]] = field(default_factory=dict)
+    applied: dict[tuple, tuple[frozenset[int], frozenset[str], bool]] = field(default_factory=dict)
+
+    def match_key(self, rule: dict, match) -> tuple:
+        """Identify a rule match by its text and surviving input character identities."""
+        origins = frozenset(
+            source for group in self.source_ids[match.start():match.end()] for source in group
+        )
+        return (
+            rule["pattern"].pattern, rule["pattern"].flags,
+            repr(rule.get("style")), rule.get("ruby"), rule.get("tcy"),
+            match.group(), origins,
+        )
+
+    def suppress_existing(self, text: str, direction: Any) -> None:
+        """Bound text is already formatted; do not restore styles cleared on old matches."""
+        for rule in _iter_rules(load_rich_text_rules(), direction):
+            for match in rule["pattern"].finditer(text):
+                if match.start() != match.end():
+                    self.suppressed.add(self.match_key(rule, match))
+
+    def discard_live_projection(self, text: str, direction: Any, rules: dict) -> None:
+        """Rebuild live matches in output coordinates instead of copying a lossy raw preview."""
+        fields_by_source: dict[int, set[str]] = {}
+        node_sources: set[int] = set()
+        for rule in _iter_rules(rules, direction):
+            for match in rule["pattern"].finditer(text):
+                key = self.match_key(rule, match)
+                if key not in self.approved:
+                    continue
+                for source in key[-1]:
+                    fields_by_source.setdefault(source, set()).update(rule["style"])
+                    if rule.get("ruby") or rule.get("tcy"):
+                        node_sources.add(source)
+        for index, origins in enumerate(self.source_ids):
+            fields = set().union(*(fields_by_source.get(source, set()) for source in origins))
+            self.automatic_styles[index] = {key: value for key, value in self.automatic_styles[index].items() if key not in fields}
+            if node_sources.intersection(origins):
+                self.automatic_nodes[index] = None
 
 
 def _append_rule_run_entries(runs: Any, node: Optional[dict], entries: List[_RuleEntry]) -> None:
@@ -439,6 +492,7 @@ def apply_rich_text_rules(
     *,
     previous_text: Optional[str] = None,
     styled_match_policy: str = "fill",
+    editor_context: Optional[EditorRuleContext] = None,
 ) -> Optional[RichTextDocument]:
     """Return an additively styled document, or ``None`` when nothing changed.
 
@@ -452,6 +506,9 @@ def apply_rich_text_rules(
     ``styled_match_policy``：``fill``（管线现行为）按字段补缺，已有字段
     保留；``skip``（编辑器）命中区间带任何本规则给不出的富文本（手工
     痕迹）时整段跳过，只有规则自己的残留样式允许整体补齐。
+
+    ``editor_context`` carries only session provenance: earlier automatic matches
+    may be rebuilt without becoming manual traces; explicit field clears stay blocked.
     """
     existing_document = None
     if is_rich_text_document(text):
@@ -467,6 +524,11 @@ def apply_rich_text_rules(
     if not match_text:
         return None
     rules = rules if rules is not None else load_rich_text_rules(file_path)
+    if editor_context:
+        editor_context.discard_live_projection(match_text, direction, rules)
+        for index, entry in enumerate(entries):
+            entry.automatic_style = copy.deepcopy(editor_context.automatic_styles[index])
+            entry.automatic_node = editor_context.automatic_nodes[index]
     affixes = (
         _common_affixes(previous_text, match_text) if previous_text is not None else None
     )
@@ -483,20 +545,33 @@ def apply_rich_text_rules(
             start, end = match.span()
             if start == end:
                 continue
+            match_key = editor_context.match_key(rule, match) if editor_context else None
+            if editor_context and match_key in editor_context.suppressed:
+                continue
+            if editor_context and not editor_context.allow_new and match_key not in editor_context.approved:
+                continue
             if old_spans is not None and _is_old_match(
                 start, end, affixes, len(previous_text), len(match_text), old_spans
             ):
                 continue
-            if styled_match_policy == "skip" and _match_has_manual_trace(
+            if (not editor_context or match_key not in editor_context.approved) and styled_match_policy == "skip" and _match_has_manual_trace(
                 entries, start, end, rule, allow_tcy
             ):
                 continue
             matched = True
+            if editor_context:
+                editor_context.approved.add(match_key)
+                editor_context.applied[match_key] = (
+                    match_key[-1], frozenset(rule["style"]), bool(rule.get("ruby") or rule.get("tcy")),
+                )
+            overrides = editor_context.overrides.get(match_key, set()) if editor_context else set()
             for index in range(start, end):
                 if index >= len(entries) or entries[index].char == "\n":
                     continue
                 entry = entries[index]
-                entry.automatic_style = _merge_style(entry.automatic_style, rule["style"])
+                entry.automatic_style = _merge_style(
+                    entry.automatic_style, {key: value for key, value in rule["style"].items() if key not in overrides}
+                )
             node = None
             if rule.get("ruby"):
                 node = {
@@ -506,10 +581,13 @@ def apply_rich_text_rules(
             elif allow_tcy and rule.get("tcy", False):
                 node = {"type": "tcy"}
             target = entries[start:end]
-            if node is not None and _LINE_BREAK_RE.search(match_text, start, end) is None:
+            if node is not None and "__node" not in overrides and _LINE_BREAK_RE.search(match_text, start, end) is None:
                 if all(entry.node is None for entry in target):
                     for entry in target:
-                        entry.node = node
+                        if editor_context:
+                            entry.automatic_node = node
+                        else:
+                            entry.node = node
                     changed = True
                 elif styled_match_policy == "skip":
                     # 手工痕迹检查已保证区间内只有本规则的残留节点；若尚未被
@@ -528,6 +606,9 @@ def apply_rich_text_rules(
         merged_style = _add_missing_style(entry.style, entry.automatic_style)
         if merged_style != entry.style:
             entry.style = merged_style
+            changed = True
+        if entry.node is None and entry.automatic_node is not None:
+            entry.node = entry.automatic_node
             changed = True
     if not changed and (existing_document is not None or not matched):
         return None

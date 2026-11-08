@@ -862,31 +862,19 @@ class EditorController(QObject):
     def update_translation_rich(
         self, region_index: int, rich_document, plain_text: str, text_changed: bool
     ):
-        """提交浮窗输入及样式；正文先替换再检查自动样式新命中，raw 保留输入。"""
+        """写回浮窗已准备好的最终富文本，raw 保留输入，正文变化由输入历史判定。"""
         old_region_data = self.model.get_region_by_index(region_index)
         if not old_region_data:
             return
 
         old_region_data = self._merge_live_geometry_state(region_index, old_region_data)
-        translation = plain_text
-        # 浮窗保留输入正文，样式写回也需映射到替换结果；重绑定后的正文则已替换。
-        if text_changed or old_region_data.get("translation", "") != plain_text:
-            from manga_translator.rendering.rich_text_sync import (
-                apply_replacements_to_document,
-            )
+        from manga_translator.rendering.rich_text import ensure_rich_text_document
 
-            from .rich_text_editing import plain_text_to_storage_text
+        from .rich_text_editing import plain_text_to_storage_text
 
-            try:
-                replaced = apply_replacements_to_document(
-                    rich_document, old_region_data.get("direction", "h"),
-                    apply_rules=text_changed and self._auto_rich_text_rules_enabled(),
-                    old_translation=old_region_data.get("translation", ""),
-                )
-                rich_document = replaced.to_dict()
-                translation = plain_text_to_storage_text(replaced.plain_text())
-            except Exception as exc:
-                self.logger.warning("Rich text replacements failed; preserving input: %s", exc)
+        prepared = ensure_rich_text_document(rich_document)
+        rich_document = prepared.to_dict()
+        translation = plain_text_to_storage_text(prepared.plain_text())
 
         # 正文变化由浮窗判定，不能拿输入与已替换的译文比较。
         translation_raw = (

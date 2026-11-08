@@ -22,7 +22,13 @@ from editor.document_state import DocumentSnapshot
 from editor.editor_controller import EditorController
 from editor.editor_model import EditorModel
 from editor.render_text_value import render_text_value_from_region
-from editor.rich_text_editing import document_from_region, plain_text_to_storage_text
+from editor.rich_text_editing import (
+    apply_style_to_range,
+    document_from_region,
+    plain_text_to_storage_text,
+    remove_ruby_from_range,
+    remove_tcy_from_range,
+)
 from editor.rich_text_editor_state import RichTextEditorState
 from manga_translator.rendering import text_render
 from manga_translator.rendering.rich_text import (
@@ -30,7 +36,7 @@ from manga_translator.rendering.rich_text import (
     normalize_rich_linebreaks,
     plain_text_of,
 )
-from manga_translator.rendering.rich_text_rules import _parse_rules
+from manga_translator.rendering.rich_text_rules import _parse_rules, _rule_entries_from_document
 from manga_translator.rendering.rich_text_sync import apply_replacements_to_document
 from manga_translator.rendering.text_replacements import apply_replacements, load_replacements
 from ui.editor.view import EditorView
@@ -58,21 +64,27 @@ class TranslationHarness(QObject):
         self.undo_stack = QUndoStack()
 
     def get_region_by_index(self, _index):
+        """Return a detached region snapshot like the real model."""
         return copy.deepcopy(self.region)
 
     def _auto_rich_text_rules_enabled(self):
+        """Disable automatic rules unless a test explicitly enables them."""
         return False
 
     def _merge_live_geometry_state(self, _index, region):
+        """Keep geometry unchanged so assertions focus on text behavior."""
         return region
 
     def _resolve_region_render_params(self, _index, _region):
+        """Avoid unrelated font configuration during isolated text commits."""
         return {}
 
     def update_region(self, _index, region):
+        """Store the snapshot written by real undo commands."""
         self.region = copy.deepcopy(region)
 
     def execute_command(self, command):
+        """Execute through QUndoStack to exercise command merging and restoration."""
         self.commands.append(command)
         self.undo_stack.push(command)
 
@@ -312,24 +324,130 @@ class RichTextReplacementTests(unittest.TestCase):
         self.assertEqual(floating["translation_rich"], raw["translation_rich"])
         self.assertEqual(ensure_rich_text_document(floating["translation_rich"]).paragraphs[0].spans[0].style.scale, 2.0)
 
-    def test_replacement_styles_preserve_manual_and_cleared_styles(self):
-        """Skip manual spans and unchanged matches whose style was cleared by the user."""
-        rules = _parse_rules({"common": [{"pattern": "…", "style": {"scale": 2.0}}]})
-        with (
-            patch("manga_translator.rendering.rich_text_rules.load_rich_text_rules", return_value=rules),
-            patch("manga_translator.rendering.rich_text_sync.load_replacements", return_value={"common": [(re.compile(r"\.{3}"), "…")]}),
-            patch("editor.editor_controller._sync_white_frame_size_for_font_change"),
-        ):
-            for old_text, text, style in (("", "...", {"bold": True}), ("…", "…x", {})):
-                with self.subTest(text=text):
-                    controller = TranslationHarness({"translation": old_text, "direction": "h"})
-                    controller._auto_rich_text_rules_enabled = lambda: True
-                    document = document_from_region({"translation": text})
-                    document["blocks"][0]["inlines"][0]["style"] = style
-                    controller.update_translation_rich(0, document, text, True)
-                    saved = ensure_rich_text_document(controller.region["translation_rich"])
-                    self.assertEqual(saved.paragraphs[0].spans[0].style.scale, 1.0)
-                    self.assertEqual(saved.paragraphs[0].spans[0].style.to_dict(), style)
+    def _automatic_editor(self, rules, replacements=None, direction="h"):
+        """Keep rule patches active across a complete floating editing session."""
+        if replacements is None:
+            replacements = {"common": [(re.compile(r"\.{3}"), "…")]}
+        for target in ("manga_translator.rendering.rich_text_sync.load_replacements", "manga_translator.rendering.text_replacements.load_replacements"):
+            self.enterContext(patch(target, return_value=replacements))
+        self.enterContext(patch("manga_translator.rendering.rich_text_rules.load_rich_text_rules", return_value=_parse_rules({"common": rules})))
+        self.enterContext(patch("editor.editor_controller._sync_white_frame_size_for_font_change"))
+        state = RichTextEditorState()
+        state.auto_rules_provider = lambda: True
+        region = {"translation": "", "direction": direction}
+        state.bind_region(0, region)
+        return state, TranslationHarness(region)
+
+    def _commit_input(self, state, controller, text):
+        """Simulate an IME full-document notification using the shared Qt narrowing logic."""
+        old_units = len(state.editor_text.encode("utf-16-le")) // 2
+        new_units = len(text.encode("utf-16-le")) // 2
+        state.apply_qt_contents_change(text, 0, old_units, new_units)
+        controller.update_translation_rich(*state.mark_document_emitted())
+
+    def _output_style(self, controller, index=0):
+        """Read rendered character styles rather than the raw input preview."""
+        document = ensure_rich_text_document(controller.region["translation_rich"])
+        return _rule_entries_from_document(document)[index].style
+
+    def test_followup_body_and_style_commits_retain_automatic_styles(self):
+        """Preserve generated scale through input and unrelated or overlapping manual edits."""
+        state, controller = self._automatic_editor([{"pattern": "…", "style": {"scale": 2.0}}])
+        self._commit_input(state, controller, "...x")
+        self._commit_input(state, controller, "...xy")
+        self.assertEqual(self._output_style(controller)["scale"], 2.0)
+        for start, end in ((3, 4), (0, 3)):
+            state.replace_document(apply_style_to_range(state.document, start, end, {"bold": True}))
+            controller.update_translation_rich(*state.mark_document_emitted())
+            self.assertEqual(self._output_style(controller)["scale"], 2.0)
+        self.assertTrue(self._output_style(controller)["bold"])
+        self.assertEqual(controller.region["translation_raw"], "...xy")
+
+    def test_automatic_rules_only_style_the_replacement_result(self):
+        """A source-only automatic color must not block final ellipsis scale."""
+        rules = [{"pattern": "...", "style": {"color": "#ff0000"}}, {"pattern": "…", "style": {"scale": 2.0}}]
+        raw, floating = self._compare_paths("...", {"common": [(re.compile(r"\.{3}"), "…")]}, rules=_parse_rules({"common": rules}))
+        self.assertEqual(floating["translation_rich"], raw["translation_rich"])
+
+    def test_clearing_one_automatic_field_keeps_other_fields_and_new_matches(self):
+        """Remember explicit clears per rule field, and allow genuinely new matches."""
+        state, controller = self._automatic_editor([{"pattern": "…", "style": {"scale": 2.0, "color": "#ff0000"}}])
+        self._commit_input(state, controller, "...x")
+        state.replace_document(apply_style_to_range(state.document, 0, 3, {"color": None}))
+        controller.update_translation_rich(*state.mark_document_emitted())
+        self.assertEqual(self._output_style(controller), {"scale": 2.0})
+        self._commit_input(state, controller, "...xy")
+        self.assertEqual(self._output_style(controller), {"scale": 2.0})
+        state.replace_document(apply_style_to_range(state.document, 0, 3, {"scale": 3.0}))
+        controller.update_translation_rich(*state.mark_document_emitted())
+        self._commit_input(state, controller, "...xy...")
+        self.assertEqual(self._output_style(controller), {"scale": 3.0})
+        self.assertEqual(self._output_style(controller, -1), {"scale": 2.0, "color": "#ff0000"})
+
+    def test_generated_prefix_and_expansion_styles_survive_followups(self):
+        """Retain distinct output styles even when the raw preview cannot represent them all."""
+        rules = [{"pattern": "P", "style": {"color": "#ff0000"}}, {"pattern": "X", "style": {"bold": True}}, {"pattern": "Y", "style": {"scale": 2.0}}]
+        state, controller = self._automatic_editor(rules, {"common": [(re.compile("^"), "P"), (re.compile("a"), "XY")]})
+        for text in ("a", "ax"):
+            self._commit_input(state, controller, text)
+            self.assertEqual(self._output_style(controller), {"color": "#ff0000"})
+            self.assertEqual(self._output_style(controller, 1), {"bold": True})
+            self.assertEqual(self._output_style(controller, 2), {"scale": 2.0})
+        state.auto_rules_provider = lambda: False
+        self._commit_input(state, controller, "axa")
+        self.assertEqual(self._output_style(controller), {"color": "#ff0000"})
+        self.assertEqual(self._output_style(controller, 2), {"scale": 2.0})
+        self.assertEqual(self._output_style(controller, -1), {})
+
+    def test_automatic_nodes_can_be_cleared_without_losing_other_styles(self):
+        """Removing automatic Ruby or TCY leaves scale intact on later input."""
+        for node, remove in (({"ruby": "note"}, remove_ruby_from_range), ({"tcy": True}, remove_tcy_from_range)):
+            with self.subTest(node=node):
+                state, controller = self._automatic_editor([{"pattern": "…", "style": {"scale": 2.0}, **node}], direction="v")
+                self._commit_input(state, controller, "...x")
+                state.replace_document(remove(state.document, 0, 3))
+                controller.update_translation_rich(*state.mark_document_emitted())
+                self._commit_input(state, controller, "...xy")
+                self.assertEqual(controller.region["translation_rich"]["blocks"][0]["inlines"][0]["type"], "text")
+                self.assertEqual(self._output_style(controller), {"scale": 2.0})
+
+    def test_initial_manual_styles_still_protect_against_automatic_rules(self):
+        """Manual traces existing before an automatic match keep the existing skip policy."""
+        state, controller = self._automatic_editor([{"pattern": "…", "style": {"scale": 2.0}}])
+        document = document_from_region({"translation": "...x"})
+        document = apply_style_to_range(document, 0, 3, {"bold": True})
+        state.replace_document(document)
+        controller.update_translation_rich(*state.mark_document_emitted())
+        self._commit_input(state, controller, "...xy")
+        self.assertEqual(self._output_style(controller), {"bold": True})
+
+    def test_disabling_rules_keeps_visible_styles(self):
+        """Turning automatic editing off stops new rules without stripping visible styles."""
+        state, controller = self._automatic_editor([{"pattern": "…", "style": {"scale": 2.0}}])
+        self._commit_input(state, controller, "...x")
+        state.auto_rules_provider = lambda: False
+        self._commit_input(state, controller, "...xy")
+        self.assertEqual(self._output_style(controller), {"scale": 2.0})
+
+    def test_ime_utf16_and_rebind_preserve_clear_intent(self):
+        """Keep identities through IME edits and treat rebound styles as authored content."""
+        state, controller = self._automatic_editor([{"pattern": "…", "style": {"scale": 2.0}}])
+        for text in ("😀...x", "😀...xy"):
+            self._commit_input(state, controller, text)
+            self.assertEqual(self._output_style(controller, 1), {"scale": 2.0})
+        state.bind_region(0, controller.region)
+        state.replace_document(apply_style_to_range(state.document, 1, 2, {"scale": 1.0}))
+        controller.update_translation_rich(*state.mark_document_emitted())
+        self._commit_input(state, controller, state.editor_text + "z")
+        self.assertEqual(self._output_style(controller, 1), {})
+
+    def test_editing_inside_an_automatic_match_keeps_style_and_node_residue(self):
+        """Explicit Qt edits preserve automatic residues without turning them into manual traces."""
+        state, controller = self._automatic_editor([{"pattern": "AB", "style": {"bold": True}, "ruby": "note"}], replacements={})
+        for text in ("AB", "AXB", "AX"):
+            self._commit_input(state, controller, text)
+            self.assertEqual(self._output_style(controller), {"bold": True})
+            self.assertEqual(controller.region["translation_rich"]["blocks"][0]["inlines"][0]["type"], "ruby")
 
     def test_zero_width_insertions_use_existing_node_and_boundary_policy(self):
         """Keep insertions inside ruby/TCY, and leave boundary insertions unstyled."""
