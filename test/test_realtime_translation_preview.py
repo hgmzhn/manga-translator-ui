@@ -59,6 +59,13 @@ def test_manga_translator_notify_file_completed_is_idempotent(tmp_path):
     assert len(events) == 1
     assert events[0] is ctx
 
+    failed_save_ctx = Context()
+    failed_save_ctx.image_name = str(source_file)
+    failed_save_ctx.result = object()
+    failed_save_ctx.success = False
+    translator._notify_file_completed(failed_save_ctx)
+    assert len(events) == 1
+
 
 def test_app_logic_on_file_completed_filters_task_id_and_emits_signal(tmp_path):
     source_file = str(tmp_path / "page1.png")

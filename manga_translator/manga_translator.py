@@ -3569,6 +3569,8 @@ class MangaTranslator:
             return
         if getattr(ctx, 'translation_error', None):
             return
+        if getattr(ctx, 'success', None) is False:
+            return
         if not (getattr(ctx, 'success', False) or getattr(ctx, 'result', None)):
             return
         if getattr(ctx, '_file_completed_notified', False):

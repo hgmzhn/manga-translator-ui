@@ -659,7 +659,7 @@ async def translate_batch_replace_translation(translator, images_with_configs: L
                 raw_ctx.success = True
             
             results.append(raw_ctx)
-            if hasattr(translator, '_notify_file_completed'):
+            if getattr(raw_ctx, 'success', False) and hasattr(translator, '_notify_file_completed'):
                 translator._notify_file_completed(raw_ctx)
             if not getattr(raw_ctx, 'success', False):
                 failed_count += 1
