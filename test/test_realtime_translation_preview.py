@@ -270,3 +270,54 @@ def test_editor_on_file_translated_evicts_stale_prefetch_and_updates_file_model(
     assert submitted_prefetch[0][1] == [(key2, os.path.abspath(os.path.normpath(page2)))]
     assert submitted_prefetch[0][3] == {"force": True}
     assert reloaded == []
+
+
+def test_in_flight_prefetch_cannot_write_stale_snapshot_after_file_translated(
+    tmp_path, monkeypatch
+):
+    import editor.controller_document_service as cds_module
+
+    page2 = str(tmp_path / "002.png")
+    doc_service = EditorControllerDocumentService.__new__(
+        EditorControllerDocumentService
+    )
+    doc_service._is_shutdown = False
+    doc_service._prefetch_lock = threading.RLock()
+    doc_service._prefetch_generation = 1
+    doc_service._aux_load_executor = None
+    key2 = doc_service._prefetch_key(page2)
+    doc_service._prefetched_documents = {}
+    doc_service._prefetch_key_versions = {}
+    doc_service._prefetched_document_versions = {}
+    doc_service._desired_prefetch_keys = {key2}
+    doc_service._prefetch_executor = SimpleNamespace(submit=lambda *_a, **_kw: None)
+    doc_service.controller = SimpleNamespace(
+        model=SimpleNamespace(
+            get_source_image_path=lambda: None,
+            get_regions=lambda: [],
+        ),
+        export_service=SimpleNamespace(has_unsaved_changes=lambda: False),
+    )
+
+    stale_snapshot = DocumentSnapshot(
+        source_path=page2,
+        image=Image.new("RGB", (4, 4), "white"),
+        display_image_path=page2,
+        regions=[],
+    )
+
+    class _FakeWorker:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def load(self):
+            # Simulate translation completing while this worker was loading pre-translation data
+            doc_service.on_file_translated(page2)
+            return stale_snapshot
+
+    monkeypatch.setattr(cds_module, "DocumentLoadWorker", _FakeWorker)
+    doc_service._prefetch_documents_worker([(key2, page2)], generation=1)
+
+    assert key2 not in doc_service._prefetched_documents
+    assert doc_service._take_prefetched_document(page2) is None
+

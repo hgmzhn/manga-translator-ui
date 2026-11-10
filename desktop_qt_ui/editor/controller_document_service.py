@@ -48,7 +48,10 @@ class EditorControllerDocumentService:
         self._prefetch_generation = 0
         self._prefetch_lock = threading.RLock()
         self._prefetched_documents: dict[str, DocumentSnapshot] = {}
+        self._prefetch_key_versions: dict[str, int] = {}
+        self._prefetched_document_versions: dict[str, int] = {}
         self._desired_prefetch_keys: set[str] = set()
+        self._loading_source_path: Optional[str] = None
         self._is_shutdown = False
         self._pending_prefetch_paths: list[str] = []
 
@@ -92,6 +95,7 @@ class EditorControllerDocumentService:
         # Invalidate the load identity before touching presentation state so a
         # completion racing with this switch can never be installed.
         self._cancel_pending_load()
+        self._loading_source_path = None
         self.model.clear_document()
 
         # Only cancellable editor work lives in AsyncService. Export jobs use a
@@ -143,17 +147,40 @@ class EditorControllerDocumentService:
     def _prefetch_key(image_path: str) -> str:
         return os.path.normcase(os.path.abspath(os.path.normpath(image_path)))
 
+    def _ensure_prefetch_version_maps(
+        self,
+    ) -> tuple[dict[str, int], dict[str, int]]:
+        key_versions = getattr(self, "_prefetch_key_versions", None)
+        if key_versions is None:
+            key_versions = {}
+            self._prefetch_key_versions = key_versions
+        doc_versions = getattr(self, "_prefetched_document_versions", None)
+        if doc_versions is None:
+            doc_versions = {}
+            self._prefetched_document_versions = doc_versions
+        return key_versions, doc_versions
+
     def _take_prefetched_document(
         self,
         image_path: str,
     ) -> Optional[DocumentSnapshot]:
         key = self._prefetch_key(image_path)
         with self._prefetch_lock:
-            return self._prefetched_documents.pop(key, None)
+            key_versions, doc_versions = self._ensure_prefetch_version_maps()
+            snapshot = self._prefetched_documents.pop(key, None)
+            doc_version = doc_versions.pop(key, None)
+            if snapshot is None:
+                return None
+            current_version = key_versions.get(key, 0)
+            if doc_version is not None and doc_version != current_version:
+                return None
+            return snapshot
 
     def _clear_prefetched_documents(self) -> None:
         with self._prefetch_lock:
+            _key_versions, doc_versions = self._ensure_prefetch_version_maps()
             self._prefetched_documents.clear()
+            doc_versions.clear()
             self._desired_prefetch_keys.clear()
 
     def shutdown(self) -> None:
@@ -350,6 +377,7 @@ class EditorControllerDocumentService:
         # A document switch is a hard presentation boundary: invalidate the
         # old identity and remove both source/inpaint layers before loading.
         self.clear_editor_state()
+        self._loading_source_path = image_path
 
         toast_manager = self.controller.get_toast_manager()
         if toast_manager is not None:
@@ -414,6 +442,7 @@ class EditorControllerDocumentService:
 
         if self._active_load_future is not None and self._active_load_future.done():
             self._active_load_future = None
+        self._loading_source_path = None
 
         if isinstance(result, DocumentLoadFailure):
             self.handle_load_error(result.error)
@@ -466,12 +495,16 @@ class EditorControllerDocumentService:
 
         generation = self._cancel_pending_prefetch()
         with self._prefetch_lock:
+            _key_versions, doc_versions = self._ensure_prefetch_version_maps()
             self._desired_prefetch_keys = {key for key, _ in ordered}
             self._prefetched_documents = {
                 key: snapshot
                 for key, snapshot in self._prefetched_documents.items()
                 if key in self._desired_prefetch_keys
             }
+            for stale_key in list(doc_versions):
+                if stale_key not in self._desired_prefetch_keys:
+                    doc_versions.pop(stale_key, None)
         if not ordered:
             return
 
@@ -492,9 +525,15 @@ class EditorControllerDocumentService:
             if self._is_shutdown or generation != self._prefetch_generation:
                 return
             with self._prefetch_lock:
+                key_versions, doc_versions = self._ensure_prefetch_version_maps()
+                key_version = key_versions.get(key, 0)
                 if force:
                     self._prefetched_documents.pop(key, None)
-                elif key in self._prefetched_documents:
+                    doc_versions.pop(key, None)
+                elif (
+                    key in self._prefetched_documents
+                    and doc_versions.get(key, key_version) == key_version
+                ):
                     continue
             result = DocumentLoadWorker(
                 self,
@@ -512,8 +551,13 @@ class EditorControllerDocumentService:
             if self._is_shutdown or generation != self._prefetch_generation:
                 return
             with self._prefetch_lock:
-                if key in self._desired_prefetch_keys:
+                key_versions, doc_versions = self._ensure_prefetch_version_maps()
+                if (
+                    key in self._desired_prefetch_keys
+                    and key_versions.get(key, 0) == key_version
+                ):
                     self._prefetched_documents[key] = result
+                    doc_versions[key] = key_version
 
     def on_file_translated(self, source_path: str) -> None:
         """当后台某张原图翻译完成并落盘时，驱逐邻页预取缓存中的旧未翻译快照，并在安全条件下自动重载当前页。"""
@@ -521,7 +565,10 @@ class EditorControllerDocumentService:
             return
         key = self._prefetch_key(source_path)
         with self._prefetch_lock:
+            key_versions, doc_versions = self._ensure_prefetch_version_maps()
+            key_versions[key] = key_versions.get(key, 0) + 1
             self._prefetched_documents.pop(key, None)
+            doc_versions.pop(key, None)
             should_reprefetch = key in self._desired_prefetch_keys
             generation = self._prefetch_generation
 
@@ -534,6 +581,7 @@ class EditorControllerDocumentService:
             )
 
         current_source = self.model.get_source_image_path()
+        loading_source = getattr(self, "_loading_source_path", None)
         if (
             current_source
             and self._prefetch_key(current_source) == key
@@ -541,6 +589,12 @@ class EditorControllerDocumentService:
             and not self.controller.export_service.has_unsaved_changes()
         ):
             self.do_load_image(current_source)
+        elif (
+            not current_source
+            and loading_source
+            and self._prefetch_key(loading_source) == key
+        ):
+            self.do_load_image(loading_source)
 
     def handle_load_error(self, error_msg: str) -> None:
         loading_toast = getattr(self.controller, "_loading_toast", None)
