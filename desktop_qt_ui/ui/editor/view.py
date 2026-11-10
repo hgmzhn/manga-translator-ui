@@ -904,6 +904,12 @@ class EditorView(QWidget):
             (self.file_list.files_dropped, self.logic.add_files_from_paths),
             (self.logic.file_list_loading, self.file_list.set_loading),
             (self.logic.file_snapshot_changed, self.file_list.set_snapshot),
+            (
+                self.logic.file_item_translated,
+                lambda src, out, jsn: self.file_list.mark_file_translated(
+                    src, out, jsn, snapshot=self.logic._snapshot
+                ),
+            ),
             (self.logic.file_list_error, self.file_list.set_error),
         ):
             signal.connect(slot)
