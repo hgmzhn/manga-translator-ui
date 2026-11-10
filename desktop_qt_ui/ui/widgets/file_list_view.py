@@ -1081,14 +1081,14 @@ class FileListView(TreeView):
         if generation != self._view_generation or not isinstance(image, QImage) or image.isNull():
             return
         item = self.catalog_model.item_for_path(path)
-        if item is None or item.thumbnail_key != cache_key:
+        if item is None or (*item.thumbnail_key, self._thumbnail_size) != cache_key:
             return
         pixmap = QPixmap.fromImage(image)
         self._thumbnail_cache[cache_key] = pixmap
         self._thumbnail_cache.move_to_end(cache_key)
         while len(self._thumbnail_cache) > self._THUMBNAIL_CACHE_SIZE:
             self._thumbnail_cache.popitem(last=False)
-        self.catalog_model.set_thumbnail(path, pixmap, expected_key=cache_key)
+        self.catalog_model.set_thumbnail(path, pixmap, expected_key=item.thumbnail_key)
 
     def mark_file_translated(
         self,
@@ -1099,7 +1099,11 @@ class FileListView(TreeView):
         snapshot: Optional[FileCatalogSnapshot] = None,
     ) -> tuple[str, ...]:
         existing_item = self.catalog_model.item_for_path(source_path) if source_path else None
-        old_thumb_key = existing_item.thumbnail_key if existing_item is not None else None
+        old_cache_key = (
+            (*existing_item.thumbnail_key, self._thumbnail_size)
+            if existing_item is not None
+            else None
+        )
         updated_paths = self.catalog_model.mark_file_translated(
             source_path,
             output_path=output_path,
@@ -1108,9 +1112,9 @@ class FileListView(TreeView):
         )
         if not updated_paths:
             return ()
-        if old_thumb_key is not None:
-            self._thumbnail_pending.discard((self._view_generation, old_thumb_key))
-            self._thumbnail_cache.pop(old_thumb_key, None)
+        if old_cache_key is not None:
+            self._thumbnail_pending.discard((self._view_generation, old_cache_key))
+            self._thumbnail_cache.pop(old_cache_key, None)
         for path in updated_paths:
             index = self.catalog_model.index_for_path(path)
             if index.isValid():

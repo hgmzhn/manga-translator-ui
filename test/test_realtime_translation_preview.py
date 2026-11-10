@@ -203,6 +203,40 @@ def test_catalog_snapshot_and_model_mark_file_translated_and_resolve_thumbnail(t
         str(source_path), "stale_pixmap", expected_key=old_thumb_key
     )
 
+    # Verify FileListView._on_thumbnail_loaded compares the 6-tuple (*item.thumbnail_key, _thumbnail_size)
+    from collections import OrderedDict
+    from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtGui import QImage
+    from ui.widgets.file_list_view import FileListView, THUMBNAIL_ROLE
+
+    _app = QApplication.instance() or QApplication([])
+    dummy_view = SimpleNamespace(
+        _view_generation=1,
+        _thumbnail_size=160,
+        _THUMBNAIL_CACHE_SIZE=16,
+        _thumbnail_pending=set(),
+        _thumbnail_cache=OrderedDict(),
+        catalog_model=model,
+    )
+    qimg = QImage(4, 4, QImage.Format.Format_RGB32)
+    qimg.fill(0xFF00FF00)
+    stale_cache_key = (*old_thumb_key, 160)
+    fresh_cache_key = (*item.thumbnail_key, 160)
+
+    FileListView._on_thumbnail_loaded(
+        dummy_view, 1, stale_cache_key, str(source_path), qimg
+    )
+    assert stale_cache_key not in dummy_view._thumbnail_cache
+
+    FileListView._on_thumbnail_loaded(
+        dummy_view, 1, fresh_cache_key, str(source_path), qimg
+    )
+    assert fresh_cache_key in dummy_view._thumbnail_cache
+    assert (
+        model.data(model.index_for_path(str(source_path)), THUMBNAIL_ROLE)
+        == dummy_view._thumbnail_cache[fresh_cache_key]
+    )
+
     # Thumbnail resolver should prefer output_path, or resolve from json_path
     assert _resolve_thumbnail_source_path(
         str(source_path),
