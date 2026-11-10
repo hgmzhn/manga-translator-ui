@@ -66,6 +66,15 @@ def test_manga_translator_notify_file_completed_is_idempotent(tmp_path):
     translator._notify_file_completed(failed_save_ctx)
     assert len(events) == 1
 
+    missing_orig_ctx = Context(
+        image_name=str(source_file),
+        success=True,
+        skipped=True,
+        skip_reason="missing_required_original_text",
+    )
+    translator._notify_file_completed(missing_orig_ctx)
+    assert len(events) == 1
+
 
 def test_app_logic_on_file_completed_filters_task_id_and_emits_signal(tmp_path):
     source_file = str(tmp_path / "page1.png")

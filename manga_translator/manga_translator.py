@@ -3569,6 +3569,8 @@ class MangaTranslator:
             return
         if getattr(ctx, 'translation_error', None):
             return
+        if getattr(ctx, 'skip_reason', None) == 'missing_required_original_text':
+            return
         if getattr(ctx, 'success', None) is False:
             return
         if not (getattr(ctx, 'success', False) or getattr(ctx, 'result', None)):
@@ -3650,6 +3652,8 @@ class MangaTranslator:
 
         if skipped_count:
             for skipped_ctx in plan.skipped_contexts:
+                if getattr(skipped_ctx, 'skip_reason', None) == 'missing_required_original_text':
+                    continue
                 self._notify_file_completed(skipped_ctx)
             completed = min(processing_offset, display_total)
             await self._report_progress(
