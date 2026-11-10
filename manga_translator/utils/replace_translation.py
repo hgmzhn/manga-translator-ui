@@ -610,6 +610,8 @@ async def translate_batch_replace_translation(translator, images_with_configs: L
                         
                         # 标记成功
                         raw_ctx.success = True
+                        raw_ctx.output_path = final_output_path
+                        raw_ctx.final_output_dir = final_output_dir
                         
                         # ✅ 保存后清理result以释放内存
                         raw_ctx.result = None
@@ -657,6 +659,8 @@ async def translate_batch_replace_translation(translator, images_with_configs: L
                 raw_ctx.success = True
             
             results.append(raw_ctx)
+            if hasattr(translator, '_notify_file_completed'):
+                translator._notify_file_completed(raw_ctx)
             if not getattr(raw_ctx, 'success', False):
                 failed_count += 1
             await translator._report_progress(f"batch:{global_idx}:{global_idx}:{display_total}:{failed_count}")

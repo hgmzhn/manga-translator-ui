@@ -66,6 +66,18 @@ class FileListModel:
         """Return the item with the same canonical path identity."""
         return self._path_index.get(canonical_path_key(file_path))
 
+    def mark_file_translated(self, file_path: str, json_path: str | None = None) -> bool:
+        """将已存在于模型中的文件标记为已翻译状态。"""
+        item = self.get_file_item(file_path)
+        if item is None:
+            return False
+        item.file_type = FileType.SOURCE
+        if json_path:
+            item.json_path = json_path
+        elif not item.json_path:
+            item.json_path = file_path
+        return True
+
     def replace_from_snapshot(self, snapshot) -> None:
         """用后台快照一次性替换编辑器列表，不在 GUI 线程读取元数据。"""
         self.clear()

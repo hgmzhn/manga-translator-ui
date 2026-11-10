@@ -202,9 +202,24 @@ class MainWindow(FluentWindow):
 
     def _on_fluent_page_changed(self, index: int):
         widget = self.stacked_widget.widget(index)
+        if widget is self.editor_view:
+            self._sync_editor_catalog_if_empty()
+            return
         page_key = getattr(self, "_main_pages_by_widget", {}).get(widget)
         if page_key:
             self._on_main_page_activated(page_key)
+
+    def _sync_editor_catalog_if_empty(self):
+        if (
+            self.editor_logic is not None
+            and not self.editor_logic.file_model.files
+            and self._file_catalog_snapshot.sources
+        ):
+            self.editor_logic.apply_file_snapshot(
+                self._file_catalog_snapshot.images_only(),
+                excluded_folders=self.app_logic.excluded_subfolders,
+                excluded_files=self.app_logic.excluded_files,
+            )
 
     def _on_main_page_activated(self, page_key: str):
         if page_key == "settings" and not getattr(
@@ -398,6 +413,9 @@ class MainWindow(FluentWindow):
         self.app_logic.files_cleared.connect(self._on_files_cleared_update_editor)
         self.app_logic.output_path_updated.connect(
             self.main_view.update_output_path_display
+        )
+        self.app_logic.file_translated.connect(
+            self._on_file_translated, type=Qt.ConnectionType.QueuedConnection
         )
         self.app_logic.task_completed.connect(
             self.on_task_completed, type=Qt.ConnectionType.QueuedConnection
@@ -665,6 +683,38 @@ class MainWindow(FluentWindow):
         if self.editor_controller:
             self.editor_controller.redo()
 
+    @pyqtSlot(dict)
+    def _on_file_translated(self, info: dict):
+        """单张图片翻译落盘后实时刷新主页、批量管理及编辑器的已翻译状态与缩略图。"""
+        if not isinstance(info, dict):
+            return
+        source_path = info.get("source_path")
+        output_path = info.get("output_path")
+        json_path = info.get("json_path")
+        if not source_path:
+            return
+
+        self._file_catalog_snapshot = self._file_catalog_snapshot.with_file_translated(
+            source_path,
+            json_path=json_path,
+            output_path=output_path,
+        )
+        self.main_view.file_list.mark_file_translated(
+            source_path,
+            output_path=output_path,
+            json_path=json_path,
+        )
+        if hasattr(self.main_view, "batch_edit_panel"):
+            self.main_view.batch_edit_panel.set_catalog_snapshot(
+                self._file_catalog_snapshot
+            )
+        if self.editor_logic is not None:
+            self.editor_logic.on_file_translated(
+                source_path,
+                output_path=output_path,
+                json_path=json_path,
+            )
+
     @pyqtSlot(list)
     def on_task_completed(self, saved_files: list):
         """
@@ -805,6 +855,7 @@ class MainWindow(FluentWindow):
         Used when user manually switches views.
         """
         self._ensure_editor_initialized()
+        self._sync_editor_catalog_if_empty()
         if self.editor_view and self.editor_view.property_panel:
             self.editor_view.property_panel.repopulate_options()
         self.switchTo(self.editor_view)

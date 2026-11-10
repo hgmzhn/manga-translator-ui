@@ -960,6 +960,9 @@ class ConcurrentPipeline:
                     with self._results_lock:
                         self._results.append(ctx)
 
+                    if hasattr(self.translator, '_notify_file_completed'):
+                        self.translator._notify_file_completed(ctx)
+
                     # 清理内存 - 调用统一清理函数
                     logger.debug(f"[Rendering] Releasing memory: {ctx.image_name}")
                     self.translator._cleanup_context_memory(ctx, keep_result=True)

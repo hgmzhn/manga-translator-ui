@@ -352,6 +352,7 @@ class MangaTranslator:
         self.disable_onnx_gpu = False
 
         self._progress_hooks = []
+        self._file_completed_hooks = []
         self._add_logger_hook()
         
         # 取消检查回调（用于Web服务器等场景）
@@ -888,8 +889,11 @@ class MangaTranslator:
 
         # 记录本次主翻译流程的输出目录，编辑器再次导出时回写到原目录
         final_output_dir = getattr(ctx, 'final_output_dir', None)
+        output_path = getattr(ctx, 'output_path', None)
         if final_output_dir:
             data_to_save['last_export_dir'] = final_output_dir
+        if output_path and isinstance(output_path, str):
+            data_to_save['last_output_path'] = output_path
         elif os.path.exists(text_output_file):
             # 本轮没有写图（例如仅导出 JSON 模式），保留已有的 last_export_dir
             try:
@@ -898,9 +902,13 @@ class MangaTranslator:
                 if existing_data and len(existing_data.values()) > 0:
                     existing_image_data = next(iter(existing_data.values()))
                     if isinstance(existing_image_data, dict):
-                        preserved_dir = existing_image_data.get('last_export_dir')
-                        if preserved_dir:
-                            data_to_save['last_export_dir'] = preserved_dir
+                        if 'last_export_dir' not in data_to_save:
+                            preserved_dir = existing_image_data.get('last_export_dir')
+                            if preserved_dir:
+                                data_to_save['last_export_dir'] = preserved_dir
+                        preserved_output = existing_image_data.get('last_output_path')
+                        if preserved_output:
+                            data_to_save['last_output_path'] = preserved_output
             except Exception as e:
                 logger.debug(f"Failed to preserve last_export_dir from existing JSON {text_output_file}: {e}")
 
@@ -922,6 +930,7 @@ class MangaTranslator:
 
             with open(text_output_file, 'wb') as f:
                 f.write(json_string.encode('utf-8'))
+            ctx.json_path = text_output_file
             logger.info(f"JSON saved to: {text_output_file}")
             return True
         except Exception as e:
@@ -1039,6 +1048,7 @@ class MangaTranslator:
                 self._mark_context_failure(ctx, exc, stage='export')
 
             results.append(ctx)
+            self._notify_file_completed(ctx)
             completed = min(global_offset + len(results), display_total)
             failed_count = sum(
                 1 for result in results if getattr(result, 'translation_error', None)
@@ -3550,6 +3560,25 @@ class MangaTranslator:
 
     def add_progress_hook(self, ph):
         self._progress_hooks.append(ph)
+
+    def add_file_completed_hook(self, hook):
+        self._file_completed_hooks.append(hook)
+
+    def _notify_file_completed(self, ctx: Context):
+        if ctx is None:
+            return
+        if getattr(ctx, 'translation_error', None):
+            return
+        if not (getattr(ctx, 'success', False) or getattr(ctx, 'result', None)):
+            return
+        if getattr(ctx, '_file_completed_notified', False):
+            return
+        ctx._file_completed_notified = True
+        for hook in list(getattr(self, '_file_completed_hooks', ())):
+            try:
+                hook(ctx)
+            except Exception as exc:
+                logger.debug(f"File completed hook error (ignored): {exc}")
     
     def set_cancel_check_callback(self, callback):
         """设置取消检查回调函数"""
@@ -3618,6 +3647,8 @@ class MangaTranslator:
         self._prepare_resume_context(plan)
 
         if skipped_count:
+            for skipped_ctx in plan.skipped_contexts:
+                self._notify_file_completed(skipped_ctx)
             completed = min(processing_offset, display_total)
             await self._report_progress(
                 f"batch:{completed}:{completed}:{display_total}:0:{skipped_count}"
@@ -3739,6 +3770,8 @@ class MangaTranslator:
         results = []
 
         async def report_completed_image_progress():
+            if results:
+                self._notify_file_completed(results[-1])
             if display_total <= 0:
                 return
             completed = min(processing_offset + len(results), display_total)
@@ -5857,6 +5890,8 @@ class MangaTranslator:
         
 
         async def report_completed_image_progress():
+            if results:
+                self._notify_file_completed(results[-1])
             if display_total <= 0:
                 return
             completed = min(global_offset + len(results), display_total)

@@ -485,12 +485,16 @@ class EditorControllerDocumentService:
         self,
         documents: list[tuple[str, str]],
         generation: int,
+        *,
+        force: bool = False,
     ) -> None:
         for key, image_path in documents:
             if self._is_shutdown or generation != self._prefetch_generation:
                 return
             with self._prefetch_lock:
-                if key in self._prefetched_documents:
+                if force:
+                    self._prefetched_documents.pop(key, None)
+                elif key in self._prefetched_documents:
                     continue
             result = DocumentLoadWorker(
                 self,
@@ -510,6 +514,33 @@ class EditorControllerDocumentService:
             with self._prefetch_lock:
                 if key in self._desired_prefetch_keys:
                     self._prefetched_documents[key] = result
+
+    def on_file_translated(self, source_path: str) -> None:
+        """当后台某张原图翻译完成并落盘时，驱逐邻页预取缓存中的旧未翻译快照，并在安全条件下自动重载当前页。"""
+        if self._is_shutdown or not source_path:
+            return
+        key = self._prefetch_key(source_path)
+        with self._prefetch_lock:
+            self._prefetched_documents.pop(key, None)
+            should_reprefetch = key in self._desired_prefetch_keys
+            generation = self._prefetch_generation
+
+        if should_reprefetch:
+            self._prefetch_executor.submit(
+                self._prefetch_documents_worker,
+                [(key, source_path)],
+                generation,
+                force=True,
+            )
+
+        current_source = self.model.get_source_image_path()
+        if (
+            current_source
+            and self._prefetch_key(current_source) == key
+            and not self.model.get_regions()
+            and not self.controller.export_service.has_unsaved_changes()
+        ):
+            self.do_load_image(current_source)
 
     def handle_load_error(self, error_msg: str) -> None:
         loading_toast = getattr(self.controller, "_loading_toast", None)

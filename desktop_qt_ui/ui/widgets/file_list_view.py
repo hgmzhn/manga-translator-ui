@@ -44,6 +44,7 @@ from services.file_list_data_service import (
     KIND_ARCHIVE,
     KIND_FOLDER,
     KIND_IMAGE,
+    SUPPORTED_IMAGE_EXTENSIONS,
     FileCatalogNode,
     FileCatalogSnapshot,
     FileListDataService,
@@ -91,9 +92,60 @@ def _single_shot(msec: int, owner: QObject, slot) -> None:
     timer.start(msec)
 
 
-def _load_thumbnail_worker(file_path: str, maximum_size: int = 40) -> tuple[str, QImage]:
-    """工作线程只返回 QImage；QPixmap 必须留在 GUI 线程创建。"""
-    reader = QImageReader(file_path)
+def _resolve_thumbnail_source_path(
+    file_path: str,
+    output_path: Optional[str] = None,
+    json_path: Optional[str] = None,
+) -> str:
+    """若存在已翻译输出图，优先返回已翻译成品图路径用于生成缩略图。"""
+    if output_path:
+        ext = os.path.splitext(output_path)[1].lower()
+        if ext in SUPPORTED_IMAGE_EXTENSIONS and os.path.isfile(output_path):
+            return os.path.abspath(os.path.normpath(output_path))
+
+    if json_path and os.path.isfile(json_path):
+        try:
+            import json
+
+            with open(json_path, "r", encoding="utf-8") as handle:
+                raw = json.load(handle)
+            if isinstance(raw, dict) and raw:
+                entry = raw.get(os.path.abspath(file_path)) or next(iter(raw.values()))
+                if isinstance(entry, dict):
+                    last_output = entry.get("last_output_path")
+                    if (
+                        isinstance(last_output, str)
+                        and os.path.splitext(last_output)[1].lower() in SUPPORTED_IMAGE_EXTENSIONS
+                        and os.path.isfile(last_output)
+                    ):
+                        return os.path.abspath(os.path.normpath(last_output))
+                    last_dir = entry.get("last_export_dir")
+                    if isinstance(last_dir, str) and os.path.isdir(last_dir):
+                        same_name = os.path.join(last_dir, os.path.basename(file_path))
+                        if os.path.isfile(same_name):
+                            return os.path.abspath(os.path.normpath(same_name))
+                        stem = os.path.splitext(os.path.basename(file_path))[0]
+                        for ext in SUPPORTED_IMAGE_EXTENSIONS:
+                            candidate = os.path.join(last_dir, f"{stem}{ext}")
+                            if os.path.isfile(candidate):
+                                return os.path.abspath(os.path.normpath(candidate))
+        except Exception:
+            pass
+
+        work_result = os.path.join(
+            os.path.dirname(file_path),
+            "manga_translator_work",
+            "result",
+            os.path.basename(file_path),
+        )
+        if os.path.isfile(work_result):
+            return os.path.abspath(os.path.normpath(work_result))
+
+    return file_path
+
+
+def _read_scaled_qimage(target_path: str, maximum_size: int) -> QImage:
+    reader = QImageReader(target_path)
     reader.setAutoTransform(True)
     source_size = reader.size()
     if source_size.isValid():
@@ -101,17 +153,17 @@ def _load_thumbnail_worker(file_path: str, maximum_size: int = 40) -> tuple[str,
         reader.setScaledSize(source_size)
     image = reader.read()
     if not image.isNull():
-        return file_path, image
+        return image
 
     try:
         from PIL import Image, ImageOps
 
-        with Image.open(file_path) as pil_image:
+        with Image.open(target_path) as pil_image:
             pil_image = ImageOps.exif_transpose(pil_image)
             pil_image.thumbnail((maximum_size, maximum_size), Image.Resampling.LANCZOS)
             rgba = pil_image.convert("RGBA")
             raw = rgba.tobytes("raw", "RGBA")
-            image = QImage(
+            return QImage(
                 raw,
                 rgba.width,
                 rgba.height,
@@ -119,7 +171,24 @@ def _load_thumbnail_worker(file_path: str, maximum_size: int = 40) -> tuple[str,
                 QImage.Format.Format_RGBA8888,
             ).copy()
     except Exception:
-        image = QImage()
+        return QImage()
+
+
+def _load_thumbnail_worker(
+    file_path: str,
+    maximum_size: int = 40,
+    output_path: Optional[str] = None,
+    json_path: Optional[str] = None,
+) -> tuple[str, QImage]:
+    """工作线程只返回 QImage；QPixmap 必须留在 GUI 线程创建。"""
+    target_path = _resolve_thumbnail_source_path(
+        file_path,
+        output_path=output_path,
+        json_path=json_path,
+    )
+    image = _read_scaled_qimage(target_path, maximum_size)
+    if image.isNull() and target_path != file_path:
+        image = _read_scaled_qimage(file_path, maximum_size)
     return file_path, image
 
 
@@ -137,6 +206,8 @@ class _CatalogItem:
         "source_root",
         "mtime_ns",
         "size",
+        "output_path",
+        "output_mtime_ns",
         "parent",
         "children",
         "row",
@@ -151,13 +222,27 @@ class _CatalogItem:
         self.source_root = node.source_root
         self.mtime_ns = node.mtime_ns
         self.size = node.size
+        self.output_path = getattr(node, "output_path", None)
+        self.output_mtime_ns = 0
+        if self.output_path:
+            try:
+                self.output_mtime_ns = os.stat(self.output_path, follow_symlinks=False).st_mtime_ns
+            except OSError:
+                pass
         self.parent = parent
         self.row = row
         self.children = [_CatalogItem(child, self, index) for index, child in enumerate(node.children)]
 
     @property
-    def thumbnail_key(self) -> tuple[str, int, int]:
-        return canonical_path_key(self.path), self.mtime_ns, self.size
+    def thumbnail_key(self) -> tuple:
+        preview_ref = self.output_path or self.json_path or ""
+        return (
+            canonical_path_key(self.path),
+            self.mtime_ns,
+            self.size,
+            canonical_path_key(preview_ref) if preview_ref else "",
+            self.output_mtime_ns,
+        )
 
 
 class FileCatalogModel(QAbstractItemModel):
@@ -223,12 +308,83 @@ class FileCatalogModel(QAbstractItemModel):
         return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
 
     def set_snapshot(self, snapshot: FileCatalogSnapshot) -> None:
+        previous_outputs: dict[str, tuple[Optional[str], int, Optional[str]]] = {}
+        for key, prev_item in self._path_items.items():
+            if prev_item.output_path or prev_item.json_path:
+                previous_outputs[key] = (
+                    prev_item.output_path,
+                    prev_item.output_mtime_ns,
+                    prev_item.json_path,
+                )
         self.beginResetModel()
         self.snapshot = snapshot
         self._roots = [_CatalogItem(node, row=index) for index, node in enumerate(snapshot.roots)]
         self._thumbnails.clear()
         self._reindex()
+        for key, item in self._path_items.items():
+            preserved = previous_outputs.get(key)
+            if preserved is None:
+                continue
+            prev_output, prev_mtime, prev_json = preserved
+            if not item.output_path and prev_output:
+                item.output_path = prev_output
+                item.output_mtime_ns = prev_mtime
+            if not item.json_path and prev_json and os.path.isfile(prev_json):
+                item.json_path = prev_json
         self.endResetModel()
+
+    def mark_file_translated(
+        self,
+        source_path: str,
+        *,
+        output_path: Optional[str] = None,
+        json_path: Optional[str] = None,
+    ) -> tuple[str, ...]:
+        if not source_path:
+            return ()
+        target_key = canonical_path_key(source_path)
+        norm_json = os.path.abspath(os.path.normpath(json_path)) if json_path else None
+        norm_output = None
+        output_mtime_ns = 0
+        if output_path:
+            ext = os.path.splitext(output_path)[1].lower()
+            if ext in SUPPORTED_IMAGE_EXTENSIONS:
+                candidate = os.path.abspath(os.path.normpath(output_path))
+                if os.path.isfile(candidate):
+                    norm_output = candidate
+                    try:
+                        output_mtime_ns = os.stat(candidate, follow_symlinks=False).st_mtime_ns
+                    except OSError:
+                        output_mtime_ns = 1
+
+        updated_paths: list[str] = []
+        for item in self._image_items:
+            item_key = canonical_path_key(item.path)
+            src_key = canonical_path_key(item.source_path) if item.source_path else ""
+            if item_key != target_key and src_key != target_key:
+                continue
+            if norm_json:
+                item.json_path = norm_json
+            elif not item.json_path and norm_output:
+                item.json_path = norm_output
+            if norm_output:
+                item.output_path = norm_output
+                item.output_mtime_ns = output_mtime_ns
+            updated_paths.append(item.path)
+            index = self.createIndex(item.row, 0, item)
+            self.dataChanged.emit(
+                index,
+                index,
+                [NODE_ROLE, THUMBNAIL_ROLE, int(Qt.ItemDataRole.DisplayRole)],
+            )
+
+        if updated_paths:
+            self.snapshot = self.snapshot.with_file_translated(
+                source_path,
+                json_path=norm_json,
+                output_path=norm_output,
+            )
+        return tuple(updated_paths)
 
     def clear(self) -> None:
         self.set_snapshot(FileCatalogSnapshot.empty(self.snapshot.generation + 1))
@@ -876,7 +1032,13 @@ class FileListView(TreeView):
 
         bridge_ref = weakref.ref(self._thumbnail_bridge)
         generation = self._view_generation
-        future = _thumbnail_executor.submit(_load_thumbnail_worker, item.path, self._thumbnail_size)
+        future = _thumbnail_executor.submit(
+            _load_thumbnail_worker,
+            item.path,
+            self._thumbnail_size,
+            item.output_path,
+            item.json_path,
+        )
 
         def done(completed: Future, token=generation, key=cache_key, path=item.path) -> None:
             try:
@@ -904,6 +1066,27 @@ class FileListView(TreeView):
         while len(self._thumbnail_cache) > self._THUMBNAIL_CACHE_SIZE:
             self._thumbnail_cache.popitem(last=False)
         self.catalog_model.set_thumbnail(path, pixmap)
+
+    def mark_file_translated(
+        self,
+        source_path: str,
+        output_path: Optional[str] = None,
+        json_path: Optional[str] = None,
+    ) -> tuple[str, ...]:
+        updated_paths = self.catalog_model.mark_file_translated(
+            source_path,
+            output_path=output_path,
+            json_path=json_path,
+        )
+        if not updated_paths:
+            return ()
+        for path in updated_paths:
+            index = self.catalog_model.index_for_path(path)
+            if index.isValid():
+                self._request_thumbnail(index)
+        self._schedule_visible_thumbnail_loads()
+        self.viewport().update()
+        return updated_paths
 
     def _select_path(self, path: str, *, emit_if_missing: bool = True) -> bool:
         index = self.catalog_model.index_for_path(path)

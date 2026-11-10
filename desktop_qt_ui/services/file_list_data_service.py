@@ -43,6 +43,7 @@ class FileCatalogNode:
     source_root: Optional[str] = None
     mtime_ns: int = 0
     size: int = 0
+    output_path: Optional[str] = None
 
     @property
     def name(self) -> str:
@@ -110,6 +111,113 @@ class FileCatalogSnapshot:
                 for path, json_path in self.json_by_file.items()
                 if path in json_allowed
             },
+            excluded_folders=self.excluded_folders,
+            excluded_files=self.excluded_files,
+            warnings=self.warnings,
+        )
+
+    def with_file_translated(
+        self,
+        source_path: str,
+        *,
+        json_path: Optional[str] = None,
+        output_path: Optional[str] = None,
+    ) -> "FileCatalogSnapshot":
+        """在不重新扫描磁盘的情况下，增量更新单个图片的已翻译元数据。"""
+        if not source_path or not self.roots:
+            return self
+
+        target_key = canonical_path_key(source_path)
+        norm_json = os.path.abspath(os.path.normpath(json_path)) if json_path else None
+        norm_output = None
+        if output_path:
+            ext = os.path.splitext(output_path)[1].lower()
+            if ext in SUPPORTED_IMAGE_EXTENSIONS:
+                norm_output = os.path.abspath(os.path.normpath(output_path))
+
+        matched_paths: list[tuple[str, Optional[str]]] = []
+
+        def update_node(node: FileCatalogNode) -> tuple[FileCatalogNode, bool]:
+            if node.kind == KIND_IMAGE:
+                node_key = canonical_path_key(node.path)
+                src_key = canonical_path_key(node.source_path) if node.source_path else ""
+                if node_key == target_key or src_key == target_key:
+                    new_json = norm_json or node.json_path
+                    new_output = norm_output or node.output_path
+                    matched_paths.append((node.path, node.source_path))
+                    if new_json == node.json_path and new_output == node.output_path:
+                        return node, False
+                    return (
+                        FileCatalogNode(
+                            path=node.path,
+                            kind=node.kind,
+                            children=node.children,
+                            file_count=node.file_count,
+                            source_path=node.source_path,
+                            json_path=new_json,
+                            source_root=node.source_root,
+                            mtime_ns=node.mtime_ns,
+                            size=node.size,
+                            output_path=new_output,
+                        ),
+                        True,
+                    )
+                return node, False
+
+            if not node.children:
+                return node, False
+
+            changed = False
+            new_children: list[FileCatalogNode] = []
+            for child in node.children:
+                updated_child, child_changed = update_node(child)
+                new_children.append(updated_child)
+                changed = changed or child_changed
+            if not changed:
+                return node, False
+            return (
+                FileCatalogNode(
+                    path=node.path,
+                    kind=node.kind,
+                    children=tuple(new_children),
+                    file_count=node.file_count,
+                    source_path=node.source_path,
+                    json_path=node.json_path,
+                    source_root=node.source_root,
+                    mtime_ns=node.mtime_ns,
+                    size=node.size,
+                    output_path=node.output_path,
+                ),
+                True,
+            )
+
+        roots_changed = False
+        new_roots: list[FileCatalogNode] = []
+        for root in self.roots:
+            updated_root, root_changed = update_node(root)
+            new_roots.append(updated_root)
+            roots_changed = roots_changed or root_changed
+
+        if not matched_paths and not roots_changed:
+            return self
+
+        new_json_by_file = dict(self.json_by_file)
+        if norm_json:
+            for node_path, node_source in matched_paths:
+                new_json_by_file[node_path] = norm_json
+                if node_source:
+                    new_json_by_file[node_source] = norm_json
+
+        return FileCatalogSnapshot(
+            generation=self.generation,
+            sources=self.sources,
+            roots=tuple(new_roots),
+            files=self.files,
+            image_files=self.image_files,
+            editor_files=self.editor_files,
+            file_to_folder=self.file_to_folder,
+            source_by_file=self.source_by_file,
+            json_by_file=new_json_by_file,
             excluded_folders=self.excluded_folders,
             excluded_files=self.excluded_files,
             warnings=self.warnings,
