@@ -7,7 +7,7 @@ import os
 import re
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterable, Optional
 
 from manga_translator.image_formats import SUPPORTED_IMAGE_EXTENSIONS
@@ -68,6 +68,34 @@ class FileCatalogSnapshot:
     excluded_folders: tuple[str, ...] = ()
     excluded_files: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
+    _node_coords_by_key: Optional[dict[str, tuple[tuple[int, ...], ...]]] = field(
+        default=None, init=False, repr=False, compare=False
+    )
+
+    def _get_node_coords_by_key(self) -> dict[str, tuple[tuple[int, ...], ...]]:
+        cached = self._node_coords_by_key
+        if cached is not None:
+            return cached
+        coords_map: dict[str, list[tuple[int, ...]]] = {}
+
+        def visit(node: FileCatalogNode, coord: tuple[int, ...]) -> None:
+            if node.kind == KIND_IMAGE:
+                node_key = canonical_path_key(node.path)
+                coords_map.setdefault(node_key, []).append(coord)
+                if node.source_path:
+                    src_key = canonical_path_key(node.source_path)
+                    if src_key != node_key:
+                        coords_map.setdefault(src_key, []).append(coord)
+                return
+            for idx, child in enumerate(node.children):
+                visit(child, coord + (idx,))
+
+        for root_idx, root in enumerate(self.roots):
+            visit(root, (root_idx,))
+
+        frozen_map = {k: tuple(v) for k, v in coords_map.items()}
+        object.__setattr__(self, "_node_coords_by_key", frozen_map)
+        return frozen_map
 
     @classmethod
     def empty(cls, generation: int = 0) -> "FileCatalogSnapshot":
@@ -123,11 +151,16 @@ class FileCatalogSnapshot:
         json_path: Optional[str] = None,
         output_path: Optional[str] = None,
     ) -> "FileCatalogSnapshot":
-        """在不重新扫描磁盘的情况下，增量更新单个图片的已翻译元数据。"""
+        """在不重新扫描磁盘的情况下，基于路径坐标索引 O(depth) 增量更新单个图片的已翻译元数据。"""
         if not source_path or not self.roots:
             return self
 
         target_key = canonical_path_key(source_path)
+        coords_index = self._get_node_coords_by_key()
+        coords = coords_index.get(target_key)
+        if not coords:
+            return self
+
         norm_json = os.path.abspath(os.path.normpath(json_path)) if json_path else None
         norm_output = None
         if output_path:
@@ -137,44 +170,40 @@ class FileCatalogSnapshot:
 
         matched_paths: list[tuple[str, Optional[str]]] = []
 
-        def update_node(node: FileCatalogNode) -> tuple[FileCatalogNode, bool]:
-            if node.kind == KIND_IMAGE:
-                node_key = canonical_path_key(node.path)
-                src_key = canonical_path_key(node.source_path) if node.source_path else ""
-                if node_key == target_key or src_key == target_key:
-                    new_json = norm_json or node.json_path
-                    new_output = norm_output or node.output_path
-                    matched_paths.append((node.path, node.source_path))
-                    if new_json == node.json_path and new_output == node.output_path:
-                        return node, False
-                    return (
-                        FileCatalogNode(
-                            path=node.path,
-                            kind=node.kind,
-                            children=node.children,
-                            file_count=node.file_count,
-                            source_path=node.source_path,
-                            json_path=new_json,
-                            source_root=node.source_root,
-                            mtime_ns=node.mtime_ns,
-                            size=node.size,
-                            output_path=new_output,
-                        ),
-                        True,
-                    )
+        def replace_at(
+            node: FileCatalogNode, rel_coord: tuple[int, ...]
+        ) -> tuple[FileCatalogNode, bool]:
+            if not rel_coord:
+                new_json = norm_json or node.json_path
+                new_output = norm_output or node.output_path
+                matched_paths.append((node.path, node.source_path))
+                if new_json == node.json_path and new_output == node.output_path:
+                    return node, False
+                return (
+                    FileCatalogNode(
+                        path=node.path,
+                        kind=node.kind,
+                        children=node.children,
+                        file_count=node.file_count,
+                        source_path=node.source_path,
+                        json_path=new_json,
+                        source_root=node.source_root,
+                        mtime_ns=node.mtime_ns,
+                        size=node.size,
+                        output_path=new_output,
+                    ),
+                    True,
+                )
+            child_idx = rel_coord[0]
+            if child_idx < 0 or child_idx >= len(node.children):
                 return node, False
-
-            if not node.children:
-                return node, False
-
-            changed = False
-            new_children: list[FileCatalogNode] = []
-            for child in node.children:
-                updated_child, child_changed = update_node(child)
-                new_children.append(updated_child)
-                changed = changed or child_changed
+            updated_child, changed = replace_at(
+                node.children[child_idx], rel_coord[1:]
+            )
             if not changed:
                 return node, False
+            new_children = list(node.children)
+            new_children[child_idx] = updated_child
             return (
                 FileCatalogNode(
                     path=node.path,
@@ -191,37 +220,45 @@ class FileCatalogSnapshot:
                 True,
             )
 
+        roots_list = list(self.roots)
         roots_changed = False
-        new_roots: list[FileCatalogNode] = []
-        for root in self.roots:
-            updated_root, root_changed = update_node(root)
-            new_roots.append(updated_root)
-            roots_changed = roots_changed or root_changed
+        for coord in coords:
+            if not coord:
+                continue
+            root_idx = coord[0]
+            if 0 <= root_idx < len(roots_list):
+                updated_root, root_changed = replace_at(
+                    roots_list[root_idx], coord[1:]
+                )
+                if root_changed:
+                    roots_list[root_idx] = updated_root
+                    roots_changed = True
 
         if not matched_paths and not roots_changed:
             return self
 
-        new_json_by_file = dict(self.json_by_file)
         if norm_json:
             for node_path, node_source in matched_paths:
-                new_json_by_file[node_path] = norm_json
+                self.json_by_file[node_path] = norm_json
                 if node_source:
-                    new_json_by_file[node_source] = norm_json
+                    self.json_by_file[node_source] = norm_json
 
-        return FileCatalogSnapshot(
+        updated_snapshot = FileCatalogSnapshot(
             generation=self.generation,
             sources=self.sources,
-            roots=tuple(new_roots),
+            roots=tuple(roots_list),
             files=self.files,
             image_files=self.image_files,
             editor_files=self.editor_files,
             file_to_folder=self.file_to_folder,
             source_by_file=self.source_by_file,
-            json_by_file=new_json_by_file,
+            json_by_file=self.json_by_file,
             excluded_folders=self.excluded_folders,
             excluded_files=self.excluded_files,
             warnings=self.warnings,
         )
+        object.__setattr__(updated_snapshot, "_node_coords_by_key", coords_index)
+        return updated_snapshot
 
 
 class FileCatalogCancelled(RuntimeError):

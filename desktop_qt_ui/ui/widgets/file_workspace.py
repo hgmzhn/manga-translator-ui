@@ -481,8 +481,13 @@ class FileWorkspace(QWidget):
         self.tree.refresh_empty_state_text()
         self.view.viewport().update()
 
-    def mark_file_translated(self, source_path, output_path=None, json_path=None):
-        updated = self.tree.mark_file_translated(source_path, output_path=output_path, json_path=json_path)
+    def mark_file_translated(self, source_path, output_path=None, json_path=None, *, snapshot=None):
+        updated = self.tree.mark_file_translated(
+            source_path,
+            output_path=output_path,
+            json_path=json_path,
+            snapshot=snapshot,
+        )
         if updated:
             self.view._schedule_thumbnails()
             self.view.viewport().update()

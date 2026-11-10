@@ -727,6 +727,7 @@ class MainWindow(FluentWindow):
             source_path,
             output_path=output_path,
             json_path=json_path,
+            snapshot=self._file_catalog_snapshot,
         )
         if hasattr(self.main_view, "batch_edit_panel"):
             self.main_view.batch_edit_panel.set_catalog_snapshot(

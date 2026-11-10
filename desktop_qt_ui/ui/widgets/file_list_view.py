@@ -252,6 +252,7 @@ class FileCatalogModel(QAbstractItemModel):
         super().__init__(parent)
         self._roots: list[_CatalogItem] = []
         self._path_items: dict[str, _CatalogItem] = {}
+        self._source_items: dict[str, list[_CatalogItem]] = {}
         self._image_items: list[_CatalogItem] = []
         self._thumbnails: dict[str, QPixmap] = {}
         self.snapshot = FileCatalogSnapshot.empty()
@@ -339,6 +340,7 @@ class FileCatalogModel(QAbstractItemModel):
         *,
         output_path: Optional[str] = None,
         json_path: Optional[str] = None,
+        snapshot: Optional[FileCatalogSnapshot] = None,
     ) -> tuple[str, ...]:
         if not source_path:
             return ()
@@ -357,12 +359,16 @@ class FileCatalogModel(QAbstractItemModel):
                     except OSError:
                         output_mtime_ns = 1
 
+        candidates: list[_CatalogItem] = []
+        direct_item = self._path_items.get(target_key)
+        if direct_item is not None and direct_item.kind == KIND_IMAGE:
+            candidates.append(direct_item)
+        for src_item in self._source_items.get(target_key, ()):
+            if src_item not in candidates:
+                candidates.append(src_item)
+
         updated_paths: list[str] = []
-        for item in self._image_items:
-            item_key = canonical_path_key(item.path)
-            src_key = canonical_path_key(item.source_path) if item.source_path else ""
-            if item_key != target_key and src_key != target_key:
-                continue
+        for item in candidates:
             if norm_json:
                 item.json_path = norm_json
             elif not item.json_path and norm_output:
@@ -378,7 +384,9 @@ class FileCatalogModel(QAbstractItemModel):
                 [NODE_ROLE, THUMBNAIL_ROLE, int(Qt.ItemDataRole.DisplayRole)],
             )
 
-        if updated_paths:
+        if snapshot is not None:
+            self.snapshot = snapshot
+        elif updated_paths:
             self.snapshot = self.snapshot.with_file_translated(
                 source_path,
                 json_path=norm_json,
@@ -391,12 +399,16 @@ class FileCatalogModel(QAbstractItemModel):
 
     def _reindex(self) -> None:
         self._path_items.clear()
+        self._source_items.clear()
         self._image_items.clear()
 
         def visit(item: _CatalogItem) -> None:
             self._path_items[canonical_path_key(item.path)] = item
             if item.kind == KIND_IMAGE:
                 self._image_items.append(item)
+                if item.source_path:
+                    src_key = canonical_path_key(item.source_path)
+                    self._source_items.setdefault(src_key, []).append(item)
             for row, child in enumerate(item.children):
                 child.parent = item
                 child.row = row
@@ -1083,6 +1095,8 @@ class FileListView(TreeView):
         source_path: str,
         output_path: Optional[str] = None,
         json_path: Optional[str] = None,
+        *,
+        snapshot: Optional[FileCatalogSnapshot] = None,
     ) -> tuple[str, ...]:
         existing_item = self.catalog_model.item_for_path(source_path) if source_path else None
         old_thumb_key = existing_item.thumbnail_key if existing_item is not None else None
@@ -1090,6 +1104,7 @@ class FileListView(TreeView):
             source_path,
             output_path=output_path,
             json_path=json_path,
+            snapshot=snapshot,
         )
         if not updated_paths:
             return ()
