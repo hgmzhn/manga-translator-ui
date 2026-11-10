@@ -2901,7 +2901,10 @@ class TranslationWorker(QObject):
                         return
                     if self._get_context_value(ctx, 'translation_error'):
                         return
-                    if not (self._get_context_value(ctx, 'success') or self._get_context_value(ctx, 'result')):
+                    if not (
+                        self._get_context_value(ctx, 'success')
+                        or self._get_context_value(ctx, 'result') is not None
+                    ):
                         return
                     source_path = self._get_context_value(ctx, 'image_name')
                     if not source_path:

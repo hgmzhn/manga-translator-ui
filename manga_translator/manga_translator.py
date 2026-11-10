@@ -684,16 +684,17 @@ class MangaTranslator:
                 mode_label,
                 source_image=ctx.input,
             )
-            ctx.output_path = final_output_path
-            
             if success is None:
+                ctx.output_path = final_output_path
                 ctx.success = True
                 ctx.skipped = True
                 ctx.skip_reason = 'existing_output_race'
                 ctx.skip_message = f"Output file appeared during processing: {os.path.basename(final_output_path)}"
             elif success:
+                ctx.output_path = final_output_path
                 ctx.success = True
             else:
+                ctx.output_path = None
                 self._mark_context_failure(
                     ctx,
                     RuntimeError(f"Failed to save output file: {os.path.basename(final_output_path)}"),
@@ -3575,7 +3576,7 @@ class MangaTranslator:
             return
         if getattr(ctx, 'success', None) is False:
             return
-        if not (getattr(ctx, 'success', False) or getattr(ctx, 'result', None)):
+        if not (getattr(ctx, 'success', False) or getattr(ctx, 'result', None) is not None):
             return
         if getattr(ctx, '_file_completed_notified', False):
             return
@@ -4167,7 +4168,20 @@ class MangaTranslator:
                                 )
                                 ctx = await self._revert_upscale(config, ctx)
 
-                            # load_text模式：渲染后回写JSON（同步最新regions，包含translation/font_size等字段）
+                            # load_text 的结果有时会复用输入图片（例如无文本区域时
+                            # ctx.result = ctx.upscaled），或仍持有输入文件的惰性句柄。
+                            # 后续内存清理会关闭输入图片，因此必须先生成完全独立的结果，
+                            # 否则调用方在 translate() 返回后 copy/save 会报：
+                            # ValueError: Operation on closed image
+                            self._detach_context_result(ctx)
+
+                            if save_info and ctx.result is not None:
+                                try:
+                                    self._save_and_cleanup_context(ctx, save_info, config, "LOAD_TEXT")
+                                except Exception as save_err:
+                                    logger.error(f"Error saving load_text result for {os.path.basename(ctx.image_name)}: {save_err}")
+
+                            # load_text模式：渲染并保存输出图后回写JSON（同步最新regions及last_output_path）
                             # 编辑器导出（编辑器已自行持久化工程 JSON）时跳过回写
                             if (
                                 hasattr(ctx, 'text_regions') and ctx.text_regions is not None
@@ -4187,15 +4201,8 @@ class MangaTranslator:
                                         self._save_text_to_file(ctx.image_name, ctx, config)
                                     except Exception as save_json_err:
                                         logger.error(f"Error updating JSON in load_text mode for {os.path.basename(ctx.image_name)}: {save_json_err}")
-                            
-                            preprocessed_contexts.append((ctx, config))
 
-                            # load_text 的结果有时会复用输入图片（例如无文本区域时
-                            # ctx.result = ctx.upscaled），或仍持有输入文件的惰性句柄。
-                            # 后续内存清理会关闭输入图片，因此必须先生成完全独立的结果，
-                            # 否则调用方在 translate() 返回后 copy/save 会报：
-                            # ValueError: Operation on closed image
-                            self._detach_context_result(ctx)
+                            preprocessed_contexts.append((ctx, config))
 
                             # ✅ 每处理完一张图片后立即清理内存（保留result）
                             self._cleanup_context_memory(ctx, keep_result=True)
