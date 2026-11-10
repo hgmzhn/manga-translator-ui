@@ -189,6 +189,12 @@ def test_catalog_snapshot_and_model_mark_file_translated_and_resolve_thumbnail(t
     assert item.json_path == os.path.abspath(os.path.normpath(str(json_path)))
     assert item.output_path == os.path.abspath(os.path.normpath(str(output_path)))
     assert item.thumbnail_key != old_thumb_key
+    assert model.set_thumbnail(
+        str(source_path), "new_pixmap", expected_key=item.thumbnail_key
+    )
+    assert not model.set_thumbnail(
+        str(source_path), "stale_pixmap", expected_key=old_thumb_key
+    )
 
     # Thumbnail resolver should prefer output_path, or resolve from json_path
     assert _resolve_thumbnail_source_path(

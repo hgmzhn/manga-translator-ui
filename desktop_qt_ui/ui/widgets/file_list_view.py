@@ -432,14 +432,22 @@ class FileCatalogModel(QAbstractItemModel):
             visit(root)
         return tuple(paths)
 
-    def set_thumbnail(self, path: str, pixmap: QPixmap) -> None:
+    def set_thumbnail(
+        self,
+        path: str,
+        pixmap: QPixmap,
+        expected_key: Optional[tuple] = None,
+    ) -> bool:
         item = self.item_for_path(path)
         if item is None:
-            return
+            return False
+        if expected_key is not None and item.thumbnail_key != expected_key:
+            return False
         key = canonical_path_key(path)
         self._thumbnails[key] = pixmap
         index = self.createIndex(item.row, 0, item)
         self.dataChanged.emit(index, index, [THUMBNAIL_ROLE])
+        return True
 
     def remove_path(self, path: str) -> tuple[str, ...]:
         target = self.item_for_path(path)
@@ -1060,12 +1068,15 @@ class FileListView(TreeView):
         self._thumbnail_pending.discard(pending_key)
         if generation != self._view_generation or not isinstance(image, QImage) or image.isNull():
             return
+        item = self.catalog_model.item_for_path(path)
+        if item is None or item.thumbnail_key != cache_key:
+            return
         pixmap = QPixmap.fromImage(image)
         self._thumbnail_cache[cache_key] = pixmap
         self._thumbnail_cache.move_to_end(cache_key)
         while len(self._thumbnail_cache) > self._THUMBNAIL_CACHE_SIZE:
             self._thumbnail_cache.popitem(last=False)
-        self.catalog_model.set_thumbnail(path, pixmap)
+        self.catalog_model.set_thumbnail(path, pixmap, expected_key=cache_key)
 
     def mark_file_translated(
         self,
@@ -1073,6 +1084,8 @@ class FileListView(TreeView):
         output_path: Optional[str] = None,
         json_path: Optional[str] = None,
     ) -> tuple[str, ...]:
+        existing_item = self.catalog_model.item_for_path(source_path) if source_path else None
+        old_thumb_key = existing_item.thumbnail_key if existing_item is not None else None
         updated_paths = self.catalog_model.mark_file_translated(
             source_path,
             output_path=output_path,
@@ -1080,6 +1093,9 @@ class FileListView(TreeView):
         )
         if not updated_paths:
             return ()
+        if old_thumb_key is not None:
+            self._thumbnail_pending.discard((self._view_generation, old_thumb_key))
+            self._thumbnail_cache.pop(old_thumb_key, None)
         for path in updated_paths:
             index = self.catalog_model.index_for_path(path)
             if index.isValid():
