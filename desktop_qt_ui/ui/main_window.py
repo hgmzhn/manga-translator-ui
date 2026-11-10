@@ -114,6 +114,7 @@ class MainWindow(FluentWindow):
         self._main_catalog_generation = 0
         self._main_catalog_loading = False
         self._pending_editor_open = None
+        self._pending_editor_sync = False
         ServiceManager.register_service("app_logic", self.app_logic)
         self.editor_model = None
         self.editor_controller = None
@@ -210,11 +211,22 @@ class MainWindow(FluentWindow):
             self._on_main_page_activated(page_key)
 
     def _sync_editor_catalog_if_empty(self):
-        if (
-            self.editor_logic is not None
-            and not self.editor_logic.file_model.files
-            and self._file_catalog_snapshot.sources
-        ):
+        if self.editor_logic is None or self.editor_logic.file_model.files:
+            self._pending_editor_sync = False
+            return
+        if self._main_catalog_loading:
+            self._pending_editor_sync = True
+            if self.editor_view is not None:
+                self.editor_view.file_list.set_loading()
+            return
+        if self.app_logic.source_files and not self._file_catalog_snapshot.sources:
+            self._pending_editor_sync = True
+            if self.editor_view is not None:
+                self.editor_view.file_list.set_loading()
+            self._request_main_file_snapshot()
+            return
+        self._pending_editor_sync = False
+        if self._file_catalog_snapshot.sources:
             self.editor_logic.apply_file_snapshot(
                 self._file_catalog_snapshot.images_only(),
                 excluded_folders=self.app_logic.excluded_subfolders,
@@ -531,6 +543,8 @@ class MainWindow(FluentWindow):
 
         pending = self._pending_editor_open
         self._pending_editor_open = None
+        pending_sync = getattr(self, "_pending_editor_sync", False)
+        self._pending_editor_sync = False
         if pending is not None:
             file_to_load, files_to_load = pending
             QTimer.singleShot(
@@ -540,6 +554,11 @@ class MainWindow(FluentWindow):
                     files_to_load=files_to_load,
                 ),
             )
+        elif pending_sync or (
+            self.editor_view is not None
+            and self.stacked_widget.currentWidget() is self.editor_view
+        ):
+            self._sync_editor_catalog_if_empty()
 
     @pyqtSlot(str, int, str)
     def _on_main_catalog_error(self, channel: str, generation: int, message: str):
@@ -547,6 +566,11 @@ class MainWindow(FluentWindow):
             return
         self._main_catalog_loading = False
         self.main_view.file_list.set_error(message)
+        if getattr(self, "_pending_editor_sync", False) or self._pending_editor_open is not None:
+            self._pending_editor_sync = False
+            self._pending_editor_open = None
+            if self.editor_view is not None:
+                self.editor_view.file_list.set_error(message)
 
     @pyqtSlot(str)
     def on_file_selected_from_main_list(self, file_path: str):
