@@ -211,6 +211,7 @@ class MainWindow(FluentWindow):
             self._on_main_page_activated(page_key)
 
     def _sync_editor_catalog_if_empty(self):
+        """当编辑器文件列表为空时，将主页当前的目录快照同步到编辑器。"""
         if self.editor_logic is None or self.editor_logic.file_model.files:
             self._pending_editor_sync = False
             return

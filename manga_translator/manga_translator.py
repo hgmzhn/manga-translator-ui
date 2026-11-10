@@ -3562,9 +3562,11 @@ class MangaTranslator:
         self._progress_hooks.append(ph)
 
     def add_file_completed_hook(self, hook):
+        """注册单张图片翻译完成回调。"""
         self._file_completed_hooks.append(hook)
 
     def _notify_file_completed(self, ctx: Context):
+        """在单张图片成功完成处理或命中已有输出跳过时通知已注册的回调（幂等）。"""
         if ctx is None:
             return
         if getattr(ctx, 'translation_error', None):

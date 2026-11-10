@@ -150,6 +150,7 @@ class EditorControllerDocumentService:
     def _ensure_prefetch_version_maps(
         self,
     ) -> tuple[dict[str, int], dict[str, int]]:
+        """确保单页预取版本映射字典已初始化并返回。"""
         key_versions = getattr(self, "_prefetch_key_versions", None)
         if key_versions is None:
             key_versions = {}

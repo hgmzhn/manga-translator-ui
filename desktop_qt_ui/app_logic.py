@@ -2120,6 +2120,7 @@ class MainAppLogic(QObject):
             self.main_view.update_progress(current, total, message)
 
     def on_file_completed(self, info: dict, task_id: int):
+        """处理后端单张图片翻译完成并落盘的实时通知。"""
         if task_id != self.current_task_id or self._shutdown_started or not isinstance(info, dict):
             return
         source_path = info.get("source_path")
@@ -3556,7 +3557,10 @@ class TranslationRunnable(QRunnable):
             
             # 连接信号到回调
             worker.progress.connect(lambda c, t, m: self._emit_progress(c, t, m))
-            worker.file_completed.connect(self._emit_file_completed)
+            worker.file_completed.connect(
+                self._emit_file_completed,
+                type=Qt.ConnectionType.DirectConnection,
+            )
             worker.error.connect(on_worker_error)
             worker.finished.connect(on_worker_finished)
             

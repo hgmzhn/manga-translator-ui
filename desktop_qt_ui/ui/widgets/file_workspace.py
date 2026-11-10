@@ -482,6 +482,7 @@ class FileWorkspace(QWidget):
         self.view.viewport().update()
 
     def mark_file_translated(self, source_path, output_path=None, json_path=None, *, snapshot=None):
+        """实时将指定源图片标记为已翻译状态并触发缩略图与视图刷新。"""
         updated = self.tree.mark_file_translated(
             source_path,
             output_path=output_path,

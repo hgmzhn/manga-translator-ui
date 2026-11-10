@@ -73,6 +73,7 @@ class FileCatalogSnapshot:
     )
 
     def _get_node_coords_by_key(self) -> dict[str, tuple[tuple[int, ...], ...]]:
+        """惰性构建并缓存规范化源路径到目录树节点坐标的映射索引。"""
         cached = self._node_coords_by_key
         if cached is not None:
             return cached

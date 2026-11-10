@@ -342,6 +342,7 @@ class FileCatalogModel(QAbstractItemModel):
         json_path: Optional[str] = None,
         snapshot: Optional[FileCatalogSnapshot] = None,
     ) -> tuple[str, ...]:
+        """增量更新模型中匹配图片的已翻译路径与输出时间戳。"""
         if not source_path:
             return ()
         target_key = canonical_path_key(source_path)
@@ -1098,6 +1099,7 @@ class FileListView(TreeView):
         *,
         snapshot: Optional[FileCatalogSnapshot] = None,
     ) -> tuple[str, ...]:
+        """将列表中对应源图片标记为已翻译并重新请求缩略图。"""
         existing_item = self.catalog_model.item_for_path(source_path) if source_path else None
         old_cache_key = (
             (*existing_item.thumbnail_key, self._thumbnail_size)
