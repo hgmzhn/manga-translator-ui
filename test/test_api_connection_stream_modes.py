@@ -88,6 +88,32 @@ def test_openai_text_api_fails_with_mode_status_when_both_modes_fail(monkeypatch
     assert "non-streaming response contained no choices" in message
 
 
+@pytest.mark.parametrize("locale", ["zh_CN", "en_US"])
+def test_mode_status_does_not_affect_connection_error_classification(locale):
+    manager = _manager(locale)
+    view = SimpleNamespace(_t=manager.translate)
+    mode_line = manager.translate(
+        "api_test_stream_modes",
+        stream=manager.translate("API test unavailable"),
+        non_stream=manager.translate("API test unavailable"),
+    )
+    raw_error = (
+        f"{mode_line}\n"
+        "Streaming request failed: Error code: 401 - invalid api key\n"
+        "Non-streaming request failed: Error code: 401 - invalid api key"
+    )
+
+    message = env_management._format_test_connection_error(
+        view,
+        "openai",
+        manager.translate("api_test_error_connection_failed", error=raw_error),
+    )
+
+    assert message.startswith(manager.translate("api_test_error_config"))
+    assert manager.translate("api_test_error_service") not in message
+    assert " ".join(mode_line.split()) in " ".join(message.split())
+
+
 def test_batch_result_text_keeps_mode_status_of_available_channels():
     view = SimpleNamespace(_t=_manager().translate)
     results = [
