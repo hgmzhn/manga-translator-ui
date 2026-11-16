@@ -237,7 +237,6 @@
   "API Status": "API状態",
   "API status unavailable": "状態を取得できません",
   "No API selected": "選択中の API はありません",
-  "No unavailable API": "使用不可の API はありません",
   "API status line": "{label}: {configured} 件",
   "API status line with unavailable": "{label}: {configured} 件 / 使用不可 {unavailable} 件",
   "API status line with cooldown": "{label}: {configured} 件 / クールダウン {cooldown} 件",
@@ -1510,5 +1509,6 @@
   "api_test_error_model_unavailable": "接続には成功しましたが、モデル {model} は利用できません：{error}",
   "api_test_error_remote_image": "生成された画像のダウンロードに失敗しました：HTTP {status}",
   "api_test_error_sakura_base": "先に SAKURA_API_BASE を設定してください。",
-  "api_test_error_unsupported": "この翻訳器は API テストをサポートしていません。"
+  "api_test_error_unsupported": "この翻訳器は API テストをサポートしていません。",
+  "api_test_stream_modes": "ストリーミング：{stream}  非ストリーミング：{non_stream}"
 }

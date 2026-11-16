@@ -237,7 +237,6 @@
   "API Status": "Estado de API",
   "API status unavailable": "No se pudo leer el estado",
   "No API selected": "No hay API seleccionada",
-  "No unavailable API": "No hay API no disponible",
   "API status line": "{label}: {configured} configuradas",
   "API status line with unavailable": "{label}: {configured} configuradas / {unavailable} no disponibles",
   "API status line with cooldown": "{label}: {configured} configuradas / {cooldown} en espera",
@@ -1510,5 +1509,6 @@
   "api_test_error_model_unavailable": "La conexión se ha realizado correctamente, pero el modelo {model} no está disponible: {error}",
   "api_test_error_remote_image": "Error al descargar la imagen generada: HTTP {status}",
   "api_test_error_sakura_base": "Configura primero SAKURA_API_BASE.",
-  "api_test_error_unsupported": "Este traductor no admite pruebas de API."
+  "api_test_error_unsupported": "Este traductor no admite pruebas de API.",
+  "api_test_stream_modes": "Streaming: {stream}  Sin streaming: {non_stream}"
 }
