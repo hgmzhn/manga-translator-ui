@@ -1510,5 +1510,8 @@
   "api_test_error_model_unavailable": "연결에 성공했지만 모델 {model}을(를) 사용할 수 없습니다: {error}",
   "api_test_error_remote_image": "생성된 이미지를 다운로드하지 못했습니다: HTTP {status}",
   "api_test_error_sakura_base": "먼저 SAKURA_API_BASE를 설정해 주세요.",
-  "api_test_error_unsupported": "이 번역기는 API 테스트를 지원하지 않습니다."
+  "api_test_error_unsupported": "이 번역기는 API 테스트를 지원하지 않습니다.",
+  "api_test_stream_mode_both": "비스트리밍 요청과 스트리밍 요청 모두 사용할 수 있습니다.",
+  "api_test_stream_mode_stream_only": "스트리밍 요청만 사용할 수 있습니다. '스트리밍 사용'을 켠 상태로 유지하세요. 끄면 번역이 실패합니다.",
+  "api_test_stream_mode_non_stream_only": "비스트리밍 요청만 사용할 수 있습니다. '스트리밍 사용'을 끄세요."
 }

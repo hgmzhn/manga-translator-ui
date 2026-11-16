@@ -587,16 +587,52 @@ class MainAppLogic(QObject):
             )
 
         try:
-            if model and model.strip():
-                await client.chat.completions.create(
-                    model=model.strip(),
-                    messages=[{"role": "user", "content": "test"}],
+            if not (model and model.strip()):
+                await client.models.list()
+                return True, "连接成功"
+
+            model_name = model.strip()
+            non_stream_error, stream_error = await asyncio.gather(
+                self._probe_openai_chat(client, model_name, stream=False),
+                self._probe_openai_chat(client, model_name, stream=True),
+            )
+            if non_stream_error and stream_error:
+                raise Exception(
+                    f"Non-streaming request failed: {non_stream_error}; "
+                    f"streaming request failed: {stream_error}"
                 )
-                return True, f"连接成功，模型 {model.strip()} 可用"
-            await client.models.list()
-            return True, "连接成功"
+            if non_stream_error:
+                mode_hint = self._t("api_test_stream_mode_stream_only")
+            elif stream_error:
+                mode_hint = self._t("api_test_stream_mode_non_stream_only")
+            else:
+                mode_hint = self._t("api_test_stream_mode_both")
+            return True, f"连接成功，模型 {model_name} 可用\n{mode_hint}"
         finally:
             await client.close()
+
+    @staticmethod
+    async def _probe_openai_chat(client, model: str, *, stream: bool) -> Exception | None:
+        """Return the failure of one chat request mode, or None when it yields choices."""
+        messages = [{"role": "user", "content": "test"}]
+        try:
+            if stream:
+                has_choices = False
+                async for chunk in await client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    stream=True,
+                ):
+                    has_choices = has_choices or bool(getattr(chunk, "choices", None))
+                if not has_choices:
+                    raise ValueError("streaming response contained no choices")
+            else:
+                response = await client.chat.completions.create(model=model, messages=messages)
+                if not getattr(response, "choices", None):
+                    raise ValueError("non-streaming response contained no choices")
+        except Exception as exc:
+            return exc
+        return None
 
     async def _test_openai_ocr_api(self, api_key: str, api_base: str | None, model: str | None) -> tuple[bool, str]:
         model_name = (model or "").strip() or self._get_default_model_for_test("openai_ocr")

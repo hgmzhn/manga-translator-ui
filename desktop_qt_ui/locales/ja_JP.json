@@ -1510,5 +1510,8 @@
   "api_test_error_model_unavailable": "接続には成功しましたが、モデル {model} は利用できません：{error}",
   "api_test_error_remote_image": "生成された画像のダウンロードに失敗しました：HTTP {status}",
   "api_test_error_sakura_base": "先に SAKURA_API_BASE を設定してください。",
-  "api_test_error_unsupported": "この翻訳器は API テストをサポートしていません。"
+  "api_test_error_unsupported": "この翻訳器は API テストをサポートしていません。",
+  "api_test_stream_mode_both": "非ストリーミングとストリーミングの両方のリクエストが利用できます。",
+  "api_test_stream_mode_stream_only": "ストリーミングリクエストのみ利用できます。「ストリーミングを有効化」をオンのままにしてください。オフにすると翻訳に失敗します。",
+  "api_test_stream_mode_non_stream_only": "非ストリーミングリクエストのみ利用できます。「ストリーミングを有効化」をオフにしてください。"
 }

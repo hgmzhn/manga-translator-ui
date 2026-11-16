@@ -1521,5 +1521,8 @@
   "api_test_error_remote_image": "Failed to download the generated image: HTTP {status}",
   "api_test_error_sakura_base": "Please configure SAKURA_API_BASE first.",
   "api_test_error_unsupported": "This translator does not support API testing.",
+  "api_test_stream_mode_both": "Both non-streaming and streaming requests work.",
+  "api_test_stream_mode_stream_only": "Only streaming requests work: keep \"Enable Streaming\" turned on, otherwise translation will fail.",
+  "api_test_stream_mode_non_stream_only": "Only non-streaming requests work: turn off \"Enable Streaming\".",
   "Clear Selected": "Clear Selected"
 }
