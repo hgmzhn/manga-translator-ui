@@ -237,7 +237,6 @@
   "API Status": "API 狀態",
   "API status unavailable": "狀態讀取失敗",
   "No API selected": "目前無 API",
-  "No unavailable API": "沒有不可用 API",
   "API status line": "{label}: {configured} 個",
   "API status line with unavailable": "{label}: {configured} 個 / 不可用 {unavailable}",
   "API status line with cooldown": "{label}: {configured} 個 / 冷卻 {cooldown}",
@@ -1513,7 +1512,5 @@
   "api_test_error_remote_image": "下載產生的圖片失敗：HTTP {status}",
   "api_test_error_sakura_base": "請先設定 SAKURA_API_BASE。",
   "api_test_error_unsupported": "此翻譯器不支援 API 測試。",
-  "api_test_stream_mode_both": "非流式與流式請求均可用。",
-  "api_test_stream_mode_stream_only": "僅流式請求可用：請保持「啟用流式傳輸」開啟，關閉後翻譯會失敗。",
-  "api_test_stream_mode_non_stream_only": "僅非流式請求可用：請關閉「啟用流式傳輸」。"
+  "api_test_stream_modes": "流式：{stream}  非流式：{non_stream}"
 }

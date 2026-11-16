@@ -1442,16 +1442,14 @@ def validate_api_candidate_availability(self) -> bool:
 
 def _format_api_batch_result_text(self, results: list[dict]) -> str:
     lines = []
-    for item in results:
-        if item.get("success"):
-            continue
-        state_text = self._t("API test unavailable")
+    for item in sorted(results, key=lambda result: bool(result.get("success"))):
+        state_text = self._t("API test available" if item.get("success") else "API test unavailable")
         lines.append(f"[{state_text}] {item.get('label') or item.get('test_target')}")
         message = str(item.get("message") or "").strip()
         if message:
             lines.append(_wrap_error_text(message, width=100))
         lines.append("")
-    return "\n".join(lines).rstrip() or self._t("No unavailable API")
+    return "\n".join(lines).rstrip()
 
 
 def _show_api_batch_test_results(self, results: list[dict]) -> None:

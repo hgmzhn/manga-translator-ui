@@ -8,6 +8,7 @@ import pytest
 import app_logic
 from manga_translator.translators import common
 from services.i18n_service import I18nManager
+from ui.main_page import env_management
 
 LOCALE_DIR = _bootstrap.ROOT / "desktop_qt_ui" / "locales"
 
@@ -42,54 +43,78 @@ def _install_fake_client(monkeypatch, non_stream, stream):
     monkeypatch.setattr(common, "AsyncOpenAICurlCffi", FakeClient)
 
 
-def _run_test(locale="zh_CN"):
-    manager = I18nManager(locale_dir=str(LOCALE_DIR), fallback_locale="zh_CN", config_language=locale)
+def _manager(locale="zh_CN"):
+    return I18nManager(locale_dir=str(LOCALE_DIR), fallback_locale="zh_CN", config_language=locale)
+
+
+def _run_test():
     view = SimpleNamespace(
-        _t=manager.translate,
+        _t=_manager().translate,
         _probe_openai_chat=app_logic.MainAppLogic._probe_openai_chat,
     )
     return asyncio.run(
         app_logic.MainAppLogic._test_openai_text_api(view, "sk-test", "https://api.example/v1", "model"),
-    ), manager
+    )
 
 
 @pytest.mark.parametrize(
-    ("non_stream", "stream", "expected_key"),
+    ("non_stream", "stream", "expected_line"),
     [
-        (["choice"], [["choice"]], "api_test_stream_mode_both"),
-        ([], [[], ["choice"]], "api_test_stream_mode_stream_only"),
-        (Exception("HTTP 500"), [["choice"]], "api_test_stream_mode_stream_only"),
-        (["choice"], [[]], "api_test_stream_mode_non_stream_only"),
-        (["choice"], Exception("stream unsupported"), "api_test_stream_mode_non_stream_only"),
+        (["choice"], [["choice"]], "流式：可用  非流式：可用"),
+        ([], [[], ["choice"]], "流式：可用  非流式：不可用"),
+        (Exception("HTTP 500"), [["choice"]], "流式：可用  非流式：不可用"),
+        (["choice"], [[]], "流式：不可用  非流式：可用"),
+        (["choice"], Exception("stream unsupported"), "流式：不可用  非流式：可用"),
     ],
 )
-def test_openai_text_api_reports_usable_request_modes(monkeypatch, non_stream, stream, expected_key):
+def test_openai_text_api_reports_each_request_mode(monkeypatch, non_stream, stream, expected_line):
     _install_fake_client(monkeypatch, non_stream, stream)
 
-    (success, message), manager = _run_test()
+    success, message = _run_test()
 
     assert success is True
-    assert "model" in message
-    assert manager.translate(expected_key) in message
+    assert message.splitlines() == ["连接成功，模型 model 可用", expected_line]
 
 
-def test_openai_text_api_fails_when_both_request_modes_fail(monkeypatch):
+def test_openai_text_api_fails_with_mode_status_when_both_modes_fail(monkeypatch):
     _install_fake_client(monkeypatch, [], Exception("stream unsupported"))
 
     with pytest.raises(Exception) as exc_info:
         _run_test()
 
-    assert "non-streaming response contained no choices" in str(exc_info.value)
-    assert "stream unsupported" in str(exc_info.value)
+    message = str(exc_info.value)
+    assert message.splitlines()[0] == "流式：不可用  非流式：不可用"
+    assert "stream unsupported" in message
+    assert "non-streaming response contained no choices" in message
+
+
+def test_batch_result_text_keeps_mode_status_of_available_channels():
+    view = SimpleNamespace(_t=_manager().translate)
+    results = [
+        {"label": "A", "success": True, "message": "连接成功，模型 a 可用\n流式：可用  非流式：不可用"},
+        {"label": "B", "success": False, "message": "连接失败"},
+    ]
+
+    text = env_management._format_api_batch_result_text(view, results)
+
+    assert text.splitlines() == [
+        "[不可用] B",
+        "连接失败",
+        "",
+        "[可用] A",
+        "连接成功，模型 a 可用",
+        "流式：可用  非流式：不可用",
+    ]
 
 
 @pytest.mark.parametrize("locale", ["zh_CN", "zh_TW", "en_US", "ja_JP", "ko_KR", "es_ES"])
-def test_stream_mode_messages_are_localized(locale):
+def test_stream_mode_status_is_localized(locale):
     catalog = json.loads((LOCALE_DIR / f"{locale}.json").read_text(encoding="utf-8"))
 
-    for key in (
-        "api_test_stream_mode_both",
-        "api_test_stream_mode_stream_only",
-        "api_test_stream_mode_non_stream_only",
-    ):
-        assert catalog.get(key, "").strip(), key
+    rendered = catalog["api_test_stream_modes"].format(
+        stream=catalog["API test available"],
+        non_stream=catalog["API test unavailable"],
+    )
+
+    assert catalog["API test available"] in rendered
+    assert catalog["API test unavailable"] in rendered

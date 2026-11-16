@@ -596,18 +596,22 @@ class MainAppLogic(QObject):
                 self._probe_openai_chat(client, model_name, stream=False),
                 self._probe_openai_chat(client, model_name, stream=True),
             )
+
+            def _mode_status(error: Exception | None) -> str:
+                return self._t("API test unavailable" if error else "API test available")
+
+            mode_line = self._t(
+                "api_test_stream_modes",
+                stream=_mode_status(stream_error),
+                non_stream=_mode_status(non_stream_error),
+            )
             if non_stream_error and stream_error:
                 raise Exception(
-                    f"Non-streaming request failed: {non_stream_error}; "
-                    f"streaming request failed: {stream_error}"
+                    f"{mode_line}\n"
+                    f"Streaming request failed: {stream_error}\n"
+                    f"Non-streaming request failed: {non_stream_error}"
                 )
-            if non_stream_error:
-                mode_hint = self._t("api_test_stream_mode_stream_only")
-            elif stream_error:
-                mode_hint = self._t("api_test_stream_mode_non_stream_only")
-            else:
-                mode_hint = self._t("api_test_stream_mode_both")
-            return True, f"连接成功，模型 {model_name} 可用\n{mode_hint}"
+            return True, f"连接成功，模型 {model_name} 可用\n{mode_line}"
         finally:
             await client.close()
 
