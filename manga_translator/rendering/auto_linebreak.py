@@ -21,6 +21,8 @@ from .text_render import (
     get_string_width,
     select_hyphenator,
 )
+from .chinese_linebreak import NO_END_CHARS as _CJK_NO_END_CHARS
+from .chinese_linebreak import NO_START_CHARS as _CJK_NO_START_CHARS
 from .chinese_linebreak import append_chinese_linebreak_debug_record, layout_chinese_cjk
 from ..utils.log import get_logger
 from ..config import Config
@@ -235,6 +237,64 @@ def strip_linebreak_edge_punctuation(text: str) -> str:
     return _LINEBREAK_EDGE_PUNCT_RE.sub(lambda match: match.group(2), text)
 
 
+# Leave ASCII and dashes alone to preserve mixed Latin text and intentional line starts.
+_KINSOKU_EXEMPT_CHARS = set("—－–−︱︲～〜〰~≀|")
+KINSOKU_NO_START_CHARS = frozenset(
+    c for c in _CJK_NO_START_CHARS if not c.isascii() and c not in _KINSOKU_EXEMPT_CHARS
+)
+KINSOKU_NO_END_CHARS = frozenset(c for c in _CJK_NO_END_CHARS if not c.isascii())
+_BR_SPLIT_RE = re.compile(r"(\s*(?:\[BR\]|<br>|【BR】)\s*)", re.IGNORECASE)
+
+
+def apply_linebreak_kinsoku(text: str) -> str:
+    """Adjust punctuation at explicit breaks without deleting text or intentional blank columns."""
+    if not text:
+        return text
+    parts = _BR_SPLIT_RE.split(text)
+    if len(parts) < 3:
+        return text
+    segments = parts[0::2]
+    blank_columns = {i for i, segment in enumerate(segments) if not segment}
+    markers = parts[1::2]
+
+    for i in range(1, len(segments)):
+        seg = segments[i]
+        n = 0
+        while n < len(seg) and seg[n] in KINSOKU_NO_START_CHARS:
+            n += 1
+        if not n:
+            continue
+        target = i - 1
+        while target > 0 and not segments[target] and target not in blank_columns:
+            target -= 1
+        if not segments[target]:
+            continue
+        segments[target] += seg[:n]
+        segments[i] = seg[n:]
+
+    for i in range(len(segments) - 2, -1, -1):
+        seg = segments[i]
+        n = len(seg)
+        while n > 0 and seg[n - 1] in KINSOKU_NO_END_CHARS:
+            n -= 1
+        target = i + 1
+        while target < len(segments) - 1 and not segments[target] and target not in blank_columns:
+            target += 1
+        if n == len(seg) or not segments[target]:
+            continue
+        segments[target] = seg[n:] + segments[target]
+        segments[i] = seg[:n]
+
+    out = []
+    for i, seg in enumerate(segments):
+        if not seg and i not in blank_columns:
+            continue
+        if out:
+            out.append(markers[i - 1])
+        out.append(seg)
+    return "".join(out)
+
+
 def _resolve_current_region_render_horizontal(region: Any) -> bool:
     forced_direction = getattr(region, "_direction", None)
     if forced_direction != "auto":
@@ -349,19 +409,44 @@ def _layout_vertical(font_size: int, text: str, max_height: int, config: Any = N
 
         current_line_text = ""
         current_line_height = 0
+        current_advances: List[int] = []
 
         for cdpt in paragraph:
             if not cdpt:
                 continue
             adv = _vert_char_advance(font_size, cdpt, letter_spacing=letter_spacing)
             if current_line_height + adv > max_height and current_line_text:
-                line_text_list.append(current_line_text)
-                line_height_list.append(current_line_height)
-                current_line_text = cdpt
-                current_line_height = adv
-            else:
-                current_line_text += cdpt
-                current_line_height += adv
+                if cdpt in KINSOKU_NO_START_CHARS:
+                    # 行首禁则：收尾标点悬挂在本列末尾，允许轻微超出
+                    current_line_text += cdpt
+                    current_line_height += adv
+                    current_advances.append(adv)
+                    continue
+                carry = 0
+                while carry < len(current_line_text) and current_line_text[-1 - carry] in KINSOKU_NO_END_CHARS:
+                    carry += 1
+                if carry == len(current_line_text):
+                    current_line_text += cdpt
+                    current_advances.append(adv)
+                    current_line_height += adv
+                    continue
+                if carry:
+                    # 行尾禁则：开口标点随下一字移到下一列
+                    line_height = current_line_height - sum(current_advances[-carry:])
+                    line_text_list.append(current_line_text[:-carry])
+                    line_height_list.append(line_height)
+                    current_line_text = current_line_text[-carry:]
+                    current_advances = current_advances[-carry:]
+                    current_line_height = sum(current_advances)
+                else:
+                    line_text_list.append(current_line_text)
+                    line_height_list.append(current_line_height)
+                    current_line_text = ""
+                    current_advances = []
+                    current_line_height = 0
+            current_line_text += cdpt
+            current_line_height += adv
+            current_advances.append(adv)
 
         if current_line_text:
             line_text_list.append(current_line_text)
@@ -395,24 +480,38 @@ def _layout_vertical_metrics(font_size: int, text: str, max_height: int, config:
 
         current_line_text = ""
         current_line_height = 0
-        current_line_width = font_size
+        current_metrics: List[Tuple[int, int]] = []
+
+        def flush(keep: int) -> None:
+            nonlocal current_line_text, current_line_height, current_metrics
+            split = len(current_metrics) - keep
+            head = current_metrics[:split]
+            append_line(
+                current_line_text[:split],
+                sum(a for a, _ in head),
+                max([font_size] + [w for _, w in head]),
+            )
+            current_line_text = current_line_text[split:]
+            current_metrics = current_metrics[split:]
+            current_line_height = sum(a for a, _ in current_metrics)
 
         for cdpt in paragraph:
             if not cdpt:
                 continue
             adv, width = _vert_char_metrics(font_size, cdpt, letter_spacing=letter_spacing)
             if current_line_height + adv > max_height and current_line_text:
-                append_line(current_line_text, current_line_height, current_line_width)
-                current_line_text = cdpt
-                current_line_height = adv
-                current_line_width = max(font_size, width)
-            else:
-                current_line_text += cdpt
-                current_line_height += adv
-                current_line_width = max(current_line_width, width)
+                if cdpt not in KINSOKU_NO_START_CHARS:
+                    carry = 0
+                    while carry < len(current_line_text) and current_line_text[-1 - carry] in KINSOKU_NO_END_CHARS:
+                        carry += 1
+                    if carry < len(current_line_text):
+                        flush(carry)
+            current_line_text += cdpt
+            current_line_height += adv
+            current_metrics.append((adv, width))
 
         if current_line_text:
-            append_line(current_line_text, current_line_height, current_line_width)
+            flush(0)
 
     if not line_text_list:
         append_line("", 0, font_size)
