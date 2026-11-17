@@ -126,6 +126,17 @@ _BR_EDGE_WHITESPACE_RE = re.compile(
 )
 
 
+class StreamTextAccumulator:
+    """SDK chunks are deltas; textual overlap cannot distinguish repetition from resends."""
+
+    def __init__(self) -> None:
+        self.text = ""
+
+    def feed(self, piece: str) -> str:
+        self.text += piece
+        return piece
+
+
 class InvalidServerResponse(Exception):
     pass
 
@@ -1537,64 +1548,24 @@ class CommonTranslator(InfererModule):
         - Gemini stream（同步迭代，放入 to_thread 消费）
         返回：(聚合后的完整文本, 最后一次 finish_reason)
         """
-        def _normalize_stream_piece(piece_text: str, current_text: str) -> str:
-            """
-            兼容“增量块/累计块/重复块”三种常见流格式，尽量只返回新增部分。
-            """
-            if not piece_text:
-                return ""
-            if not current_text:
-                return piece_text
-
-            # 标准累计块：piece = current + delta
-            if piece_text.startswith(current_text):
-                return piece_text[len(current_text):]
-
-            # 回退/截断块：piece 只是 current 的前缀（且不是极短 token），忽略
-            if len(piece_text) >= 16 and current_text.startswith(piece_text):
-                return ""
-
-            # 某些服务会把 current 放在 piece 中间，取最后一次出现后的尾部
-            pos = piece_text.rfind(current_text)
-            if pos != -1:
-                return piece_text[pos + len(current_text):]
-
-            # 明确重发：较长片段且 current 已以该片段结尾，忽略
-            if len(piece_text) >= 16 and current_text.endswith(piece_text):
-                return ""
-
-            # 处理部分重叠：current 尾部 + piece 头部
-            max_overlap = min(len(piece_text), len(current_text))
-            for overlap in range(max_overlap, 0, -1):
-                if current_text.endswith(piece_text[:overlap]):
-                    return piece_text[overlap:]
-
-            # 无法判断关系时按增量处理（保守）
-            return piece_text
-
-        text_parts: List[str] = []
         last_finish_reason = None
 
         if sync_iter_in_thread:
             def _consume_sync_stream():
-                local_parts: List[str] = []
+                local_acc = StreamTextAccumulator()
                 local_finish = None
                 stream_obj = create_stream()
                 for chunk in stream_obj:
                     piece = extract_text(chunk)
                     if piece:
-                        piece_text = str(piece)
-                        current_text = ''.join(local_parts)
-                        normalized_piece = _normalize_stream_piece(piece_text, current_text)
-                        if normalized_piece:
-                            local_parts.append(normalized_piece)
+                        delta_text = local_acc.feed(str(piece))
                         if on_chunk:
-                            on_chunk(normalized_piece, ''.join(local_parts))
+                            on_chunk(delta_text, local_acc.text)
                     if extract_finish_reason:
                         finish = extract_finish_reason(chunk)
                         if finish is not None:
                             local_finish = finish
-                return ''.join(local_parts), local_finish
+                return local_acc.text, local_finish
 
             return await self._await_with_cancel_polling(
                 asyncio.to_thread(_consume_sync_stream),
@@ -1613,6 +1584,7 @@ class CommonTranslator(InfererModule):
         try:
             aiter = stream_obj.__aiter__()
             got_first_chunk = False
+            acc = StreamTextAccumulator()
             while True:
                 chunk_timeout = first_chunk_timeout if not got_first_chunk else idle_timeout
                 try:
@@ -1631,13 +1603,9 @@ class CommonTranslator(InfererModule):
                 self._check_cancelled()
                 piece = extract_text(chunk)
                 if piece:
-                    piece_text = str(piece)
-                    current_text = ''.join(text_parts)
-                    normalized_piece = _normalize_stream_piece(piece_text, current_text)
-                    if normalized_piece:
-                        text_parts.append(normalized_piece)
+                    delta_text = acc.feed(str(piece))
                     if on_chunk:
-                        on_chunk(normalized_piece, ''.join(text_parts))
+                        on_chunk(delta_text, acc.text)
                 if extract_finish_reason:
                     finish = extract_finish_reason(chunk)
                     if finish is not None:
@@ -1657,7 +1625,7 @@ class CommonTranslator(InfererModule):
                     if asyncio.iscoroutine(close_ret):
                         await close_ret
 
-        return ''.join(text_parts), last_finish_reason
+        return acc.text, last_finish_reason
 
     def _get_retry_hint(self, attempt: int, reason: str = "") -> str:
         """
