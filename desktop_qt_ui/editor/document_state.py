@@ -286,7 +286,10 @@ class EditorWorkspaceState:
     region_display_mode: str = "full"
     source_opacity: float = 0.0
     active_tool: str = "select"
-    brush_size: int = 30
+    brush_group: str = "mask"
+    brush_sizes: dict[str, int] = field(
+        default_factory=lambda: {"mask": 30, "paint": 30, "stamp": 30}
+    )
     brush_color: str = "#ffffff"
 
     def set_source_opacity(self, value: float) -> bool:

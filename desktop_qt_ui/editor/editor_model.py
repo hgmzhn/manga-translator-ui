@@ -268,18 +268,29 @@ class EditorModel(QObject):
         return self.session.get_original_image_alpha()
 
     def set_active_tool(self, tool: str):
+        """切换工具后通知界面，并在有效笔刷大小变化时通知画布。"""
+        previous_size = self.get_brush_size()
         if self.session.set_active_tool(tool):
             self.active_tool_changed.emit(tool)
+        if self.get_brush_size() != previous_size:
+            self.brush_size_changed.emit(self.get_brush_size())
 
     def get_active_tool(self) -> str:
         return self.session.get_active_tool()
 
     def set_brush_size(self, size: int):
+        """更新当前工具组大小，仅在数值变化时发出同步信号。"""
         if self.session.set_brush_size(size):
             self.brush_size_changed.emit(size)
 
-    def get_brush_size(self) -> int:
-        return self.session.get_brush_size()
+    def get_brush_size(self, group: Optional[str] = None) -> int:
+        """读取指定组或当前活动组的笔刷大小。"""
+        return self.session.get_brush_size(group)
+
+    def set_brush_group(self, group: str):
+        """切换工具页对应的大小组，并通知界面恢复该组数值。"""
+        if self.session.set_brush_group(group):
+            self.brush_size_changed.emit(self.get_brush_size())
 
     def set_brush_color(self, color: str):
         if self.session.set_brush_color(color):

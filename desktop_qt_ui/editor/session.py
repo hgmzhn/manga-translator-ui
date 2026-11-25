@@ -271,6 +271,18 @@ class EditorSession:
         return self._workspace.source_opacity
 
     def set_active_tool(self, tool: str) -> bool:
+        """先切换笔刷所属组，再更新工具；pen 与 brush 共用蒙版组。"""
+        brush_group = {
+            "pen": "mask",
+            "brush": "mask",
+            "eraser": "mask",
+            "paint": "paint",
+            "paint_erase": "paint",
+            "clone": "stamp",
+            "stamp_erase": "stamp",
+        }.get(tool)
+        if brush_group is not None:
+            self.set_brush_group(brush_group)
         if self._workspace.active_tool == tool:
             return False
         self._workspace.active_tool = tool
@@ -280,14 +292,27 @@ class EditorSession:
         return self._workspace.active_tool
 
     def set_brush_size(self, size: int) -> bool:
+        """只修改当前工具组的会话内大小，并返回数值是否变化。"""
         size = int(size)
-        if self._workspace.brush_size == size:
+        group = self._workspace.brush_group
+        if self._workspace.brush_sizes[group] == size:
             return False
-        self._workspace.brush_size = size
+        self._workspace.brush_sizes[group] = size
         return True
 
-    def get_brush_size(self) -> int:
-        return self._workspace.brush_size
+    def get_brush_size(self, group: Optional[str] = None) -> int:
+        """读取指定组的大小；省略 group 时读取当前工具组。"""
+        return self._workspace.brush_sizes[group or self._workspace.brush_group]
+
+    def set_brush_group(self, group: str) -> bool:
+        """切换到已有工具组；未知组或重复选择不改变工作区。"""
+        if (
+            group not in self._workspace.brush_sizes
+            or group == self._workspace.brush_group
+        ):
+            return False
+        self._workspace.brush_group = group
+        return True
 
     def set_brush_color(self, color: str) -> bool:
         value = str(color or "").strip() or "#ff0000"
