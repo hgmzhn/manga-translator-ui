@@ -3250,7 +3250,10 @@ class MangaTranslator:
         img_for_inpaint = ctx.img_rgb
         mask_for_inpaint = ctx.mask
         solid_fill = getattr(config.inpainter, 'solid_fill_pure_bubbles', False)
-        per_block = getattr(config.inpainter, 'per_block_inpainting', False)
+        per_block = (
+            getattr(config.inpainter, 'per_block_inpainting', False)
+            and config.inpainter.inpainter != Inpainter.blur
+        )
         text_regions = getattr(ctx, 'text_regions', None) or []
         if (solid_fill and text_regions) or per_block:
             try:

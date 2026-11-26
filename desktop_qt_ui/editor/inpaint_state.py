@@ -38,6 +38,7 @@ class InpaintConfigSnapshot:
     force_use_torch_inpainting: bool
     inpainting_size: int
     device: str
+    blur_radius: int = 0
 
 
 @dataclass(frozen=True, slots=True)

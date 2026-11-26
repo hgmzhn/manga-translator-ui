@@ -58,17 +58,28 @@ class LightweightInpainter:
             InpainterType.LAMA_MPE: self._inpaint_simple_blur,  # 简化版Lama
             InpainterType.LAMA_LARGE: self._inpaint_simple_blur,  # 简化版(不适合实时)
             InpainterType.STABLE_DIFFUSION: self._inpaint_simple_blur,  # 简化版(不适合实时)
+            InpainterType.FLUX2_KLEIN: self._inpaint_simple_blur,  # 简化版(不适合实时)
+            InpainterType.BLUR: self._inpaint_blur,  # 毛玻璃模糊
         }
         
         # self.logger.info("轻量级擦除算法接口初始化完成")
     
+    def _get_current_blur_radius(self) -> int:
+        erase_cfg = self.config_service.get_current_config()
+        return int(getattr(erase_cfg, "blur_radius", 0) or 0) if erase_cfg else 0
+
     def _generate_cache_key(self, image: np.ndarray, mask: np.ndarray, 
-                          algorithm: InpainterType, config: PreviewConfig) -> str:
+                          algorithm: InpainterType, config: PreviewConfig,
+                          blur_radius: Optional[int] = None) -> str:
         """生成缓存键"""
         # 使用图像和蒙版的哈希值作为缓存键
         img_hash = hash(image.tobytes())
         mask_hash = hash(mask.tobytes())
-        return f"{algorithm.value}_{img_hash}_{mask_hash}_{config.max_size}_{config.quality}"
+        key = f"{algorithm.value}_{img_hash}_{mask_hash}_{config.max_size}_{config.quality}"
+        if algorithm == InpainterType.BLUR:
+            resolved_radius = self._get_current_blur_radius() if blur_radius is None else int(blur_radius)
+            key = f"{key}_r{resolved_radius}"
+        return key
     
     def _resize_for_preview(self, image: np.ndarray, max_size: int) -> Tuple[np.ndarray, float]:
         """调整图像尺寸用于预览"""
@@ -119,6 +130,20 @@ class LightweightInpainter:
         
         return result
     
+    def _inpaint_blur(
+        self,
+        image: np.ndarray,
+        mask: np.ndarray,
+        scale: float = 1.0,
+        blur_radius: Optional[int] = None,
+    ) -> np.ndarray:
+        """毛玻璃模糊"""
+        from manga_translator.inpainting.blur import BlurInpainter
+        resolved_radius = self._get_current_blur_radius() if blur_radius is None else int(blur_radius)
+        if resolved_radius > 0 and scale != 1.0:
+            resolved_radius = max(3, int(round(resolved_radius * scale)))
+        return BlurInpainter.apply_blur(image, mask, blur_radius=resolved_radius)
+    
     def _inpaint_advanced_fill(self, image: np.ndarray, mask: np.ndarray) -> np.ndarray:
         """高级填充算法（更好的质量但仍然轻量）"""
         result = image.copy()
@@ -146,10 +171,13 @@ class LightweightInpainter:
             algorithm = self.config_service.get_current_config().inpainter
         
         start_time = time.time()
+        blur_radius = self._get_current_blur_radius() if algorithm == InpainterType.BLUR else None
         
         # 检查缓存
         if config.cache_enabled:
-            cache_key = self._generate_cache_key(image, mask, algorithm, config)
+            cache_key = self._generate_cache_key(
+                image, mask, algorithm, config, blur_radius=blur_radius
+            )
             if cache_key in self.preview_cache:
                 cached_result = self.preview_cache[cache_key]
                 self.logger.debug(f"Using cached result: {algorithm.value}")
@@ -165,7 +193,7 @@ class LightweightInpainter:
         result_image = await loop.run_in_executor(
             self.executor, 
             self._process_preview, 
-            image, mask, algorithm, config
+            image, mask, algorithm, config, blur_radius
         )
         
         process_time = time.time() - start_time
@@ -179,7 +207,8 @@ class LightweightInpainter:
         return result
     
     def _process_preview(self, image: np.ndarray, mask: np.ndarray,
-                        algorithm: InpainterType, config: PreviewConfig) -> np.ndarray:
+                        algorithm: InpainterType, config: PreviewConfig,
+                        blur_radius: Optional[int] = None) -> np.ndarray:
         """处理预览（在线程池中执行）"""
         try:
             # 调整尺寸
@@ -198,6 +227,10 @@ class LightweightInpainter:
                     result = self._inpaint_advanced_fill(preview_image, preview_mask)
                 else:
                     result = handler(preview_image, preview_mask)
+            elif algorithm == InpainterType.BLUR:
+                result = self._inpaint_blur(
+                    preview_image, preview_mask, scale=scale, blur_radius=blur_radius
+                )
             else:
                 result = handler(preview_image, preview_mask)
             
@@ -224,10 +257,13 @@ class LightweightInpainter:
             algorithm = self.config_service.get_current_config().inpainter
         
         start_time = time.time()
+        blur_radius = self._get_current_blur_radius() if algorithm == InpainterType.BLUR else None
         
         # 检查缓存
         if config.cache_enabled:
-            cache_key = self._generate_cache_key(image, mask, algorithm, config)
+            cache_key = self._generate_cache_key(
+                image, mask, algorithm, config, blur_radius=blur_radius
+            )
             if cache_key in self.preview_cache:
                 cached_result = self.preview_cache[cache_key]
                 self.logger.debug(f"Using cached result: {algorithm.value}")
@@ -239,7 +275,9 @@ class LightweightInpainter:
                 )
         
         # 同步处理
-        result_image = self._process_preview(image, mask, algorithm, config)
+        result_image = self._process_preview(
+            image, mask, algorithm, config, blur_radius=blur_radius
+        )
         process_time = time.time() - start_time
         result = PreviewResult(result_image, algorithm, process_time)
         

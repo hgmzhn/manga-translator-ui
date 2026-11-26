@@ -84,7 +84,8 @@
     "inpainting_precision": "fp32",
     "force_use_torch_inpainting": false,
     "solid_fill_pure_bubbles": false,
-    "per_block_inpainting": false
+    "per_block_inpainting": false,
+    "blur_radius": 0
   },
   "render": {
     "renderer": "default",

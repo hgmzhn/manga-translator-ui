@@ -2,6 +2,7 @@ import json
 import os
 
 from PyQt6.QtCore import QSignalBlocker, Qt, QTimer, pyqtSlot
+from PyQt6.QtGui import QIntValidator
 from PyQt6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
@@ -27,6 +28,27 @@ from ui.widgets.widget_cleanup import clear_layout
 from utils.font_list import FontComboBox, set_system_fonts_enabled
 
 
+class IntRangeValidator(QIntValidator):
+    """QIntValidator with automatic clamping and default fallback on fixup."""
+
+    def __init__(self, bottom: int, top: int, parent: QWidget | None = None, default_val: int = 0):
+        super().__init__(bottom, top, parent)
+        self.default_val = default_val
+
+    def fixup(self, text: str) -> str:
+        if not text or not text.strip():
+            return str(self.default_val)
+        try:
+            val = int(text)
+            if val < self.bottom():
+                return str(self.bottom())
+            if val > self.top():
+                return str(self.top())
+            return str(val)
+        except ValueError:
+            return str(self.default_val)
+
+
 class QLineEdit(FluentLineEdit):
     """Fluent LineEdit with the PyQt constructor forms used by existing settings code."""
 
@@ -37,6 +59,15 @@ class QLineEdit(FluentLineEdit):
         super().__init__(parent)
         if text:
             self.setText(str(text))
+
+    def focusOutEvent(self, event):
+        val = self.validator()
+        if val is not None and not self.hasAcceptableInput():
+            fixed = val.fixup(self.text())
+            if fixed is not None and fixed != self.text():
+                self.setText(fixed)
+                self.setModified(True)
+        super().focusOutEvent(event)
 
 
 API_GROUP_SPECS = {
@@ -1015,14 +1046,40 @@ def _on_upscale_ratio_changed(self, text, full_key):
             except ValueError:
                 self.setting_changed.emit(full_key, None)
 
-def _on_numeric_input_changed(self, text, full_key, value_type):
+def _on_numeric_input_changed(self, text, full_key, value_type, widget=None):
     """统一处理数值类型输入框的变化（支持 int 和 float）"""
     if not text or not text.strip():
+        if full_key == "inpainter.blur_radius":
+            # 模糊半径空输入重置为默认值 0（自适应）
+            self.setting_changed.emit(full_key, 0)
+            target_widget = widget
+            if target_widget is None:
+                binding = getattr(self, "_settings_value_bindings", {}).get(full_key)
+                if binding:
+                    target_widget = binding[0]
+            if target_widget is not None:
+                target_widget.setText("0")
+            return
         # 空值 = 使用默认值 (None)
         self.setting_changed.emit(full_key, None)
     else:
         try:
             value = value_type(text)
+            if full_key == "inpainter.blur_radius":
+                if value < 0 or value > 200:
+                    current_val = getattr(
+                        getattr(self.config_service.get_config(), "inpainter", None),
+                        "blur_radius",
+                        0,
+                    )
+                    target_widget = widget
+                    if target_widget is None:
+                        binding = getattr(self, "_settings_value_bindings", {}).get(full_key)
+                        if binding:
+                            target_widget = binding[0]
+                    if target_widget is not None:
+                        target_widget.setText(str(current_val if current_val is not None else 0))
+                    return
             self.setting_changed.emit(full_key, value)
         except ValueError:
             # 无效输入 = 使用默认值
@@ -1268,7 +1325,10 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
         
         elif isinstance(value, (int, float)):
             widget = QLineEdit(str(value))
-            widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_numeric_input_changed(w.text(), k, float if isinstance(value, float) else int))
+            if full_key == "inpainter.blur_radius":
+                widget.setValidator(IntRangeValidator(0, 200, widget, default_val=0))
+                widget.setPlaceholderText("0~200")
+            widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_numeric_input_changed(w.text(), k, float if isinstance(value, float) else int, w))
 
         elif value is None and key in _OPTIONAL_INPUT_KEYS:
             # 处理值为 None 的可选参数（数值/字符串）

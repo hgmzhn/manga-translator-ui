@@ -10,6 +10,7 @@ from .inpainting_flux import Flux2KleinInpainter
 from .inpainting_lama_mpe import LamaLargeInpainter, LamaMPEInpainter
 from .none import NoneInpainter
 from .original import OriginalInpainter
+from .blur import BlurInpainter
 
 _SD_IMPORT_ERROR = None
 try:
@@ -38,6 +39,7 @@ INPAINTERS = {
     Inpainter.sd: StableDiffusionInpainter,
     Inpainter.none: NoneInpainter,
     Inpainter.original: OriginalInpainter,
+    Inpainter.blur: BlurInpainter,
 }
 inpainter_cache = {}
 INPAINT_SPLIT_RATIO = 3.0
@@ -133,7 +135,8 @@ async def dispatch(inpainter_key: Inpainter, image: np.ndarray, mask: np.ndarray
 
     h, w = image_rgb.shape[:2]
     aspect_ratio = max(w / h, h / w)
-    if aspect_ratio > INPAINT_SPLIT_RATIO:
+    # 纯 OpenCV 模糊不依赖推理显存，跳过长图切片可避免大核半径在 tile 接缝处断层
+    if aspect_ratio > INPAINT_SPLIT_RATIO and inpainter_key != Inpainter.blur:
         inpainted_rgb = await _dispatch_with_split(
             inpainter,
             image_rgb,
