@@ -87,6 +87,7 @@
         "translator.translator",
         "translator.target_lang",
         "translator.keep_lang",
+        "translator.translation_file_input",
         "translator.enable_streaming",
         "translator.no_text_lang_skip",
         "translator.extract_glossary",

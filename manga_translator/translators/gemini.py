@@ -96,6 +96,7 @@ class GeminiTranslator(CommonTranslator):
         # 调用父类的 parse_args 来设置通用参数（包括 attempts、post_check 等）
         super().parse_args(args)
         translator_args = self._resolve_translator_config(args)
+        self._translation_file_input = self._get_config_value(translator_args, 'translation_file_input', False)
         
         # 同步重试次数到“总尝试次数”（首次请求 + 重试）
         self._max_total_attempts = self._resolve_max_total_attempts()
@@ -274,9 +275,12 @@ class GeminiTranslator(CommonTranslator):
     
 
 
-    def _build_user_prompt(self, texts: List[str], ctx: Any, retry_attempt: int = 0, retry_reason: str = "") -> str:
+    def _build_user_prompt(self, texts: List[str], ctx: Any, retry_attempt: int = 0, retry_reason: str = "") -> Any:
         """构建用户提示词（纯文本版）- 使用 JSON 格式以配合 HQ Prompt"""
-        return self._build_user_prompt_for_texts(texts, ctx, "", retry_attempt=retry_attempt, retry_reason=retry_reason)
+        return self._build_unified_user_prompt(
+            [{'original_texts': texts, 'text_regions': getattr(ctx, 'text_regions', []) if ctx else []}], ctx, retry_attempt=retry_attempt, retry_reason=retry_reason,
+            is_image_mode=False, file_input=getattr(self, '_translation_file_input', False),
+        )
     
     def _get_system_instruction(self, source_lang: str, target_lang: str, custom_prompt_json: Dict[str, Any] = None, line_break_prompt_json: Dict[str, Any] = None, retry_attempt: int = 0, retry_reason: str = "", extract_glossary: bool = False) -> str:
         """获取完整的系统指令"""
@@ -347,7 +351,8 @@ class GeminiTranslator(CommonTranslator):
             # 如果加载了 HQ Prompt，_build_user_prompt (即 _build_user_prompt_for_texts) 会生成 JSON 格式的输入，与 System Prompt 匹配
             user_prompt = self._build_user_prompt(texts, ctx, retry_attempt=retry_attempt, retry_reason=retry_reason)
             contents = self._build_gemini_context_messages(self.prev_context)
-            contents.append({"role": "user", "parts": [{"text": user_prompt}]})
+            from .gemini_file_input import to_gemini_parts
+            contents.append({"role": "user", "parts": to_gemini_parts(user_prompt)})
             
             # 构建生成配置
             config_params = {
@@ -383,6 +388,8 @@ class GeminiTranslator(CommonTranslator):
                 streamed_diagnostics = None
 
                 use_streaming = self._is_streaming_enabled(ctx)
+                if getattr(self, '_translation_file_input', False):
+                    self.logger.info("Original text is sent as a source.txt attachment via Gemini inlineData (text/plain).")
 
                 async def _send_gemini_request():
                     nonlocal response, streamed_text, streamed_finish_reason, streamed_diagnostics

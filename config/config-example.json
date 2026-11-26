@@ -34,6 +34,7 @@
     "translator": "openai",
     "target_lang": "CHS",
     "keep_lang": "none",
+    "translation_file_input": false,
     "enable_streaming": false,
     "no_text_lang_skip": false,
     "high_quality_prompt_path": "dict/prompt_example.yaml",
