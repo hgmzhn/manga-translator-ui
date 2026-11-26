@@ -81,6 +81,7 @@ echo [OK] Using Conda environment: !ENV_PATH!
 
 :env_ready
 
+:start_app
 echo Starting...
 echo ========================================
 echo.
@@ -90,6 +91,23 @@ set "EXITCODE=%ERRORLEVEL%"
 if not "%EXITCODE%"=="0" (
     echo.
     echo [ERROR] Application exited with code %EXITCODE%
+    set "DIAG_CODE=0"
+    if exist "%SCRIPT_DIR%\desktop_qt_ui\utils\crash_diagnostics.py" (
+        "!PY!" "%SCRIPT_DIR%\desktop_qt_ui\utils\crash_diagnostics.py" --exit-code=%EXITCODE% --exe "!PY!"
+        set "DIAG_CODE=!ERRORLEVEL!"
+    )
+    if "!DIAG_CODE!"=="10" if not defined MT_RETRY_WITH_MITIGATION (
+        echo.
+        set "RETRY_MIT="
+        set /p RETRY_MIT="Retry once with hook protection enabled (MT_ENABLE_EXTENSION_POINT_MITIGATION=1; may affect Chinese IME)? (y/n): "
+        if /I "!RETRY_MIT!"=="y" (
+            set "MT_RETRY_WITH_MITIGATION=1"
+            set "MT_ENABLE_EXTENSION_POINT_MITIGATION=1"
+            echo.
+            echo [INFO] Retrying once with MT_ENABLE_EXTENSION_POINT_MITIGATION=1...
+            goto :start_app
+        )
+    )
     echo.
     echo Please try reinstalling first: run Win-Install-or-Update.bat and choose [1] Install.
     echo.
@@ -97,6 +115,7 @@ if not "%EXITCODE%"=="0" (
     echo   GitHub Issues: https://github.com/hgmzhn/manga-translator-ui/issues
     echo   or the QQ group
     echo.
+    set "OPEN_MAINT="
     set /p OPEN_MAINT="Open Win-Install-or-Update.bat now? (y/n): "
     if /I "!OPEN_MAINT!"=="y" start "" cmd /c "%SCRIPT_DIR%\Win-Install-or-Update.bat"
     pause

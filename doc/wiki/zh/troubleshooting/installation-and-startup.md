@@ -69,8 +69,8 @@ lastUpdated: true
 - 未捕获异常由全局异常处理器写入日志并输出到 stderr；Qt 内部错误经 Qt 消息处理器记录。
 - PyTorch 在 PyQt6 之前导入，避免 Qt 与 `c10.dll` 的加载冲突；便携版还会注册 PyInstaller 目录的 DLL 搜索路径。混装环境或错误 PATH 常表现为启动即闪退。
 - **退出码 `-1073741819` (`0xC0000005`，访问违例)**：
-  - **定位故障模块**：按 `Win + R` 运行 `eventvwr.msc`，展开 **Windows 日志 -> 应用程序**，找到来源为 `Application Error`、异常代码为 `0xc0000005` 的错误事件，查看其中的 **“错误模块名称 (Fault Module Name)”**。
-  - **第三方注入冲突（如 `NahimicOSD.dll`、RTSS、录屏悬浮窗等）**：某些电脑自带的音效管理软件（Nahimic、Sonic Studio）或游戏工具会通过全局钩子注入图形进程，导致 Qt 初始化图形上下文时闪退。可优先尝试在 Nahimic 中关闭“声音追踪器（Sound Tracker）”或在系统服务中禁用 `NahimicService`；也可在启动前设置环境变量 `MT_ENABLE_EXTENSION_POINT_MITIGATION=1`，或在应用目录 `.env` 文件中添加 `MT_ENABLE_EXTENSION_POINT_MITIGATION=1`，按需启用 Windows 的 `ProcessExtensionPointDisablePolicy` 策略拦截全局钩子注入（注意：环境变量优先级高于 `.env`，若已在环境中显式定义，需先清除环境变量才能生效 `.env` 配置）。
+  - **自动诊断与定位故障模块**：通过 `Win-Start.bat` 启动遇到 Windows 原生崩溃（如 `0xC0000005`、`0xC0000409`、`0xC0000135`）时，启动器会自动运行 `desktop_qt_ui/utils/crash_diagnostics.py` 查询最近 Windows 应用程序事件日志中的 **“错误模块名称 (Fault Module Name)”** 并检测常见冲突覆盖层服务（如 `NahimicService`、`RTSS`）；若需手动查看，可按 `Win + R` 运行 `eventvwr.msc`，展开 **Windows 日志 -> 应用程序**，找到来源为 `Application Error` 的错误事件。
+  - **第三方注入冲突（如 `NahimicOSD.dll`、RTSS、录屏悬浮窗等）**：某些电脑自带的音效管理软件（Nahimic、Sonic Studio）或游戏工具会通过全局钩子注入图形进程，导致 Qt 初始化图形上下文时闪退。可优先尝试在 Nahimic 中关闭“声音追踪器（Sound Tracker）”、在系统服务中禁用 `NahimicService`，或将 `python.exe` 加入 `C:\ProgramData\A-Volute\...\BlackApps.dat` 排除列表；当自动诊断检测到此类冲突时，`Win-Start.bat` 也会提示是否临时启用 `MT_ENABLE_EXTENSION_POINT_MITIGATION=1` 重试一次（也可在环境变量或应用目录 `.env` 文件中手动添加该项，注意：环境变量优先级高于 `.env`，若已在环境中显式定义，需先清除环境变量才能生效 `.env` 配置）。
   - **中文输入法兼容性说明**：由于 `ProcessExtensionPointDisablePolicy` 会阻止进程加载传统扩展点 / IMM32 架构 DLL，开启后会导致部分第三方中文输入法（以及依赖 IMM32 桥接的输入场景）无法正常输入中文，因此该策略**默认关闭**，仅建议在明确遇到上述第三方注入崩溃时按需启用。
   - **底层库或驱动冲突（如 `c10.dll`、`torch_cuda.dll`、显卡驱动）**：若错误模块指向 PyTorch、CUDA 或显卡驱动，请参考[模型、GPU 与内存](./model-gpu-and-memory.md)排查驱动版本与硬件支持。
 - `Win-Start.bat` 对非零退出码输出 `[ERROR] Application exited with code ...`，建议先重装并询问是否打开 `Win-Install-or-Update.bat`。错误窗口里的本地路径和日志不要直接上传。
