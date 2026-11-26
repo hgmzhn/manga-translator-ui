@@ -270,24 +270,88 @@ class EditorSession:
     def get_original_image_alpha(self) -> float:
         return self._workspace.source_opacity
 
+    TOOL_GROUPS = {
+        "pen": "mask",
+        "brush": "mask",
+        "eraser": "mask",
+        "paint": "paint",
+        "paint_erase": "paint",
+        "clone": "stamp",
+        "stamp_erase": "stamp",
+    }
+
     def set_active_tool(self, tool: str) -> bool:
+        """设置当前活动工具，并同步关联的工具组（蒙版/画笔/印章）。"""
+        group = self.TOOL_GROUPS.get(tool)
+        if group is not None:
+            self.set_active_group(group)
         if self._workspace.active_tool == tool:
             return False
         self._workspace.active_tool = tool
         return True
 
     def get_active_tool(self) -> str:
+        """获取当前活动工具名称。"""
         return self._workspace.active_tool
 
-    def set_brush_size(self, size: int) -> bool:
-        size = int(size)
-        if self._workspace.brush_size == size:
+    def set_active_group(self, group: str) -> bool:
+        """切换当前活动工具组（mask / paint / stamp）。若数值未变返回 False。"""
+        if (
+            group not in ("mask", "paint", "stamp")
+            or self._workspace.active_group == group
+        ):
             return False
-        self._workspace.brush_size = size
+        self._workspace.active_group = group
         return True
 
-    def get_brush_size(self) -> int:
-        return self._workspace.brush_size
+    def get_active_group(self) -> str:
+        """获取当前活动工具组（mask / paint / stamp）。"""
+        return self._workspace.active_group
+
+    def set_brush_size(self, size: int, group: Optional[str] = None) -> bool:
+        """设置指定工具组（默认当前活动组）的画笔大小。若数值未变化返回 False。"""
+        size = int(size)
+        target_group = group or self._workspace.active_group
+        if self._workspace.brush_sizes.get(target_group) == size:
+            return False
+        self._workspace.brush_sizes[target_group] = size
+        return True
+
+    def get_brush_size(self, group: Optional[str] = None) -> int:
+        """获取指定工具组（默认当前活动组）的画笔大小。"""
+        target_group = group or self._workspace.active_group
+        return self._workspace.brush_sizes.get(target_group, 30)
+
+    def set_eraser_size(self, size: int, group: Optional[str] = None) -> bool:
+        """设置指定工具组（默认当前活动组）的橡皮擦大小。若数值未变化返回 False。"""
+        size = int(size)
+        target_group = group or self._workspace.active_group
+        if self._workspace.eraser_sizes.get(target_group) == size:
+            return False
+        self._workspace.eraser_sizes[target_group] = size
+        return True
+
+    def get_eraser_size(self, group: Optional[str] = None) -> int:
+        """获取指定工具组（默认当前活动组）的橡皮擦大小。"""
+        target_group = group or self._workspace.active_group
+        return self._workspace.eraser_sizes.get(target_group, 30)
+
+    def is_eraser_tool(self, tool: Optional[str] = None) -> bool:
+        """判断指定工具（默认当前活动工具）是否为橡皮擦类工具。"""
+        target = self._workspace.active_tool if tool is None else tool
+        return target in ("eraser", "paint_erase", "stamp_erase")
+
+    def get_active_brush_size(self) -> int:
+        """获取当前活动工具对应的尺寸（橡皮擦或画笔）。"""
+        if self.is_eraser_tool():
+            return self.get_eraser_size()
+        return self.get_brush_size()
+
+    def set_active_brush_size(self, size: int) -> bool:
+        """设置当前活动工具对应的尺寸（橡皮擦或画笔）。"""
+        if self.is_eraser_tool():
+            return self.set_eraser_size(size)
+        return self.set_brush_size(size)
 
     def set_brush_color(self, color: str) -> bool:
         value = str(color or "").strip() or "#ff0000"

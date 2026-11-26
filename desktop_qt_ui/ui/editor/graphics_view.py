@@ -223,6 +223,7 @@ class GraphicsView(
         )
         self.model.active_tool_changed.connect(self._on_active_tool_changed)
         self.model.brush_size_changed.connect(self._on_brush_size_changed)
+        self.model.eraser_size_changed.connect(self._on_eraser_size_changed)
         self.model.brush_color_changed.connect(self._on_brush_color_changed)
 
     def get_view_state(self):

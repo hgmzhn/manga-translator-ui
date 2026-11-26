@@ -286,8 +286,34 @@ class EditorWorkspaceState:
     region_display_mode: str = "full"
     source_opacity: float = 0.0
     active_tool: str = "select"
-    brush_size: int = 30
+    active_group: str = "mask"
+    brush_sizes: dict[str, int] = field(
+        default_factory=lambda: {"mask": 30, "paint": 30, "stamp": 30}
+    )
+    eraser_sizes: dict[str, int] = field(
+        default_factory=lambda: {"mask": 30, "paint": 30, "stamp": 30}
+    )
     brush_color: str = "#ffffff"
+
+    @property
+    def brush_size(self) -> int:
+        """兼容属性：获取当前活动组的画笔大小。"""
+        return self.brush_sizes.get(self.active_group, 30)
+
+    @brush_size.setter
+    def brush_size(self, value: int):
+        """兼容属性：设置当前活动组的画笔大小。"""
+        self.brush_sizes[self.active_group] = int(value)
+
+    @property
+    def eraser_size(self) -> int:
+        """兼容属性：获取当前活动组的橡皮擦大小。"""
+        return self.eraser_sizes.get(self.active_group, 30)
+
+    @eraser_size.setter
+    def eraser_size(self, value: int):
+        """兼容属性：设置当前活动组的橡皮擦大小。"""
+        self.eraser_sizes[self.active_group] = int(value)
 
     def set_source_opacity(self, value: float) -> bool:
         normalized = _normalize_opacity(value)

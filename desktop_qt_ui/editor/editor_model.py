@@ -32,6 +32,7 @@ class EditorModel(QObject):
     original_image_alpha_changed = pyqtSignal(float)
     active_tool_changed = pyqtSignal(str)
     brush_size_changed = pyqtSignal(int)
+    eraser_size_changed = pyqtSignal(int)
     brush_color_changed = pyqtSignal(str)
     paint_overlay_changed = pyqtSignal(object)
     stamp_overlay_changed = pyqtSignal(object)
@@ -268,18 +269,61 @@ class EditorModel(QObject):
         return self.session.get_original_image_alpha()
 
     def set_active_tool(self, tool: str):
+        """设置活动工具并在成功变更时发出 active_tool_changed 信号。"""
         if self.session.set_active_tool(tool):
             self.active_tool_changed.emit(tool)
 
     def get_active_tool(self) -> str:
+        """获取当前活动工具名称。"""
         return self.session.get_active_tool()
 
-    def set_brush_size(self, size: int):
-        if self.session.set_brush_size(size):
+    def set_active_group(self, group: str):
+        """切换当前活动工具组，并在有效尺寸变化时通知。"""
+        previous_size = self.get_active_brush_size()
+        if self.session.set_active_group(group):
+            new_size = self.get_active_brush_size()
+            if new_size != previous_size:
+                if self.is_eraser_tool():
+                    self.eraser_size_changed.emit(new_size)
+                else:
+                    self.brush_size_changed.emit(new_size)
+
+    def get_active_group(self) -> str:
+        """获取当前活动工具组。"""
+        return self.session.get_active_group()
+
+    def set_brush_size(self, size: int, group: Optional[str] = None):
+        """设置画笔大小并在成功变更时发出通知信号。"""
+        if self.session.set_brush_size(size, group):
             self.brush_size_changed.emit(size)
 
-    def get_brush_size(self) -> int:
-        return self.session.get_brush_size()
+    def get_brush_size(self, group: Optional[str] = None) -> int:
+        """获取指定工具组（默认当前活动组）的画笔大小。"""
+        return self.session.get_brush_size(group)
+
+    def set_eraser_size(self, size: int, group: Optional[str] = None):
+        """设置橡皮擦大小并在成功变更时发出通知信号。"""
+        if self.session.set_eraser_size(size, group):
+            self.eraser_size_changed.emit(size)
+
+    def get_eraser_size(self, group: Optional[str] = None) -> int:
+        """获取指定工具组（默认当前活动组）的橡皮擦大小。"""
+        return self.session.get_eraser_size(group)
+
+    def is_eraser_tool(self, tool: Optional[str] = None) -> bool:
+        """判断工具是否为橡皮擦类工具。"""
+        return self.session.is_eraser_tool(tool)
+
+    def get_active_brush_size(self) -> int:
+        """获取当前活动工具的笔刷尺寸。"""
+        return self.session.get_active_brush_size()
+
+    def set_active_brush_size(self, size: int):
+        """设置当前活动工具的笔刷尺寸。"""
+        if self.is_eraser_tool():
+            self.set_eraser_size(size)
+        else:
+            self.set_brush_size(size)
 
     def set_brush_color(self, color: str):
         if self.session.set_brush_color(color):

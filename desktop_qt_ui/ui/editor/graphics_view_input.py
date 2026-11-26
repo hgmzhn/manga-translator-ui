@@ -320,6 +320,7 @@ class GraphicsViewInputMixin:
         if mask_shape is None:
             return
         self._is_drawing = True
+        self._current_stroke_size = self._brush_size
         self._current_draw_scene_points = []
         self._current_draw_mask_points = []
         self._current_draw_mask_shape = mask_shape
@@ -345,6 +346,7 @@ class GraphicsViewInputMixin:
         if self._current_draw_scene_points:
             painter = QPainter(pixmap)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            stroke_size = getattr(self, "_current_stroke_size", None) or self._brush_size
 
             if self._active_tool == "paint":
                 preview_color = QColor(self._brush_color)
@@ -354,7 +356,7 @@ class GraphicsViewInputMixin:
                     preview_color.setAlpha(220)
                 preview_pen = QPen(
                     preview_color,
-                    self._brush_size,
+                    stroke_size,
                     Qt.PenStyle.SolidLine,
                     Qt.PenCapStyle.RoundCap,
                     Qt.PenJoinStyle.RoundJoin,
@@ -362,7 +364,7 @@ class GraphicsViewInputMixin:
             elif self._active_tool in ("paint_erase", "stamp_erase"):
                 preview_pen = QPen(
                     QColor(0, 200, 255, 120),
-                    self._brush_size,
+                    stroke_size,
                     Qt.PenStyle.SolidLine,
                     Qt.PenCapStyle.RoundCap,
                     Qt.PenJoinStyle.RoundJoin,
@@ -370,7 +372,7 @@ class GraphicsViewInputMixin:
             elif self._active_tool in ["pen", "brush"]:
                 preview_pen = QPen(
                     QColor(255, 0, 0, 128),
-                    self._brush_size,
+                    stroke_size,
                     Qt.PenStyle.SolidLine,
                     Qt.PenCapStyle.RoundCap,
                     Qt.PenJoinStyle.RoundJoin,
@@ -378,7 +380,7 @@ class GraphicsViewInputMixin:
             else:
                 preview_pen = QPen(
                     QColor(0, 150, 255, 100),
-                    self._brush_size,
+                    stroke_size,
                     Qt.PenStyle.SolidLine,
                     Qt.PenCapStyle.RoundCap,
                     Qt.PenJoinStyle.RoundJoin,
@@ -481,7 +483,10 @@ class GraphicsViewInputMixin:
         image_h = self._image_item.pixmap().height() if self._image_item else mask_h
         scale_x = float(mask_w) / float(max(image_w, 1))
         scale_y = float(mask_h) / float(max(image_h, 1))
-        stroke_size = max(1, int(round(self._brush_size * (scale_x + scale_y) * 0.5)))
+        stroke_brush_size = (
+            getattr(self, "_current_stroke_size", None) or self._brush_size
+        )
+        stroke_size = max(1, int(round(stroke_brush_size * (scale_x + scale_y) * 0.5)))
         radius = max(1, stroke_size // 2)
 
         if len(points) == 1:
@@ -872,6 +877,7 @@ class GraphicsViewInputMixin:
                     self._commit_drawing()
         finally:
             self._is_drawing = False
+            self._current_stroke_size = None
             self._current_draw_scene_points = []
             self._current_draw_mask_points = []
             self._current_draw_mask_shape = None
@@ -900,6 +906,11 @@ class GraphicsViewInputMixin:
         self.scene.update()
         self.viewport().update()
 
+    @staticmethod
+    def _is_eraser_tool(tool: str) -> bool:
+        """判断工具是否属于橡皮擦类型。"""
+        return tool in ("eraser", "paint_erase", "stamp_erase")
+
     @pyqtSlot(str)
     def _on_active_tool_changed(self, tool: str):
         if tool == self._active_tool:
@@ -912,13 +923,33 @@ class GraphicsViewInputMixin:
             self._clone_sample_image_point = None
             self._clone_offset = None
             self._clear_clone_marker()
+        if hasattr(self, "model") and self.model is not None:
+            if self._is_eraser_tool(tool):
+                self._brush_size = self.model.get_eraser_size()
+            else:
+                self._brush_size = self.model.get_brush_size()
         self._update_cursor()
         self.viewport().update()
 
     @pyqtSlot(int)
     def _on_brush_size_changed(self, size: int):
-        self._brush_size = size
-        self._update_cursor()
+        """当画笔尺寸改变时，若当前处于画笔类工具，确保画布采用当前活动工具组的尺寸。"""
+        if not self._is_eraser_tool(self._active_tool):
+            if hasattr(self, "model") and self.model is not None:
+                self._brush_size = self.model.get_brush_size()
+            else:
+                self._brush_size = size
+            self._update_cursor()
+
+    @pyqtSlot(int)
+    def _on_eraser_size_changed(self, size: int):
+        """当橡皮擦尺寸改变时，若当前处于橡皮擦工具，确保画布采用当前活动工具组的尺寸。"""
+        if self._is_eraser_tool(self._active_tool):
+            if hasattr(self, "model") and self.model is not None:
+                self._brush_size = self.model.get_eraser_size()
+            else:
+                self._brush_size = size
+            self._update_cursor()
 
     @pyqtSlot(str)
     def _on_brush_color_changed(self, color: str):

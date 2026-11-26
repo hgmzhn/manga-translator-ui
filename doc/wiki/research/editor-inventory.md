@@ -258,7 +258,7 @@
 | 焦点进入另一个顶层窗口（尤其富文本 `Qt.Tool`） | `QApplication.focusWidget()` 的窗口不是 `EditorView` 所在窗口时，所有 context-aware 编辑器快捷键直接返回；不以主窗口残留焦点误删画布区域 | `desktop_qt_ui/ui/editor/shortcut_manager.py:49` |
 | 焦点在主窗口的 `QTextEdit` 或 `QLineEdit` | Undo/redo/copy/paste/select-all 留给文本控件；Q/W/E/A/D 被转发为文字，不切工具或图片 | `desktop_qt_ui/ui/editor/shortcut_manager.py:83`、`:214`、`:288` |
 | `Delete` 与文本输入 | 只有焦点不是文本控件时删除区域；文本控件不触发区域删除 | `desktop_qt_ui/ui/editor/shortcut_manager.py:275` |
-| `Shift + 滚轮` 位于画布 viewport | 调整共享画笔大小，每格 ±1，钳制 5–200，并吞掉事件 | `desktop_qt_ui/ui/editor/shortcut_manager.py:343`、`:363` |
+| `Shift + 滚轮` 位于画布 viewport | 调整当前活动工具（画笔或橡皮擦）大小，每格 ±1，钳制 5–200，并吞掉事件 | `desktop_qt_ui/ui/editor/shortcut_manager.py:343`、`:363` |
 | 任意包含 Ctrl 的滚轮组合 | 调整所有选中区域字号；无选区也吞掉事件，不能穿透成画布缩放 | `desktop_qt_ui/ui/editor/shortcut_manager.py:376` |
 | 普通滚轮位于画布 | 上述过滤器不拦截，`GraphicsView.wheelEvent()` 缩放画布 | `desktop_qt_ui/ui/editor/shortcut_manager.py:394`、`desktop_qt_ui/ui/editor/graphics_view_input.py:56` |
 | 浮窗因选区显示 | 用 `WA_ShowWithoutActivating` 显示，且选区变化不调用 `focus_text()`；画布保留焦点，所以 Delete/A/D/Q/W/E 继续按画布语义，用户点击文本框后才进入文字编辑 | `desktop_qt_ui/ui/widgets/rich_text_floating_editor.py:63`、`desktop_qt_ui/ui/editor/view.py:550` |

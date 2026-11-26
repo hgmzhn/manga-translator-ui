@@ -870,7 +870,11 @@ class EditorView(QWidget):
             (self.model.regions_changed, self._on_regions_changed_for_rich_editor),
             (
                 self.model.brush_size_changed,
-                self.property_panel.sync_brush_size_from_model,
+                self.property_panel.on_model_brush_size_changed,
+            ),
+            (
+                self.model.eraser_size_changed,
+                self.property_panel.on_model_eraser_size_changed,
             ),
             (
                 self.model.brush_color_changed,
@@ -1069,6 +1073,7 @@ class EditorView(QWidget):
         )
         self.property_panel.mask_tool_changed.connect(self.model.set_active_tool)
         self.property_panel.brush_size_changed.connect(self.model.set_brush_size)
+        self.property_panel.eraser_size_changed.connect(self.model.set_eraser_size)
         self.property_panel.brush_color_changed.connect(self.model.set_brush_color)
 
         if self.rich_text_editor is not None:
