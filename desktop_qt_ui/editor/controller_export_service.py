@@ -268,6 +268,11 @@ class EditorControllerExportService:
             if future is None:
                 job.release_resources()
                 return self._reject_export("导出队列已经关闭")
+            document_service = getattr(self.controller, "document_service", None)
+            if document_service is not None and hasattr(
+                document_service, "clear_pending_auto_export"
+            ):
+                document_service.clear_pending_auto_export()
             return future
         except Exception as e:
             self.logger.error(f"Error during export request: {e}", exc_info=True)
