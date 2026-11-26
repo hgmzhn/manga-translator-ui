@@ -82,13 +82,14 @@ class BlurInpainter(CommonInpainter):
         kernel_dilate = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (dilate_k, dilate_k))
         mask_dilated = cv2.dilate(mask_binary, kernel_dilate, iterations=1)
         feather_k = max(7, (ksize // 3) | 1)
+        feather_r = max(3, feather_k // 2)
 
-        # 3. 局部 Telea 预填充 + 局部高斯模糊与羽化混合（扩边大于 ksize + 羽化半宽，消除 ROI 边界截断并跳过纯背景像素）
+        # 3. 局部 Telea 预填充 + 局部高斯模糊与外侧余弦羽化（扩边大于 ksize + feather_r，蒙版内部 alpha 恒为 1 避免细笔画残留）
         contours, _ = cv2.findContours(mask_dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
             return np.copy(image)
 
-        pad = max(10, ksize + (feather_k // 2) + 2)
+        pad = max(10, ksize + feather_r + 2)
         raw_boxes = []
         for cnt in contours:
             bx, by, bw, bh = cv2.boundingRect(cnt)
@@ -109,8 +110,11 @@ class BlurInpainter(CommonInpainter):
             roi_img = image[y1:y2, x1:x2]
             roi_telea = cv2.inpaint(roi_img, roi_mask, 3, cv2.INPAINT_TELEA)
             roi_blurred = cv2.GaussianBlur(roi_telea, (ksize, ksize), 0)
-            roi_alpha = cv2.GaussianBlur(roi_mask.astype(np.float32) / 255.0, (feather_k, feather_k), 0)
-            roi_alpha = np.clip(roi_alpha, 0.0, 1.0)
+            # 仅在蒙版外侧做距离衰减，保证文字蒙版内部 alpha 固定为 1.0，不混回原始笔画
+            dist_outside = cv2.distanceTransform(255 - roi_mask, cv2.DIST_L2, 5)
+            roi_alpha = (
+                0.5 * (1.0 + np.cos(np.pi * np.clip(dist_outside / float(feather_r), 0.0, 1.0)))
+            ).astype(np.float32)
             if roi_img.ndim == 3:
                 roi_alpha = roi_alpha[:, :, None]
             result[y1:y2, x1:x2] = np.clip(

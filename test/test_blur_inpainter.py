@@ -57,6 +57,14 @@ def test_blur_inpainter_rgb_and_grayscale_roi_isolation():
     assert out_auto.shape == rgb.shape and out_auto.dtype == np.uint8
     assert np.array_equal(out_auto[:15, :15], rgb[:15, :15])
 
+    # 白底细黑笔画在大半径(200)下必须被彻底擦除，不能混回原黑线
+    white_bg = np.full((200, 200, 3), 255, dtype=np.uint8)
+    stroke_mask = np.zeros((200, 200), dtype=np.uint8)
+    white_bg[99:101, 70:130] = 0
+    stroke_mask[99:101, 70:130] = 255
+    erased = BlurInpainter.apply_blur(white_bg, stroke_mask, blur_radius=200)
+    assert int(erased[99:101, 70:130].min()) >= 250
+
     # 2D 灰度图兼容且保持局部 ROI 隔离
     gray = rgb[:, :, 0].copy()
     out_gray = BlurInpainter.apply_blur(gray, mask, blur_radius=15)
@@ -102,7 +110,10 @@ def test_dispatch_blur_skips_long_image_split(monkeypatch):
 
 
 def test_run_inpainting_skips_per_block_for_blur(monkeypatch):
-    async def fail_per_block(*_args, **_kwargs):
+    per_block_calls = []
+
+    async def record_per_block(*_args, **_kwargs):
+        per_block_calls.append(True)
         raise AssertionError("blur inpainter must skip per_block_inpainting")
 
     dispatched = []
@@ -111,7 +122,7 @@ def test_run_inpainting_skips_per_block_for_blur(monkeypatch):
         dispatched.append((key, img.shape, mask.shape))
         return img.copy()
 
-    monkeypatch.setattr(mt_mod, "inpaint_regions_per_block", fail_per_block)
+    monkeypatch.setattr(mt_mod, "inpaint_regions_per_block", record_per_block)
     monkeypatch.setattr(mt_mod, "dispatch_inpainting", fake_dispatch_inpainting)
 
     translator = mt_mod.MangaTranslator.__new__(mt_mod.MangaTranslator)
@@ -134,6 +145,7 @@ def test_run_inpainting_skips_per_block_for_blur(monkeypatch):
 
     result = asyncio.run(translator._run_inpainting(cfg, ctx))
     assert result.shape == (64, 64, 3)
+    assert per_block_calls == []
     assert dispatched == [(Inpainter.blur, (64, 64, 3), (64, 64))]
 
 
@@ -218,7 +230,11 @@ def test_lightweight_inpainter_blur_cache_key_and_scale(monkeypatch):
         li._inpaint_blur(img, mask, scale=0.25)
         current_cfg.blur_radius = 0
         li._inpaint_blur(img, mask, scale=0.25)
+        # 显式快照的 blur_radius 不受后续配置变动影响
+        current_cfg.blur_radius = 99
+        li._inpaint_blur(img, mask, scale=1.0, blur_radius=20)
+        assert li._generate_cache_key(img, mask, InpainterType.BLUR, preview_cfg, blur_radius=20) == key_r20
 
-        assert seen_radii == [10, 0]
+        assert seen_radii == [10, 0, 20]
     finally:
         li.shutdown()
