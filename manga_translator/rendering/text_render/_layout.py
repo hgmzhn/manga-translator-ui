@@ -66,16 +66,19 @@ from ._vertical_types import (
 )
 
 _HORIZONTAL_SYMBOL_HALFWIDTH_MAP = str.maketrans({"！": "!", "？": "?"})
-# Script detection for horizontal line spacing: pure CJK keeps tight per-line
-# ink bounds, while Latin/alphabetic text uses uniform font-nominal + block
-# line bounds so commas, descenders, and x-height lines stay evenly spaced.
+# Script detection for horizontal line spacing: CJK, mixed CJK+Latin, and
+# non-alphabetic punctuation/numeric text keep tight per-line ink bounds,
+# while multi-line pure Latin/alphabetic blocks unify standard line spacing
+# bounds across the block so commas, descenders, and x-height lines stay
+# evenly spaced without shrinking all-caps bubbles.
 _CJK_CHAR_RE = re.compile(
-    r"[\u3040-\u30FF\u3130-\u318F\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF]"
+    r"[\u1100-\u11FF\u3005-\u3007\u3040-\u30FF\u3100-\u318F\u31A0-\u31BF"
+    r"\u31F0-\u31FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF"
+    r"\uFF61-\uFF9F\U00020000-\U000323AF]"
 )
 _LATIN_ALPHABETIC_RE = re.compile(
     r"[A-Za-z\u00C0-\u024F\u0370-\u03FF\u0400-\u04FF\u1E00-\u1EFF]"
 )
-_LATIN_NOMINAL_SAMPLE = "Hbgjpqy,?!"
 # Keep join controls in horizontal strings for QTextLayout shaping. In the
 # per-character vertical path they have neither ink nor a character slot.
 _ZERO_WIDTH_JOIN_CONTROLS = frozenset(("\u200c", "\u200d"))
@@ -819,52 +822,17 @@ def _paragraph_line_spacing_values(paragraph) -> tuple[float | None, float | Non
 
 
 def _document_uses_uniform_latin_spacing(document: RichTextDocument) -> bool:
-    cjk_count = 0
-    latin_count = 0
+    has_latin = False
     for paragraph in document.paragraphs:
         for span in paragraph.spans:
             text = span.text or ""
             if not text:
                 continue
-            cjk_count += len(_CJK_CHAR_RE.findall(text))
-            latin_count += len(_LATIN_ALPHABETIC_RE.findall(text))
-    if cjk_count == 0:
-        return True
-    return latin_count > 0 and latin_count >= cjk_count
-
-
-def _horizontal_latin_nominal_bounds(
-    font_size: int, scale_y: float = 1.0
-) -> tuple[float, float]:
-    state = _state()
-    key = (
-        "latin-nominal-v",
-        state.font_family,
-        state.font_style,
-        bool(state.bold),
-        int(font_size),
-        round(float(scale_y), 4),
-    )
-    cached = state.measures.get(key)
-    if cached is not None:
-        return cached
-    geometry = _line_ink_geometry(
-        _LATIN_NOMINAL_SAMPLE,
-        font_size,
-        0.0,
-        False,
-        1.0,
-        scale_y=scale_y,
-    )
-    if not geometry["has_ink"]:
-        bounds = (-0.8 * float(font_size), 0.2 * float(font_size))
-    else:
-        top = float(geometry["top_rel"])
-        bounds = (top, top + float(geometry["height"]))
-    if len(state.measures) >= 4096:
-        state.measures.clear()
-    state.measures[key] = bounds
-    return bounds
+            if _CJK_CHAR_RE.search(text):
+                return False
+            if not has_latin and _LATIN_ALPHABETIC_RE.search(text):
+                has_latin = True
+    return has_latin
 
 
 def _is_standard_horizontal_spacing_line(
@@ -894,7 +862,6 @@ def _finalize_rich_horizontal_line(
     letter_spacing: float,
     line_kerning: float | None = None,
     next_kerning: float | None = None,
-    use_uniform_latin_spacing: bool = False,
 ) -> HorizontalLinePlan:
     cursor = 0.0
     body_rects = []
@@ -921,25 +888,6 @@ def _finalize_rich_horizontal_line(
                     spacing_rect.height,
                 )
             )
-            if (
-                use_uniform_latin_spacing
-                and run.span.style.transform.rotation == 0
-                and run.span.style.transform.offset_y == 0
-            ):
-                effective_bold = bool(run.span.style.bold) or _state().bold
-                with _style_font_scope(run.span.style), _bold_scope(effective_bold):
-                    nom_top, nom_bottom = _horizontal_latin_nominal_bounds(
-                        run.font_size,
-                        run.span.style.transform.scale_y,
-                    )
-                spacing_rects.append(
-                    (
-                        cursor + spacing_rect.x,
-                        nom_top,
-                        spacing_rect.width,
-                        max(1.0, nom_bottom - nom_top),
-                    )
-                )
 
             ruby = run.ruby
             if ruby is not None:
@@ -1100,7 +1048,6 @@ def _build_rich_horizontal_layout(
     shaped glyph/effect rectangles.  ``geometry_sink`` is an optional,
     per-render handoff to the painter so shaping is not repeated immediately.
     """
-    use_uniform_latin_spacing = _document_uses_uniform_latin_spacing(document)
     layouts = []
     for paragraph in document.paragraphs:
         runs: list[HorizontalRunPlan] = []
@@ -1131,15 +1078,10 @@ def _build_rich_horizontal_layout(
         line_kerning, next_kerning = _paragraph_line_spacing_values(paragraph)
         layouts.append(
             _finalize_rich_horizontal_line(
-                runs,
-                base_font_size,
-                letter_spacing,
-                line_kerning,
-                next_kerning,
-                use_uniform_latin_spacing=use_uniform_latin_spacing,
+                runs, base_font_size, letter_spacing, line_kerning, next_kerning
             )
         )
-    if use_uniform_latin_spacing and len(layouts) >= 2:
+    if len(layouts) >= 2 and _document_uses_uniform_latin_spacing(document):
         standard_indices = [
             idx
             for idx, layout in enumerate(layouts)

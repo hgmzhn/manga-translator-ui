@@ -17,6 +17,7 @@ from manga_translator.rendering.text_render._layout import (
     CJK_Compatibility_Forms_translate,
     _build_tcy_plan,
     _build_vertical_char_plan,
+    _document_uses_uniform_latin_spacing,
     _vertical_free_rotation_advance,
 )
 from manga_translator.rendering.text_render._vertical_types import VerticalGlyphBase
@@ -2175,6 +2176,212 @@ class RichTextRenderingTest(unittest.TestCase):
         )
         styled_advance = geometry["baselines"][1] - geometry["baselines"][0]
         self.assertAlmostEqual(styled_advance - default_advance, 12.0, places=3)
+
+    def test_horizontal_uniform_latin_spacing_normalizes_commas_and_descenders(self):
+        for text in (
+            "Line 1\nLine 2\nLine 3,\nLine 4",
+            "aaa\nbbb\nggg\nccc",
+            "Hello\n...\nWorld",
+        ):
+            doc = ensure_rich_text_document(
+                legacy_line_breaks_to_document(text).to_dict()
+            )
+            layouts = text_render._build_rich_horizontal_layout(
+                doc, 48, 0.0, None, False, 1.0
+            )
+            geometry = text_render._rich_horizontal_layout_geometry(layouts, 48, 1.0)
+            baselines = geometry["baselines"]
+            deltas = [
+                baselines[idx + 1] - baselines[idx]
+                for idx in range(len(baselines) - 1)
+            ]
+            for delta in deltas[1:]:
+                self.assertAlmostEqual(delta, deltas[0], places=4)
+
+            metrics = text_render.measure_rich_text_metrics(
+                48, text, True, 1.0, stroke_width=0.07
+            )
+            surface = text_render.put_text_horizontal(
+                48,
+                text,
+                10,
+                10,
+                "center",
+                False,
+                (0, 0, 0),
+                (255, 255, 255),
+                line_spacing=1.0,
+                stroke_width=0.07,
+            )
+            self.assertEqual(
+                (surface.shape[1], surface.shape[0]),
+                (metrics["width"], metrics["height"]),
+            )
+
+        caps_plain = text_render._rich_horizontal_layout_geometry(
+            text_render._build_rich_horizontal_layout(
+                ensure_rich_text_document(
+                    legacy_line_breaks_to_document("HELLO\nWORLD\nTODAY").to_dict()
+                ),
+                48,
+                0.0,
+                None,
+                False,
+                1.0,
+            ),
+            48,
+            1.0,
+        )
+        caps_comma = text_render._rich_horizontal_layout_geometry(
+            text_render._build_rich_horizontal_layout(
+                ensure_rich_text_document(
+                    legacy_line_breaks_to_document("HELLO\nWORLD,\nTODAY").to_dict()
+                ),
+                48,
+                0.0,
+                None,
+                False,
+                1.0,
+            ),
+            48,
+            1.0,
+        )
+        self.assertLess(
+            caps_plain["baselines"][1] - caps_plain["baselines"][0],
+            caps_comma["baselines"][1] - caps_comma["baselines"][0],
+        )
+
+    def test_horizontal_uniform_latin_spacing_excludes_cjk_mixed_and_non_alphabetic(
+        self,
+    ):
+        for latin_text in ("Line 1\nLine 2,", "Привет,\nмир", "C'est ça,\nÉlève"):
+            doc = ensure_rich_text_document(
+                legacy_line_breaks_to_document(latin_text).to_dict()
+            )
+            self.assertTrue(_document_uses_uniform_latin_spacing(doc))
+
+        for excluded_text in (
+            "第一行\n第二行",
+            "！？\n……",
+            "……\n……",
+            "100%\n200%",
+            "ｱｲｳ\nｴｵｶ",
+            "𠀀𠀁\n𠀂𠀃",
+            "BOSS战\n开始了",
+            "CJK混排Alpha测试\nsecond LINE 42",
+            "مرحبا\nبالعالم",
+            "สวัสดี\nชาวโลก",
+        ):
+            doc = ensure_rich_text_document(
+                legacy_line_breaks_to_document(excluded_text).to_dict()
+            )
+            self.assertFalse(
+                _document_uses_uniform_latin_spacing(doc),
+                f"Expected uniform Latin spacing disabled for {excluded_text!r}",
+            )
+
+        latin_geom = text_render._rich_horizontal_layout_geometry(
+            text_render._build_rich_horizontal_layout(
+                ensure_rich_text_document(
+                    legacy_line_breaks_to_document("Line 1\nLine 2").to_dict()
+                ),
+                48,
+                0.0,
+                None,
+                False,
+                1.0,
+            ),
+            48,
+            1.0,
+        )
+        latin_advance = latin_geom["baselines"][1] - latin_geom["baselines"][0]
+        for punct_text in ("！？\n……", "……\n……"):
+            punct_geom = text_render._rich_horizontal_layout_geometry(
+                text_render._build_rich_horizontal_layout(
+                    ensure_rich_text_document(
+                        legacy_line_breaks_to_document(punct_text).to_dict()
+                    ),
+                    48,
+                    0.0,
+                    None,
+                    False,
+                    1.0,
+                ),
+                48,
+                1.0,
+            )
+            punct_advance = punct_geom["baselines"][1] - punct_geom["baselines"][0]
+            self.assertLess(punct_advance, latin_advance * 0.5)
+
+    def test_horizontal_uniform_latin_spacing_preserves_special_rich_lines(self):
+        base_doc = ensure_rich_text_document(
+            legacy_line_breaks_to_document("Line 1\nLine 2,").to_dict()
+        )
+        base_geom = text_render._rich_horizontal_layout_geometry(
+            text_render._build_rich_horizontal_layout(
+                base_doc, 48, 0.0, None, False, 1.0
+            ),
+            48,
+            1.0,
+        )
+        standard_advance = base_geom["baselines"][1] - base_geom["baselines"][0]
+
+        rich_doc = ensure_rich_text_document(
+            {
+                "format": RICH_TEXT_FORMAT,
+                "blocks": [
+                    {
+                        "type": "paragraph",
+                        "inlines": [{"type": "text", "text": "Line 1", "style": {}}],
+                    },
+                    {
+                        "type": "paragraph",
+                        "inlines": [{"type": "text", "text": "Line 2,", "style": {}}],
+                    },
+                    {
+                        "type": "paragraph",
+                        "inlines": [
+                            {"type": "text", "text": "Big", "style": {"fontSize": 72}}
+                        ],
+                    },
+                    {
+                        "type": "paragraph",
+                        "inlines": [{"type": "text", "text": "Line 4", "style": {}}],
+                    },
+                ],
+            }
+        )
+        rich_geom = text_render._rich_horizontal_layout_geometry(
+            text_render._build_rich_horizontal_layout(
+                rich_doc, 48, 0.0, None, False, 1.0
+            ),
+            48,
+            1.0,
+        )
+        baselines = rich_geom["baselines"]
+        self.assertAlmostEqual(baselines[1] - baselines[0], standard_advance, places=4)
+        self.assertGreater(baselines[2] - baselines[1], standard_advance)
+        self.assertGreater(baselines[3] - baselines[2], standard_advance)
+
+        metrics = text_render.measure_rich_text_metrics(
+            48, rich_doc, True, 1.0, stroke_width=0.0
+        )
+        surface = text_render.put_text_horizontal(
+            48,
+            rich_doc,
+            10,
+            10,
+            "center",
+            False,
+            (0, 0, 0),
+            None,
+            line_spacing=1.0,
+            stroke_width=0.0,
+        )
+        self.assertEqual(
+            (surface.shape[1], surface.shape[0]),
+            (metrics["width"], metrics["height"]),
+        )
 
 
 if __name__ == "__main__":
