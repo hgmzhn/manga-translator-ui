@@ -18,6 +18,7 @@ class PermissionsModule {
             { id: 'batch_translate', name: '批量翻译', description: '允许批量翻译多张图片', category: '基础功能' },
             { id: 'upload', name: '上传文件', description: '允许上传图片文件', category: '基础功能' },
             { id: 'download', name: '下载结果', description: '允许下载翻译结果', category: '基础功能' },
+            { id: 'can_save_to_server_result', name: '保存到服务器目录', description: '允许将翻译结果直接写入服务端 result 目录（Docker 映射目录）', category: '基础功能' },
             { id: 'use_api', name: '使用API', description: '允许通过API访问服务', category: 'API' },
             { id: 'manage_api_keys', name: '管理API密钥', description: '允许创建和管理API密钥', category: 'API' },
             { id: 'view_history', name: '查看历史', description: '允许查看翻译历史', category: '历史记录' },

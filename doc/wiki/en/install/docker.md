@@ -112,10 +112,10 @@ Compose paths are relative to `packaging/`:
 | --- | --- | --- |
 | `data/fonts` | `/app/fonts` | Font resources; do not share volumes containing private font files |
 | `data/dict` | `/app/dict` | Prompts, dictionaries, and rules; may contain private prompts |
-| `data/result` | `/app/result` | Translation results and possible user images/text |
+| `data/result` | `/app/result` | Translation output directory; Web users granted `can_save_to_server_result` (enabled by default for administrators) can check "Save to server result directory" in the Web UI to write translated images directly here while preserving uploaded folder hierarchy (and an optional subfolder) |
 | `data/models` | `/app/models` | Model weights and cache; usually large |
 | `data/logs` | `/app/logs` | Log directory; logs can contain paths, errors, and task information |
-| `data/server` | `/app/manga_translator/server/data` | Accounts, permissions, sessions, history, and user resources |
+| `data/server` | `/app/manga_translator/server/data` | Accounts, permissions, sessions, per-user internal Web history, and user resources |
 | `data/config` | `/app/config` | Configuration and templates; an empty directory is initialized by the entrypoint |
 
 To retain server API configuration saved through the Web administration UI after container recreation, first create an empty `packaging/data/app.env`, then uncomment `./data/app.env:/app/.env` in Compose. Do not commit `.env`, account data, session tokens, API keys, user images, or prompts to Git; manage mounted directories with least privilege and a backup-retention policy.

@@ -111,10 +111,10 @@ Compose 路径均相对于 `packaging/`：
 | --- | --- | --- |
 | `data/fonts` | `/app/fonts` | 字体资源；支持项目实际字体格式，不要放入私人字体文件后直接分享卷 |
 | `data/dict` | `/app/dict` | 提示词、词典和规则；可能包含私有提示词 |
-| `data/result` | `/app/result` | 翻译结果和可能的用户图片/文本 |
+| `data/result` | `/app/result` | 翻译结果导出目录；拥有 `can_save_to_server_result` 权限的用户（管理员默认开启）可在 Web 界面勾选“保存到服务器 result 目录”，将翻译后图片按原文件夹层级（及可选子文件夹）直接写入此处 |
 | `data/models` | `/app/models` | 模型权重与缓存，通常占用较大空间 |
 | `data/logs` | `/app/logs` | 日志目录；日志可能包含路径、错误和任务信息 |
-| `data/server` | `/app/manga_translator/server/data` | 账号、权限、会话、历史和用户资源 |
+| `data/server` | `/app/manga_translator/server/data` | 账号、权限、会话、按用户隔离的 Web 内部历史记录和用户资源 |
 | `data/config` | `/app/config` | 配置文件和模板；空目录会由 entrypoint 初始化 |
 
 若要让 Web 管理界面保存的服务器 API 配置在重建容器后保留，先创建空的 `packaging/data/app.env`，再取消 Compose 中 `./data/app.env:/app/.env` 的注释。不要把 `.env`、账号数据、会话令牌、API Key、用户图片或提示词提交到 Git；挂载目录也应按最小权限和备份保留期管理。

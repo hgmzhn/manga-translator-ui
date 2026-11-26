@@ -127,7 +127,8 @@
           "can_use_api": true,
           "can_export_text": true,
           "can_view_history": true,
-          "can_view_logs": false
+          "can_view_logs": false,
+          "can_save_to_server_result": true
         }
       },
       "allowed_translators": [
@@ -236,7 +237,8 @@
           "can_use_api": true,
           "can_export_text": true,
           "can_view_history": true,
-          "can_view_logs": false
+          "can_view_logs": false,
+          "can_save_to_server_result": false
         },
         "parameter_config": {
           "cli.attempts": {

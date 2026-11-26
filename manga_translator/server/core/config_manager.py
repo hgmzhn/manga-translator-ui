@@ -94,6 +94,7 @@ DEFAULT_ADMIN_SETTINGS = {
         'can_upload_prompts': True,
         'can_delete_prompts': True,
         'can_add_folders': True,
+        'can_save_to_server_result': False,
     },
     'upload_limits': {
         'max_image_size_mb': 10,

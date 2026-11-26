@@ -54,7 +54,7 @@ Feature-permission resolution follows this priority, from highest to lowest: use
 ### Feature, resource, and quota permissions {#feature-resource-and-quota-permissions}
 
 - Feature permissions: translators, OCR, colorizers, renderers, workflows, and parameters each have `allowed_*` / `denied_*` lists. Parameter permissions filter by configuration key (for example `translator.target_lang`).
-- Resource permissions: `can_upload_files` / `can_delete_files` decide whether private fonts and prompts can be uploaded/deleted. When a group configures the finer-grained `can_upload_fonts`, `can_delete_fonts`, `can_upload_prompts`, or `can_delete_prompts`, the group value wins.
+- Resource permissions: `can_upload_files` / `can_delete_files` decide whether private fonts and prompts can be uploaded/deleted. When a group configures the finer-grained `can_upload_fonts`, `can_delete_fonts`, `can_upload_prompts`, or `can_delete_prompts`, the group value wins. `can_save_to_server_result` controls whether translated images may be written directly to the server's `result/` directory (enabled by default for the `admin` role, disabled by default for regular user groups, and configurable per group by administrators in the group permission editor).
 - Quota: `max_concurrent_tasks` (default 2 for regular users, 10 for administrators) limits simultaneously running tasks; `daily_quota` (default 100 for regular users, `-1` means unlimited) limits the daily task count. Group quota takes precedence over user-level quota. Exceeding a limit returns `429`.
 - Upload limits are also affected by server configuration: `max_image_size_mb` and `max_images_per_batch`.
 

@@ -229,6 +229,7 @@ async def get_config_defaults():
         'can_export_text': True,
         'can_view_history': True,
         'can_view_logs': False,
+        'can_save_to_server_result': False,
         'show_env_editor': False,
         'allow_server_keys': True,
         'require_user_keys': False,
@@ -817,11 +818,16 @@ async def get_user_settings(
     api_key_policy = get_effective_api_key_policy(username, admin_settings)
     upload_limits = admin_settings.get('upload_limits', {})
     
+    from manga_translator.server.core.result_export_service import (
+        check_save_to_server_result_permission,
+    )
+
     # 默认设置
     result = {
         'show_env_editor': api_key_policy.get('show_env_editor', False),
         'can_upload_fonts': permissions.get('can_upload_fonts', True),
         'can_upload_prompts': permissions.get('can_upload_prompts', True),
+        'can_save_to_server_result': check_save_to_server_result_permission(username, admin_settings),
         'allow_server_keys': api_key_policy.get('allow_server_keys', True),
         'max_image_size_mb': upload_limits.get('max_image_size_mb', 0),
         'max_images_per_batch': upload_limits.get('max_images_per_batch', 0)

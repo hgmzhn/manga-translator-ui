@@ -15,16 +15,16 @@ After logging into the web interface (`/`), the main workspace covers the full "
 
 - This guide covers upload, configuration, and starting a translation in the web user interface. Login and sessions are covered in [Login, language, and session](./login-language-and-session.md), progress, results, and history in [Progress, results, and history](./progress-results-and-history.md), accounts, permissions, and API keys in [Accounts, permissions, and API keys](./accounts-permissions-and-api-keys.md), font and prompt uploads in [Resources, fonts, and prompts](./resources-fonts-and-prompts.md), and access URLs in [Launch and access](./launch-and-access.md).
 - The web frontend is not a direct reuse of the desktop Qt UI: `index.html` ships with initial Chinese text, and `script.js` overrides part of the static text through i18n keys. Strings such as "添加文件夹" (Add Folder), "文件列表" (File List), "翻译结果" (Translation Results), "翻译历史" (Translation History), and "N 个文件" (N files) remain hardcoded in HTML/script and have no i18n key.
-- Uploading, PDF extraction, config import/export, and the results list all happen in the browser. The results list in `localStorage` and the server-side translation history are two separate stores.
+- Uploading, PDF extraction, config import/export, and the results list all happen in the browser. The results list in `localStorage`, the per-user server-side translation history, and optional direct saving to the server `result/` directory are independent stores.
 - Keys controlled by the workflow-mode dropdown — `cli.load_text`, `cli.translate_json_only`, `cli.template`, `cli.generate_and_export`, `cli.colorize_only`, `cli.upscale_only`, `cli.inpaint_only` — and also `cli.batch_size`, `cli.batch_concurrent`, and `cli.use_gpu` are hidden by the server-side `SERVER_HIDDEN_CONFIG_KEYS` set and never appear in the web config form; do not edit them by hand.
-- Upload count/size limits, the API-key editor switch, and font/prompt upload permissions come from `/user/settings`; `0` means unlimited.
+- Upload count/size limits, the API-key editor switch, font/prompt upload permissions, and the server `result/` direct-save permission (`can_save_to_server_result`) come from `/user/settings`; `0` means unlimited for numeric limits.
 
 ## Use it in the Web UI
 
 ### Add files and folders
 
 1. The left "File List" panel provides three buttons: "Add Files" (`Add Files`), "Add Folder" (hardcoded Chinese in HTML, not i18n), and "Clear List" (`Clear List`).
-2. Click "Add Files" to open the system multi-select dialog, or "Add Folder" to choose an entire directory. The file input `accept` is `image/*,.pdf,.json,.txt`.
+2. Click "Add Files" to open the system multi-select dialog, or "Add Folder" to choose an entire directory while preserving each file's relative folder path (`webkitRelativePath`) so multi-chapter manga keep their subfolder hierarchy when packed as a ZIP or saved directly to the server `result/` directory. The file input `accept` is `image/*,.pdf,.json,.txt`.
 3. When a PDF is selected, the browser renders every page at 2x with pdf.js and extracts PNG pages (file names like `{base}_page_{pageNumber}.png`). Extraction is limited by `max_pdf_size_mb` (frontend fallback 50 MB) and `max_images_per_batch`; when the quota is exceeded, only the remaining pages are extracted and a warning is logged. PDF-related log messages are hardcoded Chinese fallbacks in the script (neither `en_US` nor `zh_CN` has these keys).
 4. `.json`, `_original.txt`, and `_translated.txt` files selected at the same time are matched to images by base file name for the "Import Translation and Render" mode; match success or failure is written to the log.
 5. The `✖` button on a list item removes that item; "Clear List" clears everything; the counter shows `N 个文件` (hardcoded Chinese).
@@ -42,6 +42,13 @@ After logging into the web interface (`/`), the main workspace covers the full "
 ### Select a workflow mode
 
 The "Translation Workflow Mode:" (`Translation Workflow Mode:`) dropdown lists seven modes, restricted by `/workflows` permissions.
+
+### Server output (optional)
+
+When the current account has the `can_save_to_server_result` permission (enabled by default for the `admin` role and `admin` group; disabled by default for regular users), a "Server Output" (`web_server_output_title`) section appears below the workflow dropdown in the left panel:
+
+1. Checking "Save to server result directory" (`web_save_to_server_result`) writes translated images directly to the server's `result/` directory (`packaging/data/result` → `/app/result` in Docker Compose) in addition to returning them to the browser.
+2. When checked, you may enter an optional subfolder name (for example `MyManga/Chapter01`); if left blank, files are saved under `result/` using their uploaded relative path. The server rejects `..`, absolute paths, drive letters, and any path escaping `result/`.
 
 ### Start a translation
 
