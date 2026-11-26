@@ -1038,6 +1038,12 @@ def _format_test_connection_error(self, api_type: str, message: str) -> str:
         if analysis_message.lower().startswith(prefix):
             analysis_message = analysis_message[len(prefix):].strip()
             break
+    # The localized mode status (e.g. "unavailable") must not drive error classification.
+    statuses = (self._t("API test available"), self._t("API test unavailable"))
+    for stream_status in statuses:
+        for non_stream_status in statuses:
+            mode_line = self._t("api_test_stream_modes", stream=stream_status, non_stream=non_stream_status)
+            analysis_message = analysis_message.replace(mode_line, "")
     error_lower = analysis_message.lower()
 
     network_keywords = (
@@ -1442,16 +1448,14 @@ def validate_api_candidate_availability(self) -> bool:
 
 def _format_api_batch_result_text(self, results: list[dict]) -> str:
     lines = []
-    for item in results:
-        if item.get("success"):
-            continue
-        state_text = self._t("API test unavailable")
+    for item in sorted(results, key=lambda result: bool(result.get("success"))):
+        state_text = self._t("API test available" if item.get("success") else "API test unavailable")
         lines.append(f"[{state_text}] {item.get('label') or item.get('test_target')}")
         message = str(item.get("message") or "").strip()
         if message:
             lines.append(_wrap_error_text(message, width=100))
         lines.append("")
-    return "\n".join(lines).rstrip() or self._t("No unavailable API")
+    return "\n".join(lines).rstrip()
 
 
 def _show_api_batch_test_results(self, results: list[dict]) -> None:
