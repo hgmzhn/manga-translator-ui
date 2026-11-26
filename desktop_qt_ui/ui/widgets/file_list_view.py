@@ -103,34 +103,35 @@ def _resolve_thumbnail_source_path(
         if ext in SUPPORTED_IMAGE_EXTENSIONS and os.path.isfile(output_path):
             return os.path.abspath(os.path.normpath(output_path))
 
-    if json_path and os.path.isfile(json_path):
-        try:
-            import json
+    if json_path:
+        if json_path.lower().endswith(".json") and os.path.isfile(json_path):
+            try:
+                import json
 
-            with open(json_path, "r", encoding="utf-8") as handle:
-                raw = json.load(handle)
-            if isinstance(raw, dict) and raw:
-                entry = raw.get(os.path.abspath(file_path)) or next(iter(raw.values()))
-                if isinstance(entry, dict):
-                    last_output = entry.get("last_output_path")
-                    if (
-                        isinstance(last_output, str)
-                        and os.path.splitext(last_output)[1].lower() in SUPPORTED_IMAGE_EXTENSIONS
-                        and os.path.isfile(last_output)
-                    ):
-                        return os.path.abspath(os.path.normpath(last_output))
-                    last_dir = entry.get("last_export_dir")
-                    if isinstance(last_dir, str) and os.path.isdir(last_dir):
-                        same_name = os.path.join(last_dir, os.path.basename(file_path))
-                        if os.path.isfile(same_name):
-                            return os.path.abspath(os.path.normpath(same_name))
-                        stem = os.path.splitext(os.path.basename(file_path))[0]
-                        for ext in SUPPORTED_IMAGE_EXTENSIONS:
-                            candidate = os.path.join(last_dir, f"{stem}{ext}")
-                            if os.path.isfile(candidate):
-                                return os.path.abspath(os.path.normpath(candidate))
-        except Exception:
-            pass
+                with open(json_path, "r", encoding="utf-8") as handle:
+                    raw = json.load(handle)
+                if isinstance(raw, dict) and raw:
+                    entry = raw.get(os.path.abspath(file_path)) or next(iter(raw.values()))
+                    if isinstance(entry, dict):
+                        last_output = entry.get("last_output_path")
+                        if (
+                            isinstance(last_output, str)
+                            and os.path.splitext(last_output)[1].lower() in SUPPORTED_IMAGE_EXTENSIONS
+                            and os.path.isfile(last_output)
+                        ):
+                            return os.path.abspath(os.path.normpath(last_output))
+                        last_dir = entry.get("last_export_dir")
+                        if isinstance(last_dir, str) and os.path.isdir(last_dir):
+                            same_name = os.path.join(last_dir, os.path.basename(file_path))
+                            if os.path.isfile(same_name):
+                                return os.path.abspath(os.path.normpath(same_name))
+                            stem = os.path.splitext(os.path.basename(file_path))[0]
+                            for ext in SUPPORTED_IMAGE_EXTENSIONS:
+                                candidate = os.path.join(last_dir, f"{stem}{ext}")
+                                if os.path.isfile(candidate):
+                                    return os.path.abspath(os.path.normpath(candidate))
+            except Exception:
+                pass
 
         work_result = os.path.join(
             os.path.dirname(file_path),

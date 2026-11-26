@@ -377,3 +377,58 @@ def test_in_flight_prefetch_cannot_write_stale_snapshot_after_file_translated(
     assert key2 not in doc_service._prefetched_documents
     assert doc_service._take_prefetched_document(page2) is None
 
+
+def test_with_file_translated_does_not_mutate_original_snapshot(tmp_path):
+    folder = tmp_path / "chapter1"
+    folder.mkdir()
+    source_path = folder / "001.png"
+    json_path = folder / "manga_translator_work" / "json" / "001_translations.json"
+    json_path.parent.mkdir(parents=True)
+    Image.new("RGB", (8, 8), (255, 0, 0)).save(source_path)
+    json_path.write_text("{}", encoding="utf-8")
+
+    child_node = FileCatalogNode(
+        path=str(source_path),
+        kind=KIND_IMAGE,
+        source_root=str(folder),
+        mtime_ns=source_path.stat().st_mtime_ns,
+        json_path=None,
+    )
+    folder_node = FileCatalogNode(
+        path=str(folder),
+        kind=KIND_FOLDER,
+        source_root=str(folder),
+        children=(child_node,),
+        file_count=1,
+    )
+    original_json_by_file = {str(source_path): None}
+    snapshot = FileCatalogSnapshot(
+        generation=1,
+        sources=(str(folder),),
+        roots=(folder_node,),
+        files=(str(source_path),),
+        image_files=(str(source_path),),
+        editor_files=(str(source_path),),
+        file_to_folder={str(source_path): str(folder)},
+        source_by_file={str(source_path): str(source_path)},
+        json_by_file=original_json_by_file,
+    )
+    snapshot_before = dict(snapshot.json_by_file)
+
+    updated_snapshot = snapshot.with_file_translated(
+        str(source_path),
+        json_path=str(json_path),
+    )
+
+    norm_src = os.path.abspath(os.path.normpath(str(source_path)))
+    norm_json = os.path.abspath(os.path.normpath(str(json_path)))
+    assert updated_snapshot.json_by_file is not snapshot.json_by_file
+    assert updated_snapshot.json_by_file[norm_src] == norm_json
+    assert snapshot.json_by_file == snapshot_before
+
+    # When json_path holds a non-JSON image path (e.g. used as translated marker), resolver falls back cleanly
+    assert (
+        _resolve_thumbnail_source_path(str(source_path), json_path=str(source_path))
+        == str(source_path)
+    )
+

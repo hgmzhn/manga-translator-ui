@@ -238,11 +238,13 @@ class FileCatalogSnapshot:
         if not matched_paths and not roots_changed:
             return self
 
+        json_by_file = self.json_by_file
         if norm_json:
+            json_by_file = dict(self.json_by_file)
             for node_path, node_source in matched_paths:
-                self.json_by_file[node_path] = norm_json
+                json_by_file[node_path] = norm_json
                 if node_source:
-                    self.json_by_file[node_source] = norm_json
+                    json_by_file[node_source] = norm_json
 
         updated_snapshot = FileCatalogSnapshot(
             generation=self.generation,
@@ -253,7 +255,7 @@ class FileCatalogSnapshot:
             editor_files=self.editor_files,
             file_to_folder=self.file_to_folder,
             source_by_file=self.source_by_file,
-            json_by_file=self.json_by_file,
+            json_by_file=json_by_file,
             excluded_folders=self.excluded_folders,
             excluded_files=self.excluded_files,
             warnings=self.warnings,
