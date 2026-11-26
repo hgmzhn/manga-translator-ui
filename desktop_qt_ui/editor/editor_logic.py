@@ -21,6 +21,7 @@ class EditorLogic(QObject):
 
     PREFETCH_RADIUS = 2
     file_snapshot_changed = pyqtSignal(object)
+    file_item_translated = pyqtSignal(str, object, object)
     file_list_loading = pyqtSignal(str)
     file_list_error = pyqtSignal(str)
 
@@ -220,6 +221,32 @@ class EditorLogic(QObject):
         elif self._load_first_after_snapshot and self.file_model.files:
             self._load_resolved_image(self.file_model.files[0].path)
         self._load_first_after_snapshot = False
+
+    def on_file_translated(
+        self,
+        source_path: str,
+        output_path: str | None = None,
+        json_path: str | None = None,
+    ) -> None:
+        """实时同步单张图片已翻译状态、编辑器文件列表以及文档预取缓存。"""
+        if not source_path:
+            return
+        resolved_source = self._source_by_key.get(
+            canonical_path_key(source_path),
+            os.path.abspath(os.path.normpath(source_path)),
+        )
+        self._snapshot = self._snapshot.with_file_translated(
+            resolved_source,
+            json_path=json_path,
+            output_path=output_path,
+        )
+        self.file_model.mark_file_translated(
+            resolved_source,
+            json_path or output_path,
+        )
+        self.file_item_translated.emit(resolved_source, output_path, json_path)
+        if getattr(self.controller, "document_service", None) is not None:
+            self.controller.document_service.on_file_translated(resolved_source)
 
     # --- File Management Methods ---
 

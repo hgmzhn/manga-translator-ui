@@ -122,6 +122,7 @@ class MainAppLogic(QObject):
     config_loaded = pyqtSignal(dict)
     output_path_updated = pyqtSignal(str)
     task_completed = pyqtSignal(list)
+    file_translated = pyqtSignal(dict)
     error_dialog_requested = pyqtSignal(str)
     warning_dialog_requested = pyqtSignal(str)
     render_setting_changed = pyqtSignal()
@@ -1864,6 +1865,9 @@ class MainAppLogic(QObject):
             progress_callback=lambda current, total, message: self.on_task_progress(
                 current, total, message, task_id
             ),
+            file_completed_callback=lambda info: self.on_file_completed(
+                info, task_id
+            ),
         )
         
         self.current_worker = translation_worker
@@ -2115,6 +2119,19 @@ class MainAppLogic(QObject):
         if hasattr(self, 'main_view') and self.main_view:
             self.main_view.update_progress(current, total, message)
 
+    def on_file_completed(self, info: dict, task_id: int):
+        """处理后端单张图片翻译完成并落盘的实时通知。"""
+        if task_id != self.current_task_id or self._shutdown_started or not isinstance(info, dict):
+            return
+        source_path = info.get("source_path")
+        output_path = info.get("output_path")
+        if output_path and source_path:
+            normalized_output = os.path.normpath(output_path)
+            self.completed_output_sources[self._path_key(normalized_output)] = os.path.normpath(
+                source_path
+            )
+        self.file_translated.emit(dict(info))
+
     def stop_task(self) -> bool:
         """停止翻译任务"""
         if self.current_worker and hasattr(self.current_worker, 'stop'):
@@ -2292,6 +2309,7 @@ class TranslationWorker(QObject):
     finished = pyqtSignal(list)
     error = pyqtSignal(str)
     progress = pyqtSignal(int, int, str)
+    file_completed = pyqtSignal(dict)
 
     def __init__(self, files, config_dict, output_folder, root_dir, file_to_folder_map=None):
         super().__init__()
@@ -2875,6 +2893,39 @@ class TranslationWorker(QObject):
             
             translator.add_progress_hook(progress_hook)
 
+            file_completed_signal = self.file_completed
+
+            def file_completed_hook(ctx):
+                try:
+                    if not self._is_running:
+                        return
+                    if self._get_context_value(ctx, 'translation_error'):
+                        return
+                    if not (
+                        self._get_context_value(ctx, 'success')
+                        or self._get_context_value(ctx, 'result') is not None
+                    ):
+                        return
+                    source_path = self._get_context_value(ctx, 'image_name')
+                    if not source_path:
+                        return
+                    output_path = self._get_context_value(ctx, 'output_path')
+                    json_path = self._get_context_value(ctx, 'json_path')
+                    if not json_path:
+                        from manga_translator.utils.path_manager import find_json_path
+                        json_path = find_json_path(source_path)
+                    file_completed_signal.emit({
+                        'source_path': os.path.abspath(os.path.normpath(source_path)),
+                        'output_path': os.path.abspath(os.path.normpath(output_path)) if output_path else None,
+                        'json_path': os.path.abspath(os.path.normpath(json_path)) if json_path else None,
+                        'skipped': bool(self._get_context_value(ctx, 'skipped', False)),
+                    })
+                except Exception:
+                    pass
+
+            if hasattr(translator, 'add_file_completed_hook'):
+                translator.add_file_completed_hook(file_completed_hook)
+
             explicit_keys = {'render', 'upscale', 'translator', 'detector', 'colorizer', 'inpainter', 'ocr'}
             remaining_config = {
                 k: v for k, v in self.config_dict.items() 
@@ -3185,6 +3236,7 @@ class WorkerSignals(QObject):
     error = pyqtSignal(str)
     progress = pyqtSignal(str)
     translation_progress = pyqtSignal(int, int, str)
+    file_completed = pyqtSignal(object)
 
 
 class FileScannerRunnable(QRunnable):
@@ -3407,7 +3459,8 @@ class TranslationRunnable(QRunnable):
     """翻译任务（线程池版本）"""
     
     def __init__(self, files, config_dict, output_folder, root_dir, file_to_folder_map,
-                 finished_callback, error_callback, progress_callback):
+                 finished_callback, error_callback, progress_callback,
+                 file_completed_callback=None):
         super().__init__()
         self.files = files
         self.config_dict = config_dict
@@ -3418,6 +3471,7 @@ class TranslationRunnable(QRunnable):
         self.error_callback = error_callback
         
         self.progress_callback = progress_callback # Keep reference just in case
+        self.file_completed_callback = file_completed_callback
         self._is_running = True
         self._current_task = None
         self._loop = None
@@ -3436,6 +3490,8 @@ class TranslationRunnable(QRunnable):
             
         if progress_callback:
             self.signals.translation_progress.connect(progress_callback, type=Qt.ConnectionType.QueuedConnection)
+        if file_completed_callback:
+            self.signals.file_completed.connect(file_completed_callback, type=Qt.ConnectionType.QueuedConnection)
     
     def stop(self):
         """停止任务"""
@@ -3504,6 +3560,10 @@ class TranslationRunnable(QRunnable):
             
             # 连接信号到回调
             worker.progress.connect(lambda c, t, m: self._emit_progress(c, t, m))
+            worker.file_completed.connect(
+                self._emit_file_completed,
+                type=Qt.ConnectionType.DirectConnection,
+            )
             worker.error.connect(on_worker_error)
             worker.finished.connect(on_worker_finished)
             
@@ -3537,6 +3597,11 @@ class TranslationRunnable(QRunnable):
         """线程安全地发送错误信号"""
         if self._is_running:
             self.signals.error.emit(msg)
+
+    def _emit_file_completed(self, info):
+        """线程安全地发送单文件完成信号"""
+        if self._is_running:
+            self.signals.file_completed.emit(info)
     
     def _emit_progress(self, current, total, message):
         """线程安全地发送进度信号"""

@@ -189,10 +189,16 @@ class _WorkspaceDelegate(QStyledItemDelegate):
                              int(Qt.AlignmentFlag.AlignCenter),
                              metrics.elidedText(title, Qt.TextElideMode.ElideMiddle, rect.width() - 16))
             node = index.data(NODE_ROLE)
-            status = self._t("Translated" if node and node.json_path else "Untranslated")
+            translated = bool(node and getattr(node, "json_path", None))
+            status = self._t("Translated" if translated else "Untranslated")
             if index.data(KIND_ROLE) != KIND_IMAGE:
                 status = os.path.splitext(title)[1].lstrip(".").upper()
-            painter.setPen(QColor(127, 127, 127))
+                status_color = QColor(127, 127, 127)
+            elif translated:
+                status_color = QColor("#6BCB77" if isDarkTheme() else "#0F9D58")
+            else:
+                status_color = QColor(127, 127, 127)
+            painter.setPen(status_color)
             painter.drawText(QRect(rect.left() + 8, rect.bottom() - 19, rect.width() - 16, 18),
                              int(Qt.AlignmentFlag.AlignCenter), status)
         painter.restore()
@@ -474,3 +480,16 @@ class FileWorkspace(QWidget):
     def refresh_empty_state_text(self):
         self.tree.refresh_empty_state_text()
         self.view.viewport().update()
+
+    def mark_file_translated(self, source_path, output_path=None, json_path=None, *, snapshot=None):
+        """实时将指定源图片标记为已翻译状态并触发缩略图与视图刷新。"""
+        updated = self.tree.mark_file_translated(
+            source_path,
+            output_path=output_path,
+            json_path=json_path,
+            snapshot=snapshot,
+        )
+        if updated:
+            self.view._schedule_thumbnails()
+            self.view.viewport().update()
+        return updated
