@@ -26,6 +26,7 @@ from . import text_render
 from .auto_linebreak import (
     _is_chinese_lang,
     _solve_unified_no_br_layout,
+    apply_linebreak_kinsoku,
     solve_no_br_layout,
     should_force_no_wrap_single_region,
     strip_linebreak_edge_punctuation,
@@ -1716,6 +1717,7 @@ def _layout_regions_to_font_size(
             # balloon_fill + balloon_fill_mask_layout 使用气泡内接矩形，
             # 不再先按 OCR 框断句、再在后面的 balloon_fill 分支重复断句。
             if has_br:
+                region.translation = apply_linebreak_kinsoku(region.translation)
                 if remove_linebreak_punctuation:
                     region.translation = strip_linebreak_edge_punctuation(region.translation)
                 if config.render.optimize_line_breaks and (region_layout_mode != 'strict' or config.render.disable_auto_wrap):
