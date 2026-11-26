@@ -135,7 +135,8 @@ async def dispatch(inpainter_key: Inpainter, image: np.ndarray, mask: np.ndarray
 
     h, w = image_rgb.shape[:2]
     aspect_ratio = max(w / h, h / w)
-    if aspect_ratio > INPAINT_SPLIT_RATIO:
+    # 纯 OpenCV 模糊不依赖推理显存，跳过长图切片可避免大核半径在 tile 接缝处断层
+    if aspect_ratio > INPAINT_SPLIT_RATIO and inpainter_key != Inpainter.blur:
         inpainted_rgb = await _dispatch_with_split(
             inpainter,
             image_rgb,

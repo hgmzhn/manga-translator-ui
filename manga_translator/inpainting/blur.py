@@ -81,13 +81,14 @@ class BlurInpainter(CommonInpainter):
         dilate_k = max(3, int(min(h, w) * 0.003)) | 1
         kernel_dilate = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (dilate_k, dilate_k))
         mask_dilated = cv2.dilate(mask_binary, kernel_dilate, iterations=1)
+        feather_k = max(7, (ksize // 3) | 1)
 
-        # 3. 局部 Telea 预填充，消除深色高对比文字笔画（避免深色文字在高斯模糊后晕染成黑灰色脏斑）
+        # 3. 局部 Telea 预填充 + 局部高斯模糊与羽化混合（扩边大于 ksize + 羽化半宽，消除 ROI 边界截断并跳过纯背景像素）
         contours, _ = cv2.findContours(mask_dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
             return np.copy(image)
 
-        pad = max(10, ksize)
+        pad = max(10, ksize + (feather_k // 2) + 2)
         raw_boxes = []
         for cnt in contours:
             bx, by, bw, bh = cv2.boundingRect(cnt)
@@ -100,27 +101,22 @@ class BlurInpainter(CommonInpainter):
 
         merged_rois = BlurInpainter._merge_overlapping_boxes(raw_boxes)
 
-        inpainted_base = np.copy(image)
+        result = np.copy(image)
         for x1, y1, x2, y2 in merged_rois:
             roi_mask = mask_dilated[y1:y2, x1:x2]
-            if np.any(roi_mask > 0):
-                roi_img = image[y1:y2, x1:x2]
-                roi_telea = cv2.inpaint(roi_img, roi_mask, 3, cv2.INPAINT_TELEA)
-                inpainted_base[y1:y2, x1:x2] = roi_telea
-
-        # 4. 对预填充底图进行高斯模糊，形成均匀丝滑的毛玻璃
-        blurred = cv2.GaussianBlur(inpainted_base, (ksize, ksize), 0)
-
-        # 5. 蒙版边缘羽化，使毛玻璃边缘柔和融入原背景，避免生硬接缝
-        feather_k = max(7, (ksize // 3) | 1)
-        alpha = cv2.GaussianBlur(mask_dilated.astype(np.float32) / 255.0, (feather_k, feather_k), 0)
-        alpha = np.clip(alpha[:, :, None], 0.0, 1.0)
-
-        # 6. 线性插值合成
-        result = np.clip(
-            image.astype(np.float32) * (1.0 - alpha) + blurred.astype(np.float32) * alpha,
-            0,
-            255,
-        ).astype(np.uint8)
+            if not np.any(roi_mask > 0):
+                continue
+            roi_img = image[y1:y2, x1:x2]
+            roi_telea = cv2.inpaint(roi_img, roi_mask, 3, cv2.INPAINT_TELEA)
+            roi_blurred = cv2.GaussianBlur(roi_telea, (ksize, ksize), 0)
+            roi_alpha = cv2.GaussianBlur(roi_mask.astype(np.float32) / 255.0, (feather_k, feather_k), 0)
+            roi_alpha = np.clip(roi_alpha, 0.0, 1.0)
+            if roi_img.ndim == 3:
+                roi_alpha = roi_alpha[:, :, None]
+            result[y1:y2, x1:x2] = np.clip(
+                roi_img.astype(np.float32) * (1.0 - roi_alpha) + roi_blurred.astype(np.float32) * roi_alpha,
+                0,
+                255,
+            ).astype(np.uint8)
 
         return result

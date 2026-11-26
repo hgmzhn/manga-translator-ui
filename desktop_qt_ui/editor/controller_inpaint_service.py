@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import concurrent.futures
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 import torch

@@ -70,7 +70,12 @@ class LightweightInpainter:
         # 使用图像和蒙版的哈希值作为缓存键
         img_hash = hash(image.tobytes())
         mask_hash = hash(mask.tobytes())
-        return f"{algorithm.value}_{img_hash}_{mask_hash}_{config.max_size}_{config.quality}"
+        key = f"{algorithm.value}_{img_hash}_{mask_hash}_{config.max_size}_{config.quality}"
+        if algorithm == InpainterType.BLUR:
+            erase_cfg = self.config_service.get_current_config()
+            blur_radius = int(getattr(erase_cfg, "blur_radius", 0) or 0) if erase_cfg else 0
+            key = f"{key}_r{blur_radius}"
+        return key
     
     def _resize_for_preview(self, image: np.ndarray, max_size: int) -> Tuple[np.ndarray, float]:
         """调整图像尺寸用于预览"""
@@ -121,11 +126,13 @@ class LightweightInpainter:
         
         return result
     
-    def _inpaint_blur(self, image: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    def _inpaint_blur(self, image: np.ndarray, mask: np.ndarray, scale: float = 1.0) -> np.ndarray:
         """毛玻璃模糊"""
         from manga_translator.inpainting.blur import BlurInpainter
         config = self.config_service.get_current_config()
-        blur_radius = getattr(config, 'blur_radius', 0) if config else 0
+        blur_radius = int(getattr(config, 'blur_radius', 0) or 0) if config else 0
+        if blur_radius > 0 and scale != 1.0:
+            blur_radius = max(3, int(round(blur_radius * scale)))
         return BlurInpainter.apply_blur(image, mask, blur_radius=blur_radius)
     
     def _inpaint_advanced_fill(self, image: np.ndarray, mask: np.ndarray) -> np.ndarray:
@@ -207,6 +214,8 @@ class LightweightInpainter:
                     result = self._inpaint_advanced_fill(preview_image, preview_mask)
                 else:
                     result = handler(preview_image, preview_mask)
+            elif algorithm == InpainterType.BLUR:
+                result = self._inpaint_blur(preview_image, preview_mask, scale=scale)
             else:
                 result = handler(preview_image, preview_mask)
             
