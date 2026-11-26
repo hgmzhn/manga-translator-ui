@@ -22,11 +22,11 @@ os.environ.setdefault('PYTORCH_ALLOC_CONF', 'expandable_segments:True')
 os.environ.setdefault('QT_IMAGEIO_MAXALLOC', '1024')
 
 
-def _is_extension_point_mitigation_disabled() -> bool:
-    """检查是否通过环境变量或 .env 文件禁用了扩展点缓解策略。"""
-    val = os.environ.get('MT_DISABLE_EXTENSION_POINT_MITIGATION')
+def _is_extension_point_mitigation_enabled() -> bool:
+    """检查是否通过环境变量或 .env 文件显式启用了扩展点缓解策略。"""
+    val = os.environ.get('MT_ENABLE_EXTENSION_POINT_MITIGATION')
     if val is not None:
-        return val.strip().lower() in ('1', 'true', 'yes')
+        return val.strip().lower() in ('1', 'true', 'yes', 'on')
 
     # 启动极早期尚未初始化服务与全局 .env，使用 python-dotenv 读取以支持 export、引号和行尾注释
     try:
@@ -39,30 +39,27 @@ def _is_extension_point_mitigation_disabled() -> bool:
             from dotenv import dotenv_values
 
             file_val = dotenv_values(env_path, encoding='utf-8').get(
-                'MT_DISABLE_EXTENSION_POINT_MITIGATION'
+                'MT_ENABLE_EXTENSION_POINT_MITIGATION'
             )
             if file_val is not None:
-                return str(file_val).strip().lower() in ('1', 'true', 'yes')
+                return str(file_val).strip().lower() in ('1', 'true', 'yes', 'on')
     except Exception:
         pass
     return False
 
 
 def _disable_windows_extension_points():
-    """在 Windows 平台上启用进程扩展点禁用策略（ProcessExtensionPointDisablePolicy）。
+    """在 Windows 平台上按需启用进程扩展点禁用策略（ProcessExtensionPointDisablePolicy）。
 
-    阻止外部第三方模块（例如部分音频驱动 OSD 组件、屏幕悬浮窗等）通过全局 Windows 钩子注入当前进程，
+    该策略可阻止外部第三方模块（例如部分音频驱动 OSD 组件、屏幕悬浮窗等）通过全局 Windows 钩子注入当前进程，
     避免在 Qt/GUI 渲染上下文初始化阶段触发 0xC0000005（STATUS_ACCESS_VIOLATION）异常崩溃。
+    由于禁用扩展点会阻止传统/IMM32 架构输入法 DLL 加载并导致中文输入法失效，默认关闭，
+    仅在通过环境变量或 .env 显式设置 MT_ENABLE_EXTENSION_POINT_MITIGATION=1 时启用。
     """
     if sys.platform != 'win32':
         return
 
-    # 兼容性开关：若依赖使用旧版全局钩子的第三方输入法或辅助工具，可通过环境变量或 .env 禁用该策略
-    if _is_extension_point_mitigation_disabled():
-        print(
-            '[INFO] ProcessExtensionPointDisablePolicy is bypassed via MT_DISABLE_EXTENSION_POINT_MITIGATION.',
-            file=sys.stderr,
-        )
+    if not _is_extension_point_mitigation_enabled():
         return
 
     try:
@@ -87,9 +84,14 @@ def _disable_windows_extension_points():
             # ProcessExtensionPointDisablePolicy = 6
             policy = PROCESS_MITIGATION_EXTENSION_POINT_DISABLE_POLICY()
             policy.DisableExtensionPoints = 1
-            if not kernel32.SetProcessMitigationPolicy(
+            if kernel32.SetProcessMitigationPolicy(
                 6, ctypes.byref(policy), ctypes.sizeof(policy)
             ):
+                print(
+                    '[INFO] ProcessExtensionPointDisablePolicy enabled via MT_ENABLE_EXTENSION_POINT_MITIGATION.',
+                    file=sys.stderr,
+                )
+            else:
                 err = ctypes.get_last_error()
                 print(
                     f'[WARNING] Failed to enable ProcessExtensionPointDisablePolicy (error {err}). Continuing startup...',
@@ -102,7 +104,7 @@ def _disable_windows_extension_points():
         )
 
 
-# 在加载图形界面与渲染上下文之前启用进程缓解策略，阻止外部钩子注入
+# 在加载图形界面与渲染上下文之前按需启用进程缓解策略（默认关闭以保证中文输入法兼容）
 _disable_windows_extension_points()
 
 # 修复便携版Python的路径问题：将脚本所在目录添加到sys.path开头
