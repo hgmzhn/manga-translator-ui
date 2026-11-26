@@ -5,9 +5,10 @@ Toast notification helpers backed by qfluentwidgets InfoBar.
 import os
 import platform
 import subprocess
+import weakref
 
 from PyQt6 import sip
-from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, QParallelAnimationGroup, Qt, pyqtSignal
 from PyQt6.QtWidgets import QWidget
 from qfluentwidgets import FluentIcon as FIF, InfoBar, InfoBarPosition, PushButton
 from qfluentwidgets.components.widgets.info_bar import InfoBarManager
@@ -24,9 +25,17 @@ def _install_infobar_manager_safety_patches():
         return
     InfoBarManager._safety_patches_installed = True
 
+    def _ensure_parent_ani_group(mgr, parent_widget):
+        if hasattr(mgr, "aniGroups"):
+            ani_group = mgr.aniGroups.get(parent_widget)
+            if ani_group is None or sip.isdeleted(ani_group):
+                mgr.aniGroups[parent_widget] = QParallelAnimationGroup(mgr)
+
     orig_add = InfoBarManager.add
 
     def safe_add(self, infoBar):
+        if sip.isdeleted(self):
+            return
         if not infoBar or sip.isdeleted(infoBar):
             return
         p = infoBar.parent()
@@ -42,21 +51,44 @@ def _install_infobar_manager_safety_patches():
                         self.aniGroups.pop(parent_widget, None)
             except Exception:
                 pass
+        if hasattr(self, "aniGroups"):
+            for parent_widget in list(self.aniGroups.keys()):
+                try:
+                    if sip.isdeleted(parent_widget):
+                        self.aniGroups.pop(parent_widget, None)
+                except Exception:
+                    pass
 
-        if p not in self.infoBars:
-            try:
-                p.destroyed.connect(lambda _, pw=p: self._cleanup_parent(pw))
-            except Exception:
-                pass
-            self.infoBars[p] = []
-        else:
+        is_new_parent = p not in self.infoBars
+        if not is_new_parent:
             self.infoBars[p] = [
                 b for b in self.infoBars[p] if not sip.isdeleted(b)
             ]
-        return orig_add(self, infoBar)
+            # 防御：若 infoBars 已登记但 aniGroups 缺失，补建动画组避免后续 KeyError
+            _ensure_parent_ani_group(self, p)
+
+        # 新父控件必须留给 orig_add 自己初始化 infoBars[p]、eventFilter 与 aniGroups[p]
+        result = orig_add(self, infoBar)
+
+        if is_new_parent and p in self.infoBars:
+            try:
+                mgr_ref = weakref.ref(self)
+                p_ref = weakref.ref(p)
+                p.destroyed.connect(
+                    lambda _=None, m_ref=mgr_ref, pw_ref=p_ref: (
+                        (mgr := m_ref()) is not None and mgr._cleanup_parent(pw_ref)
+                    )
+                )
+            except Exception:
+                pass
+        return result
 
     def _cleanup_parent(self, parent_widget):
         try:
+            if isinstance(parent_widget, weakref.ReferenceType):
+                parent_widget = parent_widget()
+            if parent_widget is None:
+                return
             self.infoBars.pop(parent_widget, None)
             if hasattr(self, "aniGroups"):
                 self.aniGroups.pop(parent_widget, None)
@@ -69,6 +101,8 @@ def _install_infobar_manager_safety_patches():
     orig_remove = InfoBarManager.remove
 
     def safe_remove(self, infoBar):
+        if sip.isdeleted(self):
+            return
         if not infoBar or sip.isdeleted(infoBar):
             for bars in self.infoBars.values():
                 if infoBar in bars:
@@ -91,6 +125,7 @@ def _install_infobar_manager_safety_patches():
                 self.infoBars[p] = [
                     b for b in self.infoBars[p] if not sip.isdeleted(b)
                 ]
+                _ensure_parent_ani_group(self, p)
             return orig_remove(self, infoBar)
         except Exception:
             pass
@@ -100,15 +135,31 @@ def _install_infobar_manager_safety_patches():
     orig_updateDropAni = InfoBarManager._updateDropAni
 
     def safe_updateDropAni(self, parent):
-        if not parent or sip.isdeleted(parent):
+        if (
+            sip.isdeleted(self)
+            or not parent
+            or sip.isdeleted(parent)
+            or parent not in self.infoBars
+        ):
             return
-        if parent in self.infoBars:
-            self.infoBars[parent] = [
-                b for b in self.infoBars[parent] if not sip.isdeleted(b)
-            ]
+        self.infoBars[parent] = [
+            b for b in self.infoBars[parent] if not sip.isdeleted(b)
+        ]
         return orig_updateDropAni(self, parent)
 
     InfoBarManager._updateDropAni = safe_updateDropAni
+
+    orig_make_func = InfoBarManager.make.__func__
+
+    @classmethod
+    def safe_make(cls, position):
+        mgr = orig_make_func(cls, position)
+        if mgr is not None and sip.isdeleted(mgr):
+            mgr = type(mgr)()
+            cls.managers[position] = mgr
+        return mgr
+
+    InfoBarManager.make = safe_make
 
     for mgr in InfoBarManager.managers.values():
         cls = type(mgr)

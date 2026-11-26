@@ -145,6 +145,7 @@ class ExportOutcome:
     success: bool
     error: Optional[str] = None
     generated_artifact: Optional[InpaintArtifact] = None
+    inpainted_persisted: bool = False
 
 
 class EditorControllerExportService:
@@ -221,6 +222,11 @@ class EditorControllerExportService:
                 )
             else:
                 self._export_service.delete_inpainted_image(source_path)
+            document_service = getattr(self.controller, "document_service", None)
+            if document_service is not None and hasattr(
+                document_service, "invalidate_prefetched_document"
+            ):
+                document_service.invalidate_prefetched_document(source_path)
             self.controller.history_service.mark_clean()
             toast_manager = self.controller.get_toast_manager()
             if toast_manager is not None:
@@ -263,6 +269,11 @@ class EditorControllerExportService:
             if future is None:
                 job.release_resources()
                 return self._reject_export("导出队列已经关闭")
+            document_service = getattr(self.controller, "document_service", None)
+            if document_service is not None and hasattr(
+                document_service, "clear_pending_auto_export"
+            ):
+                document_service.clear_pending_auto_export()
             return future
         except Exception as e:
             self.logger.error(f"Error during export request: {e}", exc_info=True)
@@ -497,6 +508,7 @@ class EditorControllerExportService:
                 error=str(error),
             )
 
+        inpainted_persisted = bool(getattr(result, "inpainted_persisted", False))
         if result.error is not None:
             return ExportOutcome(
                 automatic=job.automatic,
@@ -504,6 +516,7 @@ class EditorControllerExportService:
                 output_path=job.output_path,
                 success=False,
                 error=result.error,
+                inpainted_persisted=inpainted_persisted,
             )
         generated_artifact = None
         if result.generated_inpainted_image is not None:
@@ -518,4 +531,5 @@ class EditorControllerExportService:
             output_path=job.output_path,
             success=True,
             generated_artifact=generated_artifact,
+            inpainted_persisted=inpainted_persisted,
         )

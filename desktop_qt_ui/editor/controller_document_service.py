@@ -54,6 +54,7 @@ class EditorControllerDocumentService:
         self._loading_source_path: Optional[str] = None
         self._is_shutdown = False
         self._pending_prefetch_paths: list[str] = []
+        self._pending_auto_export = False
 
     @property
     def model(self):
@@ -96,6 +97,7 @@ class EditorControllerDocumentService:
         # completion racing with this switch can never be installed.
         self._cancel_pending_load()
         self._loading_source_path = None
+        self._pending_auto_export = False
         self.model.clear_document()
 
         # Only cancellable editor work lives in AsyncService. Export jobs use a
@@ -183,6 +185,21 @@ class EditorControllerDocumentService:
             self._prefetched_documents.clear()
             doc_versions.clear()
             self._desired_prefetch_keys.clear()
+
+    def invalidate_prefetched_document(self, source_path: str) -> None:
+        """驱逐单页预取快照并递增版本号，防止在途旧预取覆盖最新保存结果。"""
+        if not source_path:
+            return
+        key = self._prefetch_key(source_path)
+        with self._prefetch_lock:
+            key_versions, doc_versions = self._ensure_prefetch_version_maps()
+            key_versions[key] = key_versions.get(key, 0) + 1
+            self._prefetched_documents.pop(key, None)
+            doc_versions.pop(key, None)
+
+    def clear_pending_auto_export(self) -> None:
+        """清除当前文档的待重试自动导出状态（例如手动导出成功提交后）。"""
+        self._pending_auto_export = False
 
     def shutdown(self) -> None:
         """退出清理：取消挂起任务并关闭常驻线程池。
@@ -291,17 +308,25 @@ class EditorControllerDocumentService:
             return
         self._pending_prefetch_paths = list(prefetch_paths or [])
         self.controller.commit_pending_edits()
-        if self.controller.export_service.has_unsaved_changes():
+        has_unsaved = self.controller.export_service.has_unsaved_changes()
+        pending_auto_export = bool(getattr(self, "_pending_auto_export", False))
+        if has_unsaved or pending_auto_export:
             auto_export = self._auto_export_on_switch_enabled()
             auto_save = self._auto_save_on_switch_enabled()
-            if auto_export and self.controller.export_image(automatic=True) is None:
-                self.logger.warning("Auto-export rejected; image switch aborted")
-                return
-            if auto_save and not self.controller.save_editor_state():
+            if has_unsaved and auto_save and not self.controller.save_editor_state():
                 self.logger.warning("Auto-save rejected; image switch aborted")
                 return
+            if auto_export:
+                if self.controller.export_image(automatic=True) is None:
+                    self._pending_auto_export = True
+                    self.logger.warning("Auto-export rejected; image switch aborted")
+                    return
+                self._pending_auto_export = False
+            else:
+                self._pending_auto_export = False
             if (
-                not auto_export
+                has_unsaved
+                and not auto_export
                 and not auto_save
                 and not self._suppress_unsaved_warning_enabled()
             ):

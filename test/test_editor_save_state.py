@@ -324,3 +324,81 @@ def test_save_does_not_wait_for_inpaint_and_export_still_queues_backend(
 
     submitted[0].release_resources()
     service.shutdown()
+
+
+def test_save_editor_state_invalidates_prefetched_document(monkeypatch, tmp_path):
+    import threading
+
+    from PIL import Image
+
+    from editor.controller_document_service import EditorControllerDocumentService
+    from editor.document_state import DocumentSnapshot
+    from services import export_service
+
+    _PersistenceService.calls.clear()
+    _PersistenceService.saved_images.clear()
+    monkeypatch.setattr(export_service, "ExportService", _PersistenceService)
+
+    source_path = tmp_path / "page.png"
+    Image.new("RGB", (8, 8), "white").save(source_path)
+
+    doc_service = EditorControllerDocumentService.__new__(
+        EditorControllerDocumentService
+    )
+    doc_service._prefetch_lock = threading.RLock()
+    doc_service._prefetched_documents = {}
+    doc_service._prefetch_key_versions = {}
+    doc_service._prefetched_document_versions = {}
+    doc_service._desired_prefetch_keys = set()
+
+    key = doc_service._prefetch_key(str(source_path))
+    doc_service._prefetched_documents[key] = DocumentSnapshot(
+        source_path=str(source_path),
+        image=Image.new("RGB", (8, 8), "white"),
+        display_image_path=str(source_path),
+        regions=[{"translation": "stale"}],
+    )
+    doc_service._prefetched_document_versions[key] = 0
+
+    controller = _Controller(source_path)
+    controller.document_service = doc_service
+    service = EditorControllerExportService(controller)
+
+    assert service.save_editor_state() is True
+    assert doc_service._take_prefetched_document(str(source_path)) is None
+    assert doc_service._prefetch_key_versions[key] == 1
+
+    service.shutdown()
+
+
+def test_export_image_clears_pending_auto_export_on_success(monkeypatch, tmp_path):
+    from editor import controller_export_service as export_module
+    from editor.controller_document_service import EditorControllerDocumentService
+
+    monkeypatch.setattr(
+        export_module,
+        "get_render_parameter_service",
+        lambda: _RenderParameterService(),
+    )
+    source_path = tmp_path / "page.png"
+    source_path.touch()
+
+    doc_service = EditorControllerDocumentService.__new__(
+        EditorControllerDocumentService
+    )
+    doc_service._pending_auto_export = True
+
+    controller = _Controller(source_path)
+    controller.document_service = doc_service
+    service = EditorControllerExportService(controller)
+    submitted = []
+    monkeypatch.setattr(
+        service,
+        "_submit_job",
+        lambda job: submitted.append(job) or _completed_future(),
+    )
+
+    assert service.export_image(automatic=False) is not None
+    assert doc_service._pending_auto_export is False
+    submitted[0].release_resources()
+    service.shutdown()

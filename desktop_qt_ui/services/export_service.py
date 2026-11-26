@@ -34,6 +34,43 @@ if TYPE_CHECKING:
     from editor.controller_export_service import ExportJob
 
 
+_WINDOWS_TRANSIENT_REPLACE_WINERRORS = frozenset({5, 32})
+_ATOMIC_REPLACE_RETRY_DELAYS = (0.02, 0.05, 0.1, 0.15, 0.2, 0.3)
+
+
+def _atomic_replace_file(
+    src: str,
+    dst: str,
+    *,
+    logger: Optional[logging.Logger] = None,
+    retry_delays: tuple[float, ...] = _ATOMIC_REPLACE_RETRY_DELAYS,
+) -> None:
+    """Atomically replace dst with src, retrying briefly on Windows access/sharing contention."""
+    for attempt, delay in enumerate((*retry_delays, None)):
+        try:
+            os.replace(src, dst)
+            return
+        except OSError as exc:
+            winerror = getattr(exc, "winerror", None)
+            is_transient_windows_lock = os.name == "nt" and (
+                isinstance(exc, PermissionError)
+                or winerror in _WINDOWS_TRANSIENT_REPLACE_WINERRORS
+            )
+            if not is_transient_windows_lock or delay is None:
+                raise
+            if logger is not None:
+                logger.warning(
+                    "Transient error replacing %s -> %s (attempt %d/%d): %s; retrying in %.2fs",
+                    src,
+                    dst,
+                    attempt + 1,
+                    len(retry_delays),
+                    exc,
+                    delay,
+                )
+            time.sleep(delay)
+
+
 @dataclass(frozen=True, slots=True)
 class BackendRenderResult:
     image: Image.Image
@@ -44,6 +81,7 @@ class BackendRenderResult:
 class BackendExportResult:
     generated_inpainted_image: Optional[np.ndarray] = None
     error: Optional[str] = None
+    inpainted_persisted: bool = False
 
 
 class ExportService:
@@ -110,7 +148,7 @@ class ExportService:
                 quality=save_quality,
                 format=resolve_pil_image_format(inpainted_path),
             )
-            os.replace(temporary, inpainted_path)
+            _atomic_replace_file(temporary, inpainted_path, logger=self.logger)
             temporary = None
             self.logger.info(f"Wrote back exported inpainted image: {inpainted_path}")
             return inpainted_path
@@ -184,6 +222,7 @@ class ExportService:
     def execute_export_job(self, job: "ExportJob") -> BackendExportResult:
         """Render, persist, and report one worker-owned export job."""
         rendered_image = None
+        inpainted_persisted = False
         export_started = time.perf_counter()
 
         try:
@@ -247,6 +286,7 @@ class ExportService:
                 if generated is None:
                     raise RuntimeError("Backend inpainting did not produce the final inpainted image")
                 self.save_inpainted_image(job.source_path, generated, job.config)
+                inpainted_persisted = True
             elif generated is not None:
                 raise RuntimeError(
                     f"{job.export_base.kind} export unexpectedly generated an inpaint image"
@@ -262,11 +302,17 @@ class ExportService:
             self.logger.info(
                 f"Image exported successfully to: {job.output_path} (total {time.perf_counter() - export_started:.2f}s, backend rendering {render_elapsed:.2f}s, saving {time.perf_counter() - save_started:.2f}s)"
             )
-            return BackendExportResult(generated)
+            return BackendExportResult(
+                generated,
+                inpainted_persisted=inpainted_persisted,
+            )
         except Exception as error:
             message = f"Backend rendering export failed: {error}"
             self.logger.error(message, exc_info=True)
-            return BackendExportResult(error=message)
+            return BackendExportResult(
+                error=message,
+                inpainted_persisted=inpainted_persisted,
+            )
         finally:
             if rendered_image is not None:
                 try:
@@ -733,7 +779,7 @@ class ExportService:
                 )
                 f.flush()
                 os.fsync(f.fileno())
-            os.replace(temp_path, json_path)
+            _atomic_replace_file(temp_path, json_path, logger=self.logger)
             temp_path = None
         finally:
             if temp_path and os.path.exists(temp_path):
@@ -775,7 +821,7 @@ class ExportService:
                 raise Exception(f"Temporary file was not created: {temp_output_path}")
 
             # 原子性替换
-            os.replace(temp_output_path, output_path)
+            _atomic_replace_file(temp_output_path, output_path, logger=self.logger)
             self.logger.info(f"Image saved: {output_path}")
 
         except Exception as e:

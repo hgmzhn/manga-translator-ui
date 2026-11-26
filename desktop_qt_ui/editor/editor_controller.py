@@ -550,6 +550,12 @@ class EditorController(QObject):
 
         toast_manager = self.get_toast_manager()
         file_name = os.path.basename(outcome.source_path)
+        if outcome.inpainted_persisted or outcome.generated_artifact is not None:
+            document_service = getattr(self, "document_service", None)
+            if document_service is not None and hasattr(
+                document_service, "invalidate_prefetched_document"
+            ):
+                document_service.invalidate_prefetched_document(outcome.source_path)
         if outcome.success:
             if outcome.generated_artifact is not None:
                 self.model.install_inpaint_artifact(outcome.generated_artifact)

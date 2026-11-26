@@ -357,6 +357,140 @@ def test_empty_text_regions_do_not_persist_detector_mask():
         assert "mask_raw" not in image_data
         assert "mask_is_refined" not in image_data
 
+
+def test_preloaded_editor_export_skips_txt_to_json_preprocess(monkeypatch, tmp_path):
+    """编辑器内存直通导出时不应触发 TXT->JSON 预处理写盘，避免与保存竞争或覆盖编辑。"""
+    import json as jsonlib
+
+    import desktop_qt_ui.services.workflow_service as workflow_service
+    from editor.controller_export_service import ExportJob
+    from manga_translator.config import Config, TranslatorConfig
+    from manga_translator.manga_translator import MangaTranslator
+    from manga_translator.utils.path_manager import (
+        get_json_path,
+        get_original_txt_path,
+    )
+    from services.export_service import ExportService
+
+    image_path = tmp_path / "078 (2).png"
+    base_img = Image.new("RGB", (128, 96), "white")
+    base_img.save(image_path)
+
+    json_path = Path(get_json_path(str(image_path), create_dir=True))
+    edited_regions = _make_regions()
+    edited_regions[0]["translation"] = "EDITED_IN_EDITOR"
+    original_json_text = jsonlib.dumps(
+        {str(image_path): {"regions": edited_regions}},
+        ensure_ascii=False,
+        indent=2,
+    )
+    json_path.write_text(original_json_text, encoding="utf-8")
+
+    orig_txt_path = Path(get_original_txt_path(str(image_path), create_dir=True))
+    orig_txt_path.write_text("原文: hello\n译文: STALE_FROM_TXT\n", encoding="utf-8")
+
+    called = []
+
+    def _fake_update(txt_path, target_json, tpl_path):
+        called.append((txt_path, target_json))
+        return "ok"
+
+    monkeypatch.setattr(
+        workflow_service, "safe_update_large_json_from_text", _fake_update
+    )
+
+    translator = MangaTranslator(params={"load_text": True, "translator": "none"})
+    cfg = Config(translator=TranslatorConfig(translator="none"))
+    with Image.open(image_path) as img_preloaded:
+        img_preloaded.name = str(image_path)
+        translator.set_preloaded_load_text_payload(
+            str(image_path), {"regions": [], "editor_export_base_kind": "source"}
+        )
+        translator._preprocess_load_text_mode([(img_preloaded, cfg)])
+    assert called == []
+
+    translator.set_preloaded_load_text_payload(str(image_path), None)
+    with Image.open(image_path) as img_disk:
+        img_disk.name = str(image_path)
+        translator._preprocess_load_text_mode([(img_disk, cfg)])
+    assert len(called) == 1
+    assert called[0][1] == str(json_path)
+
+    called.clear()
+    service = ExportService()
+    output_path = tmp_path / "manga_translator_work" / "result" / "078 (2).png"
+    job = ExportJob(
+        automatic=True,
+        source_path=str(image_path),
+        output_path=str(output_path),
+        export_base=ExportBase("source", base_img, base_img, None, None),
+        regions=edited_regions,
+        config=_make_config_dict(),
+    )
+    base_img.close()
+    result = service.execute_export_job(job)
+    job.release_resources()
+
+    assert result.error is None
+    assert output_path.exists()
+    assert called == []
+    assert json_path.read_text(encoding="utf-8") == original_json_text
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows transient file-lock retry")
+def test_atomic_replace_retries_on_transient_windows_access_denied(
+    monkeypatch, tmp_path
+):
+    """Windows 下 os.replace 遇到瞬时 WinError 5 应退避重试并成功落盘；永久失败须清理临时文件。"""
+    from manga_translator.utils.path_manager import get_json_path
+    from services import export_service as export_service_module
+    from services.export_service import ExportService
+
+    src = tmp_path / ".page_translations.json.abc.tmp"
+    dst = tmp_path / "page_translations.json"
+    src.write_text('{"new": true}', encoding="utf-8")
+    dst.write_text('{"old": true}', encoding="utf-8")
+
+    real_replace = os.replace
+    attempts = {"count": 0}
+    slept = []
+
+    def _flaky_replace(a, b):
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            raise PermissionError(13, "Access is denied", a, 5, b)
+        return real_replace(a, b)
+
+    monkeypatch.setattr(export_service_module.os, "replace", _flaky_replace)
+    monkeypatch.setattr(export_service_module.time, "sleep", slept.append)
+
+    export_service_module._atomic_replace_file(
+        str(src), str(dst), retry_delays=(0.01, 0.02, 0.03)
+    )
+    assert attempts["count"] == 3
+    assert slept == [0.01, 0.02]
+    assert dst.read_text(encoding="utf-8") == '{"new": true}'
+    assert not src.exists()
+
+    locked_img = tmp_path / "locked.png"
+    Image.new("RGB", (32, 32), "white").save(locked_img)
+    locked_json = Path(get_json_path(str(locked_img), create_dir=True))
+    locked_json.write_text('{"original": true}', encoding="utf-8")
+
+    def _always_denied(a, b):
+        raise PermissionError(13, "Access is denied", a, 5, b)
+
+    monkeypatch.setattr(export_service_module.os, "replace", _always_denied)
+    monkeypatch.setattr(export_service_module.time, "sleep", lambda _d: None)
+
+    service = ExportService()
+    with pytest.raises(PermissionError):
+        service.save_editor_project(
+            str(locked_img), [], None, _make_config_dict()
+        )
+    assert locked_json.read_text(encoding="utf-8") == '{"original": true}'
+    assert not list(locked_json.parent.glob("*.tmp"))
+
 def main():
     test_payload_parsing_matches_file_parsing()
     test_export_end_to_end_inmemory()

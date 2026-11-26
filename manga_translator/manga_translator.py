@@ -1267,13 +1267,9 @@ class MangaTranslator:
                 find_txt_files,
             )
             
-            # 获取默认模板路径
-            template_path = self._get_default_template_path()
-            if not template_path or not os.path.exists(template_path):
-                logger.warning("Template file not found, skipping TXT to JSON import")
-                return
-            
-            # 收集需要处理的图片路径
+            # 收集需要处理的图片路径（跳过已注册内存直通载荷的编辑器导出，
+            # 避免后台导出重写磁盘 JSON 并与编辑器保存发生文件锁/覆盖竞争）
+            preloaded_payloads = getattr(self, '_preloaded_load_text_payloads', None) or {}
             image_paths = []
             for image, config in images_with_configs:
                 image_path = None
@@ -1282,12 +1278,22 @@ class MangaTranslator:
                 elif isinstance(image, (str, os.PathLike)):
                     image_path = os.fspath(image)
 
-                if image_path:
-                    image_paths.append(image_path)
-                else:
+                if not image_path:
                     continue
+                if image_path in preloaded_payloads:
+                    logger.debug(
+                        f"Skipping TXT to JSON import for preloaded editor export: {os.path.basename(image_path)}"
+                    )
+                    continue
+                image_paths.append(image_path)
             
             if not image_paths:
+                return
+
+            # 获取默认模板路径
+            template_path = self._get_default_template_path()
+            if not template_path or not os.path.exists(template_path):
+                logger.warning("Template file not found, skipping TXT to JSON import")
                 return
             
             # 批量处理TXT导入
@@ -3680,8 +3686,20 @@ class MangaTranslator:
             return plan.merge_results(contexts)
 
         if self.load_text:
-            logger.info("Load text mode detected: Auto-importing translations from TXT to JSON...")
-            self._preprocess_load_text_mode(images_with_configs)
+            preloaded_payloads = getattr(self, '_preloaded_load_text_payloads', None) or {}
+            has_disk_load_text = False
+            for img, _ in images_with_configs:
+                img_path = None
+                if hasattr(img, 'name') and img.name:
+                    img_path = img.name
+                elif isinstance(img, (str, os.PathLike)):
+                    img_path = os.fspath(img)
+                if img_path and img_path not in preloaded_payloads:
+                    has_disk_load_text = True
+                    break
+            if has_disk_load_text:
+                logger.info("Load text mode detected: Auto-importing translations from TXT to JSON...")
+                self._preprocess_load_text_mode(images_with_configs)
 
         if self.replace_translation:
             logger.info("Replace translation mode detected: Will extract translations from translated images")
