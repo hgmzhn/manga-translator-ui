@@ -221,6 +221,11 @@ class EditorControllerExportService:
                 )
             else:
                 self._export_service.delete_inpainted_image(source_path)
+            document_service = getattr(self.controller, "document_service", None)
+            if document_service is not None and hasattr(
+                document_service, "invalidate_prefetched_document"
+            ):
+                document_service.invalidate_prefetched_document(source_path)
             self.controller.history_service.mark_clean()
             toast_manager = self.controller.get_toast_manager()
             if toast_manager is not None:

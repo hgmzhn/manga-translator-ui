@@ -107,3 +107,53 @@ def test_raw_infobar_hidden_parent_safeguard():
 
     bar2.close()
     parent.close()
+
+
+def test_multiple_concurrent_toasts_do_not_raise_keyerror():
+    """同一父控件同时显示多条 Toast 时不应因缺失 aniGroups[p] 抛出 KeyError。"""
+    import sys
+
+    app = _ensure_app()
+    uncaught = []
+    orig_hook = sys.excepthook
+
+    def _capture_hook(exc_type, exc_val, exc_tb):
+        uncaught.append((exc_type, exc_val))
+
+    sys.excepthook = _capture_hook
+    try:
+        parent = QWidget()
+        parent.resize(800, 600)
+        parent.show()
+        app.processEvents()
+
+        mgr = ToastManager(parent)
+        t1 = mgr.show_info("正在处理后台任务...", duration=0)
+        app.processEvents()
+        t2 = mgr.show_success("保存成功", duration=2500)
+        app.processEvents()
+        t3 = mgr.show_info("正在加载...", duration=0)
+        app.processEvents()
+
+        assert uncaught == [], f"并发弹出多条 Toast 触发了未捕获异常: {uncaught}"
+
+        bottom_mgr = InfoBarManager.make(InfoBarPosition.BOTTOM)
+        assert parent in bottom_mgr.infoBars
+        assert parent in bottom_mgr.aniGroups
+        assert len(bottom_mgr.infoBars[parent]) >= 3
+
+        # 防御验证：即使 aniGroups 键被外部清理，再次弹出也能自动补建而不崩溃
+        bottom_mgr.aniGroups.pop(parent, None)
+        t4 = mgr.show_error("恢复测试", duration=2500)
+        app.processEvents()
+        assert uncaught == [], f"aniGroups 缺失恢复时触发未捕获异常: {uncaught}"
+        assert parent in bottom_mgr.aniGroups
+
+        for toast in (t1, t2, t3, t4):
+            toast.close()
+        app.processEvents()
+        assert uncaught == [], f"关闭并发 Toast 时触发未捕获异常: {uncaught}"
+
+        parent.close()
+    finally:
+        sys.excepthook = orig_hook

@@ -184,6 +184,17 @@ class EditorControllerDocumentService:
             doc_versions.clear()
             self._desired_prefetch_keys.clear()
 
+    def invalidate_prefetched_document(self, source_path: str) -> None:
+        """驱逐单页预取快照并递增版本号，防止在途旧预取覆盖最新保存结果。"""
+        if not source_path:
+            return
+        key = self._prefetch_key(source_path)
+        with self._prefetch_lock:
+            key_versions, doc_versions = self._ensure_prefetch_version_maps()
+            key_versions[key] = key_versions.get(key, 0) + 1
+            self._prefetched_documents.pop(key, None)
+            doc_versions.pop(key, None)
+
     def shutdown(self) -> None:
         """退出清理：取消挂起任务并关闭常驻线程池。
 
@@ -294,11 +305,11 @@ class EditorControllerDocumentService:
         if self.controller.export_service.has_unsaved_changes():
             auto_export = self._auto_export_on_switch_enabled()
             auto_save = self._auto_save_on_switch_enabled()
-            if auto_export and self.controller.export_image(automatic=True) is None:
-                self.logger.warning("Auto-export rejected; image switch aborted")
-                return
             if auto_save and not self.controller.save_editor_state():
                 self.logger.warning("Auto-save rejected; image switch aborted")
+                return
+            if auto_export and self.controller.export_image(automatic=True) is None:
+                self.logger.warning("Auto-export rejected; image switch aborted")
                 return
             if (
                 not auto_export

@@ -553,6 +553,13 @@ class EditorController(QObject):
         if outcome.success:
             if outcome.generated_artifact is not None:
                 self.model.install_inpaint_artifact(outcome.generated_artifact)
+                document_service = getattr(self, "document_service", None)
+                if document_service is not None and hasattr(
+                    document_service, "invalidate_prefetched_document"
+                ):
+                    document_service.invalidate_prefetched_document(
+                        outcome.source_path
+                    )
             if not outcome.automatic and toast_manager is not None:
                 toast_manager.show_success(
                     f"导出成功\n{outcome.output_path}",

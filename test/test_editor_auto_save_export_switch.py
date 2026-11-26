@@ -90,3 +90,44 @@ def test_image_switch_uses_distinct_auto_save_and_auto_export_modes(
     assert loaded == ["next.png"]
     assert len(prompts) == expected_prompts
     service.shutdown()
+
+
+def test_switch_runs_auto_save_before_auto_export_and_aborts_on_save_failure(
+    monkeypatch,
+):
+    events = []
+
+    class _OrderedController(_Controller):
+        def __init__(self, *, save_ok: bool):
+            super().__init__(auto_save=True, auto_export=True, suppress_warning=False)
+            self._save_ok = save_ok
+
+        def commit_pending_edits(self):
+            events.append("commit")
+            super().commit_pending_edits()
+
+        def save_editor_state(self):
+            events.append("save")
+            super().save_editor_state()
+            return self._save_ok
+
+        def export_image(self, automatic=False):
+            events.append(("export", bool(automatic)))
+            return super().export_image(automatic=automatic)
+
+    ok_controller = _OrderedController(save_ok=True)
+    ok_service = EditorControllerDocumentService(ok_controller)
+    monkeypatch.setattr(ok_service, "do_load_image", lambda p: events.append(("load", p)))
+    ok_service.load_image_and_regions("next.png")
+    ok_service.shutdown()
+    assert events == ["commit", "save", ("export", True), ("load", "next.png")]
+
+    events.clear()
+    fail_controller = _OrderedController(save_ok=False)
+    fail_service = EditorControllerDocumentService(fail_controller)
+    monkeypatch.setattr(
+        fail_service, "do_load_image", lambda p: events.append(("load", p))
+    )
+    fail_service.load_image_and_regions("next.png")
+    fail_service.shutdown()
+    assert events == ["commit", "save"]
