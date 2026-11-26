@@ -72,6 +72,19 @@ from ._vertical_types import (
 )
 
 _HORIZONTAL_SYMBOL_HALFWIDTH_MAP = str.maketrans({"！": "!", "？": "?"})
+# Script detection for horizontal line spacing: CJK, mixed CJK+Latin, and
+# non-alphabetic punctuation/numeric text keep tight per-line ink bounds,
+# while multi-line pure Latin/alphabetic blocks unify standard line spacing
+# bounds across the block so commas, descenders, and x-height lines stay
+# evenly spaced without shrinking all-caps bubbles.
+_CJK_CHAR_RE = re.compile(
+    r"[\u1100-\u11FF\u3005-\u3007\u3040-\u30FF\u3100-\u318F\u31A0-\u31BF"
+    r"\u31F0-\u31FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF"
+    r"\uFF61-\uFF9F\U00020000-\U000323AF]"
+)
+_LATIN_ALPHABETIC_RE = re.compile(
+    r"[A-Za-z\u00C0-\u024F\u0370-\u03FF\u0400-\u04FF\u1E00-\u1EFF]"
+)
 # Keep join controls in horizontal strings for QTextLayout shaping. In the
 # per-character vertical path they have neither ink nor a character slot.
 _ZERO_WIDTH_JOIN_CONTROLS = frozenset(("\u200c", "\u200d"))
@@ -821,6 +834,41 @@ def _paragraph_line_spacing_values(paragraph) -> tuple[float | None, float | Non
     return line_value, next_value
 
 
+def _document_uses_uniform_latin_spacing(document: RichTextDocument) -> bool:
+    has_latin = False
+    for paragraph in document.paragraphs:
+        for span in paragraph.spans:
+            text = span.text or ""
+            if not text:
+                continue
+            if _CJK_CHAR_RE.search(text):
+                return False
+            if not has_latin and _LATIN_ALPHABETIC_RE.search(text):
+                has_latin = True
+    return has_latin
+
+
+def _is_standard_horizontal_spacing_line(
+    layout: HorizontalLinePlan, base_font_size: int
+) -> bool:
+    if not any(run.has_ink for run in layout.runs):
+        return False
+    for run in layout.runs:
+        if not run.has_ink:
+            continue
+        style = run.span.style
+        if (
+            run.font_size != base_font_size
+            or run.ruby is not None
+            or style.emphasis
+            or style.transform.rotation != 0
+            or style.transform.offset_y != 0
+            or style.transform.scale_y != 1.0
+        ):
+            return False
+    return True
+
+
 def _finalize_rich_horizontal_line(
     runs: list[HorizontalRunPlan],
     base_font_size: int,
@@ -1046,6 +1094,32 @@ def _build_rich_horizontal_layout(
                 runs, base_font_size, letter_spacing, line_kerning, next_kerning
             )
         )
+    if len(layouts) >= 2 and _document_uses_uniform_latin_spacing(document):
+        standard_indices = [
+            idx
+            for idx, layout in enumerate(layouts)
+            if _is_standard_horizontal_spacing_line(layout, base_font_size)
+        ]
+        if len(standard_indices) >= 2:
+            uniform_top = min(
+                (layouts[idx].spacing_bounds or layouts[idx].body_bounds).top
+                for idx in standard_indices
+            )
+            uniform_bottom = max(
+                (layouts[idx].spacing_bounds or layouts[idx].body_bounds).bottom
+                for idx in standard_indices
+            )
+            for idx in standard_indices:
+                current_bounds = layouts[idx].spacing_bounds or layouts[idx].body_bounds
+                layouts[idx] = replace(
+                    layouts[idx],
+                    spacing_bounds=Bounds(
+                        current_bounds.left,
+                        uniform_top,
+                        current_bounds.right,
+                        uniform_bottom,
+                    ),
+                )
     return layouts
 
 
