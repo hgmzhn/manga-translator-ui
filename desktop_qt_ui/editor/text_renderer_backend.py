@@ -51,6 +51,40 @@ def _map_dst_points_to_screen(dst_points: np.ndarray, transform) -> np.ndarray:
 
 
 
+def _is_perspective_quad(points) -> bool:
+    """判断 4 点是否需要四角透视映射。
+
+    只有旋转矩形（可用原生矩形路径表示）返回 False；对边平行但整体
+    倾斜的平行四边形仍是有效的透视四边形，必须保留四角映射。
+    """
+    pts = np.asarray(points, dtype=np.float32).reshape(4, 2)
+    top = pts[1] - pts[0]
+    right = pts[2] - pts[1]
+    bottom = pts[3] - pts[2]
+    left = pts[0] - pts[3]
+    scale = max(
+        1.0,
+        float(
+            max(
+                np.linalg.norm(top),
+                np.linalg.norm(right),
+                np.linalg.norm(bottom),
+                np.linalg.norm(left),
+            )
+        ),
+    )
+    tol = 0.01 * scale
+    parallel = (
+        np.linalg.norm(top + bottom) <= tol
+        and np.linalg.norm(right + left) <= tol
+    )
+    top_len = float(np.linalg.norm(top))
+    right_len = float(np.linalg.norm(right))
+    denom = max(top_len * right_len, 1e-6)
+    perpendicular = abs(float(np.dot(top, right))) / denom <= 0.01
+    return not (parallel and perpendicular)
+
+
 def _native_rect_points(center, width: int, height: int, angle: float) -> np.ndarray:
     """按原生像素宽高生成实际渲染四角；只旋转，不缩放。"""
     cx, cy = float(center[0]), float(center[1])
@@ -168,12 +202,18 @@ def render_text_image_for_region(
         float(target_center[0]) - w / 2.0,
         float(target_center[1]) - h / 2.0,
     )
-    native_dst_points = _native_rect_points(
-        target_center,
-        w,
-        h,
-        getattr(text_block, "angle", 0.0),
-    )
+    dst_quad = np.asarray(dst_points_screen, dtype=np.float32).reshape(1, 4, 2)
+    if _is_perspective_quad(dst_quad):
+        # 透视框：保留四边形作为渲染框，pixmap 仍为矩形，由图形项在
+        # 局部坐标系中做透视变换显示。
+        native_dst_points = dst_quad
+    else:
+        native_dst_points = _native_rect_points(
+            target_center,
+            w,
+            h,
+            getattr(text_block, "angle", 0.0),
+        )
     final_image = _rgba_image_to_qimage(native_image)
     return (final_image, native_pos, native_dst_points)
 

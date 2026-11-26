@@ -10,7 +10,7 @@ from PyQt6.QtCore import QObject, Qt, pyqtSignal, pyqtSlot
 
 from editor.commands import _NO_MASK_CHANGE, MoveRegionCommand, UpdateRegionCommand
 from editor.geometry_commit_pipeline import build_rotate_region_data
-from editor.region_geometry_state import RegionGeometryState
+from editor.region_geometry_state import RegionGeometryState, is_quad_like
 from services import (
     get_async_service,
     get_config_service,
@@ -108,6 +108,51 @@ def _sync_white_frame_size_for_font_change(
     标记 has_custom_white_frame=True 让其优先于 render_box 主导渲染中心。
     """
     try:
+        # 透视白框由用户手工定义；字体变化时按字号比例缩放四边形而不是
+        # 换成矩形，这样 Ctrl+滚轮/字号修改也能调整透视文本框的大小。
+        # 没有自定义白框四边形时，渲染框四边形同样按比例缩放。
+        quad_key = None
+        bbox_key = None
+        if is_quad_like(region_data.get("white_frame_quad_local")):
+            quad_key = "white_frame_quad_local"
+            bbox_key = "white_frame_rect_local"
+        elif is_quad_like(region_data.get("render_box_quad_local")):
+            quad_key = "render_box_quad_local"
+            bbox_key = "render_box_rect_local"
+        if quad_key is not None:
+            old_font = int(
+                (old_region_data or {}).get("font_size")
+                or getattr(old_render_params, "font_size", 0)
+                or 0
+            )
+            new_font = int(
+                region_data.get("font_size")
+                or getattr(render_params, "font_size", 0)
+                or 0
+            )
+            if old_font > 0 and new_font > 0 and old_font != new_font:
+                scale = float(new_font) / float(old_font)
+                quad = region_data[quad_key]
+                center_x = sum(float(point[0]) for point in quad[:4]) / 4.0
+                center_y = sum(float(point[1]) for point in quad[:4]) / 4.0
+                scaled = [
+                    [
+                        center_x + (float(point[0]) - center_x) * scale,
+                        center_y + (float(point[1]) - center_y) * scale,
+                    ]
+                    for point in quad[:4]
+                ]
+                region_data[quad_key] = scaled
+                xs = [point[0] for point in scaled]
+                ys = [point[1] for point in scaled]
+                region_data[bbox_key] = [
+                    min(xs),
+                    min(ys),
+                    max(xs),
+                    max(ys),
+                ]
+            return
+
         from manga_translator.rendering import calc_box_from_font
 
         def _box_metrics(data: dict, params):

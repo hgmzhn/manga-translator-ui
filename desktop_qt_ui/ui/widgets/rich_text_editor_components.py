@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 )
 from qfluentwidgets import (
     CaptionLabel,
+    CheckBox,
     DoubleSpinBox,
     LineEdit,
     PushButton,
@@ -81,6 +82,7 @@ STYLE_SPECS: dict[str, StyleSpec] = {
     "F": StyleSpec("Font", "Font Family", {}),
     "O": StyleSpec("Stroke", "Stroke", {"stroke": {"color": "#ffffff", "width": 0.07}}),
     "G": StyleSpec("Glow", "Glow", {"glow": {"color": "#00ffff", "blur": 0.10}}),
+    "BL": StyleSpec("Blur", "Blur", {"blur": 0.08}),
     "OS": StyleSpec(
         "Outer Stroke",
         "Outer Stroke",
@@ -142,10 +144,59 @@ def clear_style_patch(key: str) -> dict:
     Top-level style fields clear as ``field: None``; ``transform`` clears its
     individual sub-keys so sibling transform values survive.
     """
-    return {
+    patch = {
         field: ({sub: None for sub in value} if field == "transform" else None)
         for field, value in default_style_patch(key).items()
     }
+    # Removing blur must also remove the direction; otherwise re-enabling BL
+    # silently restores the previous gradient instead of uniform blur.
+    if key == "BL":
+        patch["blurAngle"] = None
+        patch["blurRadial"] = None
+        patch["blurMotion"] = None
+    return patch
+
+
+def _normalized_blur_angle(value):
+    if value is None:
+        return None
+    try:
+        return float(value) % 360.0
+    except (TypeError, ValueError):
+        return None
+
+
+def _select_blur_angle(
+    combo, value, radial: bool = False, motion: bool = False
+) -> None:
+    """Select a blur angle, adding a transient item for non-preset angles.
+
+    The rule editor accepts arbitrary angles; the floating editor only lists
+    the eight presets.  Without a transient item ``findData`` falls back to
+    index 0 and the UI would claim "Uniform" while rendering a gradient.
+    ``radial=True``/``motion=True`` select those modes instead.
+    """
+    if motion:
+        index = combo.findData("motion")
+        if index < 0:
+            combo.addItem(_tr("Vertical Shake"), userData="motion")
+            index = combo.count() - 1
+    elif radial:
+        index = combo.findData("radial")
+        if index < 0:
+            combo.addItem(_tr("Radial"), userData="radial")
+            index = combo.count() - 1
+    else:
+        angle = _normalized_blur_angle(value)
+        index = combo.findData(angle)
+        if index < 0 and angle is not None:
+            combo.addItem(f"{angle:g}°", userData=angle)
+            index = combo.count() - 1
+    combo.blockSignals(True)
+    try:
+        combo.setCurrentIndex(index if index >= 0 else 0)
+    finally:
+        combo.blockSignals(False)
 
 
 class RichTextBodyEdit(TextEdit):
@@ -434,8 +485,9 @@ class RubyEditBar(QWidget):
     editing_finished = pyqtSignal(str)
     editing_started = pyqtSignal()
     text_changed = pyqtSignal(str)
+    inherit_changed = pyqtSignal(bool)
 
-    def __init__(self, text: str = "", parent=None):
+    def __init__(self, text: str = "", inherit: bool = True, parent=None):
         super().__init__(parent)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -445,8 +497,12 @@ class RubyEditBar(QWidget):
         self.input.installEventFilter(self)
         self.apply_button = PushButton(self)
         self.apply_button.setMinimumSize(48, 28)
+        self.inherit_check = CheckBox(self)
+        self.inherit_check.setChecked(bool(inherit))
+        self.inherit_check.setMinimumWidth(64)
         layout.addWidget(self.input, 1)
         layout.addWidget(self.apply_button)
+        layout.addWidget(self.inherit_check)
         self.apply_button.clicked.connect(
             lambda: self.apply_requested.emit(self.input.text())
         )
@@ -457,12 +513,16 @@ class RubyEditBar(QWidget):
             lambda: self.editing_finished.emit(self.input.text())
         )
         self.input.textChanged.connect(self.text_changed)
+        self.inherit_check.toggled.connect(self.inherit_changed.emit)
         self.refresh_ui_texts()
 
     def refresh_ui_texts(self) -> None:
         self.input.setPlaceholderText(_tr("Ruby text"))
         self.apply_button.setText(_tr("Apply"))
         self.apply_button.setAccessibleName(_tr("Apply"))
+        self.inherit_check.setText(_tr("Inherit"))
+        self.inherit_check.setToolTip(_tr("Apply body style to ruby text"))
+        self.inherit_check.setAccessibleName(_tr("Apply body style to ruby text"))
 
     def eventFilter(self, watched, event):
         if watched is self.input and event.type() == QEvent.Type.FocusIn:
@@ -493,11 +553,12 @@ def style_keys_for_segment(
         "F": "fontFamily" in style,
         "O": bool(style.get("stroke")),
         "G": bool(style.get("glow")),
+        "BL": bool(style.get("blur")),
         "OS": bool(style.get("outerStroke")),
         "D": bool(style.get("emphasis")),
         "FA": "verticalAdvance" in style,
-        "T": segment.node_type == "tcy" and segment.start == segment.node_start,
-        "R": segment.node_type == "ruby" and segment.start == segment.node_start,
+        "T": segment.node_type == "tcy",
+        "R": segment.node_type == "ruby",
         "Rot": "rotation" in transform,
         "K": "kerning" in style,
         "PK": "preKerning" in style,
@@ -828,6 +889,138 @@ class StyleRunCard(SimpleCardWidget):
                 lambda value, _control=control: _control.setCurrentFamily(value),
             )
             return control
+        if key == "BL":
+            amount = _double_spin_box(
+                float(style.get("blur", 0.08) or 0.0), 0.0, 1.0, step=0.01
+            )
+            amount.setSymbolVisible(False)
+            amount.valueChanged.connect(
+                lambda value: self._emit_patch(key, {"blur": float(value)})
+            )
+            direction = ComboBox(self)
+            direction.addItem(_tr("Uniform"), userData=None)
+            for label, angle in (
+                ("→", 0.0),
+                ("↘", 45.0),
+                ("↓", 90.0),
+                ("↙", 135.0),
+                ("←", 180.0),
+                ("↖", 225.0),
+                ("↑", 270.0),
+                ("↗", 315.0),
+            ):
+                direction.addItem(label, userData=angle)
+            direction.addItem(_tr("Radial"), userData="radial")
+            direction.addItem(_tr("Vertical Shake"), userData="motion")
+            motion_distance = _double_spin_box(
+                float(style.get("blurMotionDistance") or 8.0),
+                0.0,
+                200.0,
+                step=1.0,
+            )
+            motion_distance.setDecimals(1)
+            motion_distance.setSuffix(" px")
+            motion_distance.setEnabled(bool(style.get("blurMotion", False)))
+            motion_distance.valueChanged.connect(
+                lambda value: self._emit_patch(
+                    key, {"blurMotionDistance": float(value)}
+                )
+            )
+            _select_blur_angle(
+                direction,
+                style.get("blurAngle"),
+                bool(style.get("blurRadial", False)),
+                bool(style.get("blurMotion", False)),
+            )
+            def _on_direction_changed(_index):
+                data = direction.currentData()
+                if data == "radial":
+                    motion_distance.setEnabled(False)
+                    self._emit_patch(
+                        key,
+                        {
+                            "blurRadial": True,
+                            "blurMotion": False,
+                            "blurAngle": 0.0,
+                        },
+                    )
+                elif data == "motion":
+                    motion_distance.setEnabled(True)
+                    if motion_distance.value() <= 0:
+                        motion_distance.setValue(8.0)
+                    self._emit_patch(
+                        key,
+                        {
+                            "blurRadial": False,
+                            "blurMotion": True,
+                            "blurMotionDistance": float(
+                                motion_distance.value()
+                            ),
+                            "blurAngle": None,
+                        },
+                    )
+                else:
+                    motion_distance.setEnabled(False)
+                    self._emit_patch(
+                        key,
+                        {
+                            "blurRadial": False,
+                            "blurMotion": False,
+                            "blurAngle": data,
+                        },
+                    )
+
+            direction.currentIndexChanged.connect(_on_direction_changed)
+            self._register_applier(
+                key,
+                amount,
+                lambda s, *_: float(s.get("blur", 0.08) or 0.0),
+                amount.setValue,
+            )
+            self._register_applier(
+                key,
+                direction,
+                lambda s, *_: (
+                    s.get("blurAngle"),
+                    bool(s.get("blurRadial", False)),
+                    bool(s.get("blurMotion", False)),
+                ),
+                lambda value, _combo=direction: _select_blur_angle(
+                    _combo, value[0], value[1], value[2]
+                ),
+            )
+            self._register_applier(
+                key,
+                motion_distance,
+                lambda s, *_: float(s.get("blurMotionDistance") or 8.0),
+                motion_distance.setValue,
+            )
+            container = QWidget(self)
+            outer_layout = QVBoxLayout(container)
+            outer_layout.setContentsMargins(0, 0, 0, 0)
+            outer_layout.setSpacing(4)
+            top_row = QHBoxLayout()
+            top_row.setContentsMargins(0, 0, 0, 0)
+            top_row.setSpacing(4)
+            for control in (amount, direction):
+                control.setMinimumWidth(self._PAIR_CONTROL_MIN_WIDTH)
+                control.setMaximumWidth(self._PAIR_CONTROL_MAX_WIDTH)
+            top_row.addWidget(amount, 1)
+            top_row.addWidget(direction, 1)
+            outer_layout.addLayout(top_row)
+
+            bottom_row = QHBoxLayout()
+            bottom_row.setContentsMargins(0, 0, 0, 0)
+            bottom_row.setSpacing(4)
+            distance_label = CaptionLabel(_tr("Shake Distance"), self)
+            bottom_row.addWidget(distance_label)
+            bottom_row.addWidget(motion_distance, 1)
+            outer_layout.addLayout(bottom_row)
+
+            set_hover_hint(amount, _tr("Blur Amount"))
+            set_hover_hint(direction, _tr("Direction"))
+            set_hover_hint(motion_distance, _tr("Shake Distance"))
+            return container
         if key in _EFFECT_SPECS:
             source, color_title, color_default, number_key, number_default = (
                 _EFFECT_SPECS[key]
@@ -878,7 +1071,11 @@ class StyleRunCard(SimpleCardWidget):
             text = (
                 self.segment.ruby_text if ruby_draft_text is None else ruby_draft_text
             )
-            control = RubyEditBar(text, self)
+            control = RubyEditBar(
+                text,
+                inherit=bool(getattr(self.segment, "ruby_inherit", True)),
+                parent=self,
+            )
             start, end = self._target_for_key(key)
             control.editing_started.connect(
                 lambda: self.ruby_started.emit(start, end, control.text())
@@ -892,11 +1089,27 @@ class StyleRunCard(SimpleCardWidget):
             control.text_changed.connect(
                 lambda value: self.ruby_changed.emit(start, end, value)
             )
+            # rubyInherit is read from the base run by the renderer, so the
+            # toggle must patch the whole ruby node, not only the current
+            # fragment (which may be a later base run without the flag).
+            control.inherit_changed.connect(
+                lambda value, a=start, b=end: self.patch_requested.emit(
+                    a, b, key, {"rubyInherit": bool(value)}
+                )
+            )
             self._register_applier(
                 key,
                 control.input,
                 lambda s, t, seg, draft: str(seg.ruby_text if draft is None else draft),
                 control.input.setText,
+            )
+            self._register_applier(
+                key,
+                control.inherit_check,
+                lambda s, t, seg, *_: bool(
+                    getattr(seg, "ruby_inherit", True)
+                ),
+                control.inherit_check.setChecked,
             )
             return control
         if key == "Rot":

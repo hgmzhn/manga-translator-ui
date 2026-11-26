@@ -62,6 +62,7 @@ class EmphasisPlan:
     main_centers: tuple[float, ...]
     radius: int
     frame_size: int
+    font_size: int = 0
     cross_center: float = 0.0
 
 
@@ -159,6 +160,7 @@ def plan_emphasis(
         main_centers=tuple((start + end) / 2.0 for start, end in main_intervals),
         radius=radius,
         frame_size=radius * 2 + 3,
+        font_size=font_size,
     )
 
 

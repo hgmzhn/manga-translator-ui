@@ -172,12 +172,19 @@ class GraphicsViewRenderingMixin:
         ):
             return "shape"
 
-        white_changed = not self._values_equal(
-            old_region_data.get("white_frame_rect_local"),
-            new_region_data.get("white_frame_rect_local"),
-        ) or not self._values_equal(
-            old_region_data.get("has_custom_white_frame", False),
-            new_region_data.get("has_custom_white_frame", False),
+        white_changed = (
+            not self._values_equal(
+                old_region_data.get("white_frame_rect_local"),
+                new_region_data.get("white_frame_rect_local"),
+            )
+            or not self._values_equal(
+                old_region_data.get("white_frame_quad_local"),
+                new_region_data.get("white_frame_quad_local"),
+            )
+            or not self._values_equal(
+                old_region_data.get("has_custom_white_frame", False),
+                new_region_data.get("has_custom_white_frame", False),
+            )
         )
         if white_changed:
             return "white_frame"
@@ -250,6 +257,11 @@ class GraphicsViewRenderingMixin:
             ):
                 return False
 
+            model_quad = region_data.get("white_frame_quad_local")
+            item_quad = item.geo.custom_white_frame_quad_local
+            if not self._values_equal(model_quad, item_quad):
+                return False
+
             model_wf = region_data.get("white_frame_rect_local")
             item_wf = item.geo.custom_white_frame_local
             if model_wf is None and item_wf is None:
@@ -273,7 +285,12 @@ class GraphicsViewRenderingMixin:
         """
         patch = self._build_render_box_patch(region_data, dst_points)
         new_render_box = patch.get("render_box_rect_local")
-        if self._values_equal(region_data.get("render_box_rect_local"), new_render_box):
+        new_render_quad = patch.get("render_box_quad_local")
+        if self._values_equal(
+            region_data.get("render_box_rect_local"), new_render_box
+        ) and self._values_equal(
+            region_data.get("render_box_quad_local"), new_render_quad
+        ):
             return None
         updated = copy.deepcopy(region_data)
         updated.update(patch)
@@ -541,6 +558,7 @@ class GraphicsViewRenderingMixin:
                 text_block,
                 layout_params,
                 override_dst_points=override_dst_points,
+                perspective_quad=getattr(snapshot, "white_frame_quad_world", None),
             )
         except Exception as e:
             self._log_layout_failure(
@@ -604,6 +622,9 @@ class GraphicsViewRenderingMixin:
                     calculate_region_dst_points(
                         text_block,
                         layout_params,
+                        perspective_quad=getattr(
+                            snapshot, "white_frame_quad_world", None
+                        ),
                     )
                 )
             except Exception as e:

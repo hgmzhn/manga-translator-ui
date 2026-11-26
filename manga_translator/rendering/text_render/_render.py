@@ -5,6 +5,7 @@
 """
 
 import math
+from types import SimpleNamespace
 import re
 
 import cv2
@@ -15,14 +16,18 @@ from ..rich_text import (
     ensure_rich_text_document,
     is_rich_text_document,
     legacy_line_breaks_to_document,
+    ruby_text_style_for,
 )
 from ._compose import (
     _apply_style_layer_effects,
     _apply_style_paint_effects,
+    _blur_rgba_layer,
     _crop_rgba_fixed,
     _draw_rgba_bar,
     _draw_rgba_disc,
     _glyph_pair_rgba,
+    _gradient_blur_canvas,
+    _motion_blur_canvas,
     _paste_rgba,
     _rgba_for_paint_part,
     _stroke_bitmap_from_alpha,
@@ -57,19 +62,23 @@ def _paint_vertical_ruby(
     body_right: float,
     main_offset: float,
     fg,
+    bg,
     letter_spacing: float,
+    gradient_box=None,
 ):
     if not plan.glyphs:
         return
     ruby_size = max(1, round(plan.font_size * RICH_TEXT_POLICY.vertical_ruby_size))
-    ruby_style = plan.source.style.copy()
+    ruby_style = ruby_text_style_for(plan.source)
     ruby_style.emphasis = False
     ruby_style.underline = False
     ruby_style.strikethrough = False
     fill = _style_fill_color(ruby_style, fg)
-    stroke = _style_stroke_color(ruby_style, None)
+    stroke = _style_stroke_color(ruby_style, bg) if plan.stroke_ratio > 0 else None
     x = body_right + plan.cross_center
     ruby_shear = _style_italic_shear(ruby_style)
+    # 保留 _vertical_base 的竖排字形生成（「」等字符会自动旋转），再用
+    # _vertical_char_parts 复用正文的描边/特效/旋转图层管线。
     with _style_font_scope(ruby_style):
         for glyph in plan.glyphs:
             base = _vertical_base(
@@ -82,33 +91,66 @@ def _paint_vertical_ruby(
             )
             if base.bitmap is None:
                 continue
-            layer, off_x, off_y = _glyph_pair_rgba(base.bitmap, None, fill, stroke)
-            if layer is None:
+            char_plan = SimpleNamespace(
+                base=base,
+                font_size=ruby_size,
+                fill=fill,
+                stroke=stroke,
+                stroke_ratio=plan.stroke_ratio,
+                span=SimpleNamespace(style=ruby_style),
+            )
+            parts = _vertical_char_parts(char_plan)
+            if parts is None:
+                continue
+            base_layer = next((part for part in parts if part is not None), None)
+            if base_layer is None:
                 continue
             if glyph.main_scale != 1.0:
-                scaled_h = max(1, round(layer.shape[0] * glyph.main_scale))
-                layer = cv2.resize(
-                    layer, (layer.shape[1], scaled_h), interpolation=cv2.INTER_LINEAR
-                )
-                off_y *= glyph.main_scale
+                scaled_parts = []
+                for part in parts:
+                    if part is None:
+                        scaled_parts.append(None)
+                        continue
+                    scaled_parts.append(
+                        cv2.resize(
+                            part,
+                            (
+                                part.shape[1],
+                                max(1, round(part.shape[0] * glyph.main_scale)),
+                            ),
+                            interpolation=cv2.INTER_LINEAR,
+                        )
+                    )
+                parts = tuple(scaled_parts)
+                base_layer = next((part for part in parts if part is not None), None)
+                if base_layer is None:
+                    continue
             cy = main_offset + glyph.main_center
-            _paste_rgba(
-                canvas,
-                layer,
-                round(x - layer.shape[1] / 2.0 + off_x),
-                round(cy - layer.shape[0] / 2.0 + off_y),
-            )
+            px = round(x - base_layer.shape[1] / 2.0)
+            py = round(cy - base_layer.shape[0] / 2.0)
+            for part in parts:
+                if part is not None:
+                    _paste_rgba(canvas, part, px, py)
 
 
-def _finish_layer(base_layer, style, font_size: int, effect_part: str):
+def _finish_layer(
+    base_layer,
+    style,
+    font_size: int,
+    effect_part: str,
+    gradient_box=None,
+):
     """特效 + 图层几何（旋转/镜像）后处理，effects/stroke/fill 三层共用。
 
     斜体已在字形路径阶段完成（_glyph_raster/_horizontal_glyph_path 的 shear），
-    进入本函数的图层就是剪切后的形状。
+    进入本函数的图层就是剪切后的形状。``gradient_box`` 是方向模糊的渐变
+    范围（未加特效 padding 的图层坐标），竖排传入整列范围以获得连续渐变。
     """
     if base_layer is None:
         return None
-    layer = _apply_style_paint_effects(base_layer, style, font_size, effect_part)
+    layer = _apply_style_paint_effects(
+        base_layer, style, font_size, effect_part, gradient_box
+    )
     if layer is None:
         return None
     layer, _, _ = _apply_style_layer_effects(layer, style, font_size)
@@ -146,6 +188,7 @@ def _text_layer_parts(
     letter_spacing: float,
     profile_stats: dict | None,
     geometry: dict | None = None,
+    gradient_box=None,
 ):
     """一次光栅化，派生横排文字的 (effects, stroke, fill) 三层，位置对齐。
 
@@ -181,23 +224,26 @@ def _text_layer_parts(
             style,
             font_size,
             "effects",
+            gradient_box,
         ),
         _finish_layer(
             _rgba_for_paint_part(text_alpha, border_alpha, fill, stroke, "stroke"),
             style,
             font_size,
             "body",
+            gradient_box,
         ),
         _finish_layer(
             _rgba_for_paint_part(text_alpha, border_alpha, fill, stroke, "fill"),
             style,
             font_size,
             "body",
+            gradient_box,
         ),
     )
 
 
-def _vertical_char_parts(plan: VerticalCharPlan):
+def _vertical_char_parts(plan: VerticalCharPlan, gradient_box=None):
     """一次描边距离变换，派生竖排字符的 (effects, stroke, fill) 三层。"""
     bitmap = plan.base.bitmap
     if bitmap is None or not bitmap.size:
@@ -218,10 +264,25 @@ def _vertical_char_parts(plan: VerticalCharPlan):
         bitmap, stroke_bitmap, plan.fill, plan.stroke, "fill"
     )
     return (
-        _finish_layer(combined, style, font_size, "effects"),
-        _finish_layer(stroke_base, style, font_size, "body"),
-        _finish_layer(fill_base, style, font_size, "body"),
+        _finish_layer(combined, style, font_size, "effects", gradient_box),
+        _finish_layer(stroke_base, style, font_size, "body", gradient_box),
+        _finish_layer(fill_base, style, font_size, "body", gradient_box),
     )
+
+
+def _document_max_blur_pad(document: RichTextDocument, font_size: int) -> int:
+    """Whole-document blur spread in pixels, so crop bounds keep blur tails."""
+    max_blur = 0.0
+    for block in getattr(document, "blocks", ()):
+        for span in getattr(block, "spans", ()):
+            style = getattr(span, "style", None)
+            if style is None:
+                continue
+            try:
+                max_blur = max(max_blur, float(getattr(style, "blur", 0.0) or 0.0))
+            except (TypeError, ValueError):
+                continue
+    return int(math.ceil(max(0.0, max_blur) * max(float(font_size), 1.0) * 3.0))
 
 
 def _render_rich_text_horizontal(
@@ -256,9 +317,12 @@ def _render_rich_text_horizontal(
         profile_stats,
         glyph_geometries,
     )
-    geometry = _rich_horizontal_layout_geometry(layouts, font_size, line_spacing)
     max_font_size = max(
         [font_size] + [run.font_size for layout in layouts for run in layout.runs]
+    )
+    blur_pad = _document_max_blur_pad(document, max_font_size)
+    geometry = _rich_horizontal_layout_geometry(
+        layouts, font_size, line_spacing, blur_pad
     )
 
     padding = int(max(max_font_size * 2.0, 16))
@@ -267,6 +331,15 @@ def _render_rich_text_horizontal(
     canvas = np.zeros((max(canvas_h, 1), max(canvas_w, 1), 4), dtype=np.uint8)
     body_left = padding + geometry["left_extra"]
     body_width = geometry["body_width"]
+    # Common gradient range for the whole text block: every span/column
+    # converts it to its own layer coordinates, so the fade does not restart
+    # at span/line boundaries.
+    common_box = (
+        float(padding),
+        float(padding),
+        float(geometry["paint_width"]),
+        float(geometry["paint_height"]),
+    )
 
     # 一次遍历构建绘制项（每个字形只光栅化一次，派生 effects/stroke/fill
     # 三层），再按全局 effects → stroke → fill 顺序三次粘贴；emphasis 圆点
@@ -297,6 +370,8 @@ def _render_rich_text_horizontal(
         for run in layout.runs:
             span = run.span
             if run.has_ink and run.main_rect is not None:
+                item_x = round(cursor_x + run.main_rect.x)
+                item_y = round(baseline_y + run.main_rect.y)
                 parts = _text_layer_parts(
                     span.text,
                     span.style,
@@ -308,22 +383,28 @@ def _render_rich_text_horizontal(
                     letter_spacing,
                     profile_stats,
                     glyph_geometries.get(id(run)),
+                    (
+                        common_box[0] - item_x,
+                        common_box[1] - item_y,
+                        common_box[2],
+                        common_box[3],
+                    ),
                 )
                 if parts is not None:
-                    glyph_items.append(
-                        (
-                            parts,
-                            round(cursor_x + run.main_rect.x),
-                            round(baseline_y + run.main_rect.y),
-                        )
-                    )
+                    glyph_items.append((parts, item_x, item_y))
             ruby = run.ruby
             if ruby is not None:
-                ruby_style = span.style.copy()
+                ruby_style = ruby_text_style_for(span)
                 ruby_style.emphasis = False
                 ruby_style.underline = False
                 ruby_style.strikethrough = False
                 for glyph in ruby.glyphs:
+                    glyph_x = round(
+                        cursor_x + glyph.main_center - glyph.paint_width / 2.0
+                    )
+                    glyph_y = round(
+                        baseline_y + ruby.cross_center - glyph.paint_height / 2.0
+                    )
                     parts = _text_layer_parts(
                         glyph.char,
                         ruby_style,
@@ -335,23 +416,15 @@ def _render_rich_text_horizontal(
                         letter_spacing,
                         profile_stats,
                         glyph_geometries.get(id(glyph)),
+                        (
+                            common_box[0] - glyph_x,
+                            common_box[1] - glyph_y,
+                            common_box[2],
+                            common_box[3],
+                        ),
                     )
                     if parts is not None:
-                        glyph_items.append(
-                            (
-                                parts,
-                                round(
-                                    cursor_x
-                                    + glyph.main_center
-                                    - glyph.paint_width / 2.0
-                                ),
-                                round(
-                                    baseline_y
-                                    + ruby.cross_center
-                                    - glyph.paint_height / 2.0
-                                ),
-                            )
-                        )
+                        glyph_items.append((parts, glyph_x, glyph_y))
             if run.emphasis is not None:
                 dot_color = _style_fill_color(run.emphasis.source.style, fg)
                 for main_center in run.emphasis.main_centers:
@@ -365,6 +438,8 @@ def _render_rich_text_horizontal(
                                 run.emphasis.radius,
                                 dot_color,
                             ),
+                            run.emphasis.source.style,
+                            run.font_size,
                         )
                     )
             if run.underline is not None:
@@ -379,6 +454,8 @@ def _render_rich_text_horizontal(
                             run.underline.thickness,
                             _style_fill_color(run.underline.source.style, fg),
                         ),
+                        run.underline.source.style,
+                        run.font_size,
                     )
                 )
             if run.strikethrough is not None:
@@ -393,19 +470,29 @@ def _render_rich_text_horizontal(
                             run.strikethrough.thickness,
                             _style_fill_color(run.strikethrough.source.style, fg),
                         ),
+                        run.strikethrough.source.style,
+                        run.font_size,
                     )
                 )
             cursor_x += run.logical_width
-    def _run_fill_extra(kind, args):
+    blurred_extras = []
+
+    def _draw_decoration(dst, kind, args):
         if kind == "disc":
             cx, cy, radius, color = args
-            _draw_rgba_disc(canvas, cx, cy, radius, color)
+            _draw_rgba_disc(dst, cx, cy, radius, color)
         else:
             # 文字装饰：主轴 [x0, x1) × 交叉轴以 center_y 为中心的实心横条
             x0, x1, center_y, thickness, color = args
             _draw_rgba_bar(
-                canvas, x0, center_y - thickness / 2.0, x1 - x0, thickness, color
+                dst, x0, center_y - thickness / 2.0, x1 - x0, thickness, color
             )
+
+    def _run_fill_extra(kind, args, style=None, extra_font_size=0):
+        if style is not None and float(getattr(style, "blur", 0.0) or 0.0) > 0:
+            blurred_extras.append((kind, args, style, int(extra_font_size)))
+            return
+        _draw_decoration(canvas, kind, args)
 
     if paint_part in (None, "effects"):
         for parts, x, y in glyph_items:
@@ -420,12 +507,54 @@ def _render_rich_text_horizontal(
                 extra_cursor < len(fill_extras)
                 and fill_extras[extra_cursor][0] == glyph_index
             ):
-                _run_fill_extra(fill_extras[extra_cursor][1], fill_extras[extra_cursor][2])
+                _run_fill_extra(*fill_extras[extra_cursor][1:])
                 extra_cursor += 1
             _paste_rgba(canvas, parts[2], x, y)
         while extra_cursor < len(fill_extras):
-            _run_fill_extra(fill_extras[extra_cursor][1], fill_extras[extra_cursor][2])
+            _run_fill_extra(*fill_extras[extra_cursor][1:])
             extra_cursor += 1
+
+        if blurred_extras:
+            groups = {}
+            for kind, args, style, extra_font_size in blurred_extras:
+                angle = getattr(style, "blur_angle", None)
+                radial = bool(getattr(style, "blur_radial", False))
+                motion = bool(getattr(style, "blur_motion", False))
+                motion_distance = float(
+                    getattr(style, "blur_motion_distance", 0.0) or 0.0
+                )
+                key = (
+                    round(float(style.blur), 6),
+                    None if angle is None else round(float(angle), 3),
+                    radial,
+                    motion,
+                    round(motion_distance, 3),
+                    extra_font_size,
+                )
+                groups.setdefault(key, []).append((kind, args))
+            for (
+                blur,
+                angle,
+                radial,
+                motion,
+                motion_distance,
+                extra_font_size,
+            ), entries in groups.items():
+                layer = np.zeros_like(canvas)
+                for kind, args in entries:
+                    _draw_decoration(layer, kind, args)
+                sigma = blur * max(float(extra_font_size), 1.0)
+                if motion:
+                    layer = _motion_blur_canvas(
+                        layer, motion_distance if motion_distance > 0 else sigma * 0.8
+                    )
+                elif angle is None and not radial:
+                    layer = _blur_rgba_layer(layer, sigma)
+                else:
+                    layer = _gradient_blur_canvas(
+                        layer, sigma, common_box, float(angle or 0.0), radial=radial
+                    )
+                _paste_rgba(canvas, layer, 0, 0)
 
     return _crop_rgba_fixed(
         canvas,
@@ -456,7 +585,18 @@ def _render_rich_text_vertical(
     layouts = _build_rich_vertical_layout(
         document, font_size, stroke_ratio, fg, bg, letter_spacing, profile_stats
     )
-    geometry = _rich_vertical_layout_geometry(layouts, font_size, line_spacing)
+    max_font_size = max(
+        [font_size]
+        + [
+            getattr(item, "font_size", 0)
+            for layout in layouts
+            for item in layout.items
+        ]
+    )
+    blur_pad = _document_max_blur_pad(document, max_font_size)
+    geometry = _rich_vertical_layout_geometry(
+        layouts, font_size, line_spacing, blur_pad
+    )
     body_height = geometry["body_height"]
     padding = int(max(font_size * 2.0, 16))
     canvas = np.zeros(
@@ -472,6 +612,12 @@ def _render_rich_text_vertical(
     content_top = padding
     content_bottom = padding + geometry["paint_height"]
     columns = _rich_vertical_column_positions(layouts, geometry, padding)
+    common_box = (
+        float(content_left),
+        float(content_top),
+        float(content_right - content_left),
+        float(content_bottom - content_top),
+    )
 
     # 与横排同构：一次遍历构建 (effects, stroke, fill) 三层绘制项，按全局
     # 顺序三次粘贴。emphasis 圆点与列注音属 fill 层，按列尾在遍历序中的
@@ -489,6 +635,17 @@ def _render_rich_text_vertical(
         )
         for item in layout.items:
             if isinstance(item, TcyPlan):
+                x = _rich_vertical_tcy_layer_x(body_left, thickness, item)
+                y = (
+                    line_origin_y
+                    + item.main_start
+                    + item.source.style.transform.offset_y * item.font_size / 100.0
+                    + item.paint_offset_y
+                )
+                # TCY applies its horizontal compression to the finished
+                # layer; convert the common gradient range to pre-compression
+                # coordinates so the gradient is not squeezed twice.
+                tcy_scale_x = max(float(item.scale_x), 1e-6)
                 parts = _text_layer_parts(
                     item.text,
                     item.source.style,
@@ -499,27 +656,23 @@ def _render_rich_text_vertical(
                     bg,
                     letter_spacing,
                     profile_stats,
+                    gradient_box=(
+                        (common_box[0] - x) / tcy_scale_x,
+                        common_box[1] - y,
+                        common_box[2] / tcy_scale_x,
+                        common_box[3],
+                    ),
                 )
                 if parts is None:
                     continue
                 # 纵中横整组水平压缩：与计划几何同一公式（ceil），保证压缩
                 # 后 fill 层宽 == item.width。
                 parts = _scale_parts_x(parts, item.scale_x)
-                x = _rich_vertical_tcy_layer_x(body_left, thickness, item)
-                y = (
-                    line_origin_y
-                    + item.main_start
-                    + item.source.style.transform.offset_y * item.font_size / 100.0
-                    + item.paint_offset_y
-                )
                 glyph_items.append((parts, round(x), round(y)))
                 continue
             if isinstance(item, VerticalPlaceholderPlan):
                 continue
             if not isinstance(item, VerticalCharPlan):
-                continue
-            parts = _vertical_char_parts(item)
-            if parts is None:
                 continue
             char_x = _rich_vertical_char_layer_x(body_left, thickness, item)
             char_y = (
@@ -529,6 +682,17 @@ def _render_rich_text_vertical(
                 + item.span.style.transform.offset_y * item.font_size / 100.0
                 + item.paint_offset_y
             )
+            # 整个文字块作为渐变范围；换算到字符图层坐标后，同一段
+            # 文字的渐变不会在换行/分列/局部改色处重新开始。
+            gradient_box = (
+                common_box[0] - char_x,
+                common_box[1] - char_y,
+                common_box[2],
+                common_box[3],
+            )
+            parts = _vertical_char_parts(item, gradient_box)
+            if parts is None:
+                continue
             glyph_items.append((parts, round(char_x), round(char_y)))
         for emphasis in layout.emphasis_plans:
             dot_color = _style_fill_color(emphasis.source.style, fg)
@@ -543,6 +707,8 @@ def _render_rich_text_vertical(
                             emphasis.radius,
                             dot_color,
                         ),
+                        emphasis.source.style,
+                        emphasis.font_size,
                     )
                 )
         for ruby_plan in layout.ruby_plans:
@@ -565,6 +731,8 @@ def _render_rich_text_vertical(
                         underline.thickness,
                         _style_fill_color(underline.source.style, fg),
                     ),
+                    underline.source.style,
+                    _style_font_size(font_size, underline.source.style),
                 )
             )
         for strikethrough in layout.strikethrough_plans:
@@ -579,21 +747,41 @@ def _render_rich_text_vertical(
                         strikethrough.thickness,
                         _style_fill_color(strikethrough.source.style, fg),
                     ),
+                    strikethrough.source.style,
+                    _style_font_size(font_size, strikethrough.source.style),
                 )
             )
-    def _run_fill_extra(kind, args):
+    blurred_extras = []
+
+    def _draw_decoration(dst, kind, args):
         if kind == "disc":
             cx, cy, radius, color = args
-            _draw_rgba_disc(canvas, cx, cy, radius, color)
-        elif kind == "bar":
+            _draw_rgba_disc(dst, cx, cy, radius, color)
+        else:
             # 文字装饰：主轴 [y0, y1) × 交叉轴以 center_x 为中心的实心竖条
             y0, y1, center_x, thickness, color = args
             _draw_rgba_bar(
-                canvas, center_x - thickness / 2.0, y0, thickness, y1 - y0, color
+                dst, center_x - thickness / 2.0, y0, thickness, y1 - y0, color
             )
-        else:
+
+    def _run_fill_extra(kind, args, style=None, extra_font_size=0):
+        if kind == "ruby":
             ruby_plan, right, origin_y = args
-            _paint_vertical_ruby(canvas, ruby_plan, right, origin_y, fg, letter_spacing)
+            _paint_vertical_ruby(
+                canvas,
+                ruby_plan,
+                right,
+                origin_y,
+                fg,
+                bg,
+                letter_spacing,
+                common_box,
+            )
+            return
+        if style is not None and float(getattr(style, "blur", 0.0) or 0.0) > 0:
+            blurred_extras.append((kind, args, style, int(extra_font_size)))
+            return
+        _draw_decoration(canvas, kind, args)
 
     if paint_part in (None, "effects"):
         for parts, x, y in glyph_items:
@@ -608,12 +796,54 @@ def _render_rich_text_vertical(
                 extra_cursor < len(fill_extras)
                 and fill_extras[extra_cursor][0] == glyph_index
             ):
-                _run_fill_extra(fill_extras[extra_cursor][1], fill_extras[extra_cursor][2])
+                _run_fill_extra(*fill_extras[extra_cursor][1:])
                 extra_cursor += 1
             _paste_rgba(canvas, parts[2], x, y)
         while extra_cursor < len(fill_extras):
-            _run_fill_extra(fill_extras[extra_cursor][1], fill_extras[extra_cursor][2])
+            _run_fill_extra(*fill_extras[extra_cursor][1:])
             extra_cursor += 1
+
+        if blurred_extras:
+            groups = {}
+            for kind, args, style, extra_font_size in blurred_extras:
+                angle = getattr(style, "blur_angle", None)
+                radial = bool(getattr(style, "blur_radial", False))
+                motion = bool(getattr(style, "blur_motion", False))
+                motion_distance = float(
+                    getattr(style, "blur_motion_distance", 0.0) or 0.0
+                )
+                key = (
+                    round(float(style.blur), 6),
+                    None if angle is None else round(float(angle), 3),
+                    radial,
+                    motion,
+                    round(motion_distance, 3),
+                    extra_font_size,
+                )
+                groups.setdefault(key, []).append((kind, args))
+            for (
+                blur,
+                angle,
+                radial,
+                motion,
+                motion_distance,
+                extra_font_size,
+            ), entries in groups.items():
+                layer = np.zeros_like(canvas)
+                for kind, args in entries:
+                    _draw_decoration(layer, kind, args)
+                sigma = blur * max(float(extra_font_size), 1.0)
+                if motion:
+                    layer = _motion_blur_canvas(
+                        layer, motion_distance if motion_distance > 0 else sigma * 0.8
+                    )
+                elif angle is None and not radial:
+                    layer = _blur_rgba_layer(layer, sigma)
+                else:
+                    layer = _gradient_blur_canvas(
+                        layer, sigma, common_box, float(angle or 0.0), radial=radial
+                    )
+                _paste_rgba(canvas, layer, 0, 0)
 
     return _crop_rgba_fixed(
         canvas, content_left, content_right, content_top, content_bottom
@@ -654,7 +884,14 @@ def measure_rich_text_metrics(
         )
         if not layouts:
             return {"width": 0, "height": 0, "n_lines": 0, "body_center": (0.0, 0.0)}
-        geometry = _rich_horizontal_layout_geometry(layouts, base_font, line_spacing)
+        max_font = max(
+            [base_font]
+            + [run.font_size for layout in layouts for run in layout.runs]
+        )
+        blur_pad = _document_max_blur_pad(document, max_font)
+        geometry = _rich_horizontal_layout_geometry(
+            layouts, base_font, line_spacing, blur_pad
+        )
         return {
             "width": int(geometry["paint_width"]),
             "height": int(geometry["paint_height"]),
@@ -671,7 +908,18 @@ def measure_rich_text_metrics(
     )
     if not layouts:
         return {"width": 0, "height": 0, "n_lines": 0, "body_center": (0.0, 0.0)}
-    geometry = _rich_vertical_layout_geometry(layouts, base_font, line_spacing)
+    max_font = max(
+        [base_font]
+        + [
+            getattr(item, "font_size", 0)
+            for layout in layouts
+            for item in layout.items
+        ]
+    )
+    blur_pad = _document_max_blur_pad(document, max_font)
+    geometry = _rich_vertical_layout_geometry(
+        layouts, base_font, line_spacing, blur_pad
+    )
     return {
         "width": int(geometry["paint_width"]),
         "height": int(geometry["paint_height"]),

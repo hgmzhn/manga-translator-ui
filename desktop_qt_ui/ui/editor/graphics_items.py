@@ -29,10 +29,13 @@ from PyQt6.QtGui import (
     QColor,
     QCursor,
     QFont,
+    QImage,
     QPainter,
     QPainterPath,
     QPen,
+    QPixmap,
     QPolygonF,
+    QTransform,
 )
 from PyQt6.QtWidgets import (
     QGraphicsItem,
@@ -99,6 +102,93 @@ def _editor_pen(color: QColor, width: float, style=Qt.PenStyle.SolidLine) -> QPe
     return pen
 
 
+def _warp_pixmap_to_quad(pixmap: QPixmap, quad) -> tuple[QPixmap, QPointF]:
+    """把矩形 pixmap 透视变换到局部四边形，返回 (warped, 左上角局部坐标)。
+
+    quad 的点顺序为 [左上, 右上, 右下, 左下]，与 pixmap 的四角对应。
+    """
+    if pixmap is None or pixmap.isNull() or quad is None:
+        return pixmap, QPointF(0, 0)
+
+    # 退化四边形（面积过小）不做透视，避免生成无效变换
+    area = 0.0
+    for i in range(4):
+        x1, y1 = quad[i]
+        x2, y2 = quad[(i + 1) % 4]
+        area += float(x1) * float(y2) - float(x2) * float(y1)
+    if abs(area) < 8.0:
+        return pixmap, QPointF(0, 0)
+
+    src = QPolygonF(
+        [
+            QPointF(0, 0),
+            QPointF(pixmap.width(), 0),
+            QPointF(pixmap.width(), pixmap.height()),
+            QPointF(0, pixmap.height()),
+        ]
+    )
+    dst = QPolygonF([QPointF(float(x), float(y)) for x, y in quad[:4]])
+    bbox = dst.boundingRect()
+    if bbox.width() < 1 or bbox.height() < 1:
+        return pixmap, QPointF(0, 0)
+
+    shifted = QPolygonF(
+        [
+            QPointF(p.x() - bbox.left(), p.y() - bbox.top())
+            for p in dst
+        ]
+    )
+    transform = QTransform()
+    if not QTransform.quadToQuad(src, shifted, transform):
+        return pixmap, QPointF(0, 0)
+
+    out = QImage(
+        max(1, int(math.ceil(bbox.width()))),
+        max(1, int(math.ceil(bbox.height()))),
+        QImage.Format.Format_ARGB32_Premultiplied,
+    )
+    out.fill(0)
+    painter = QPainter(out)
+    try:
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.setTransform(transform)
+        painter.drawPixmap(0, 0, pixmap)
+    finally:
+        painter.end()
+    return QPixmap.fromImage(out), QPointF(bbox.left(), bbox.top())
+
+
+def _is_valid_quad(quad, min_area: float = 8.0) -> bool:
+    """Return True for a convex, non-degenerate quad in corner order.
+
+    Rejecting self-intersecting / concave candidates keeps the previous valid
+    geometry during a corner drag; ``QTransform.quadToQuad`` and the export
+    homography both need a proper convex quad.
+    """
+    if quad is None or len(quad) != 4:
+        return False
+    try:
+        pts = [(float(p[0]), float(p[1])) for p in quad]
+    except (TypeError, ValueError, IndexError):
+        return False
+
+    signs = []
+    area2 = 0.0
+    for i in range(4):
+        x0, y0 = pts[i]
+        x1, y1 = pts[(i + 1) % 4]
+        x2, y2 = pts[(i + 2) % 4]
+        cross = (x1 - x0) * (y2 - y1) - (y1 - y0) * (x2 - x1)
+        if abs(cross) < 1e-6:
+            return False
+        signs.append(cross > 0)
+        area2 += x0 * y1 - x1 * y0
+    if not (all(signs) or not any(signs)):
+        return False
+    return abs(area2) / 2.0 >= float(min_area)
+
+
 # ======================================================================
 # 辅助类
 # ======================================================================
@@ -156,6 +246,8 @@ class RegionTextItem(QGraphicsItemGroup):
         # 文字 pixmap 子项
         self.text_item = TransparentPixmapItem(self)
         self.text_item.setZValue(-1)
+        # 未透视的原始文字图，用于拖角点时实时刷新预览
+        self._text_source_pixmap = None
 
         # 交互状态
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
@@ -172,6 +264,7 @@ class RegionTextItem(QGraphicsItemGroup):
         self._drag_raw_rotation = 0.0
         self._drag_start_visual_center = QPointF()
         self._drag_start_white_frame_local = None
+        self._drag_start_white_frame_quad_local = None
         self._drag_start_scene_pos = QPointF()
         self._drag_start_pivot_scene = QPointF()
         self._drag_start_text_item_pos = QPointF()
@@ -286,12 +379,29 @@ class RegionTextItem(QGraphicsItemGroup):
     ):
         """更新文字 pixmap 位置。
 
-        当 render_center 可用时（白框中心世界坐标），以此为锚点居中放置 pixmap，
-        避免旋转变换导致 mapFromScene(pos) 引起的中心偏移。
+        当区域启用透视白框时，把矩形文字图透视变换到局部四边形；
+        否则沿用白框中心锚点居中放置（父 item 已带旋转）。
         """
+        if pixmap is None or pixmap.isNull():
+            self.text_item.setPixmap(QPixmap())
+            self._text_source_pixmap = None
+            return
+
+        # 缓存未变换的文字图：拖动透视角点时从这里重新透视，避免等到
+        # 下一次渲染结果才更新预览。
+        self._text_source_pixmap = pixmap
+
+        quad = self.geo.white_frame_quad_local
+        if quad is not None:
+            warped, top_left = _warp_pixmap_to_quad(pixmap, quad)
+            self.text_item.setPixmap(warped)
+            self.text_item.setPos(top_left)
+            self.text_item.setRotation(0)
+            return
+
         self.text_item.setPixmap(pixmap)
 
-        if render_center is not None and pixmap and not pixmap.isNull():
+        if render_center is not None:
             # 以白框中心为锚点定位
             local_center = self.mapFromScene(
                 QPointF(float(render_center[0]), float(render_center[1]))
@@ -314,6 +424,67 @@ class RegionTextItem(QGraphicsItemGroup):
         self.prepareGeometryChange()
         self._shape_path = None
         self.update()
+
+    # ------------------------------------------------------------------
+    # 透视白框
+    # ------------------------------------------------------------------
+
+    def is_perspective(self) -> bool:
+        return self.geo.white_frame_quad_local is not None
+
+    def enable_perspective(self):
+        """把当前矩形白框转换为透视四边形（若尚未转换）。"""
+        if self.is_perspective():
+            return
+        wf = self.geo.white_frame_local
+        if wf is None:
+            return
+        old_rect = list(wf)
+        left, top, right, bottom = wf
+        self.geo.set_custom_white_frame_quad(
+            [[left, top], [right, top], [right, bottom], [left, bottom]]
+        )
+        self.prepareGeometryChange()
+        self._shape_path = None
+        self.update()
+        self._commit_white_frame_programmatic(old_rect, None)
+
+    def disable_perspective(self):
+        """退出透视模式，保留四边形的包围盒作为矩形白框。"""
+        if not self.is_perspective():
+            return
+        old_quad = [list(p) for p in self.geo.white_frame_quad_local]
+        old_rect = list(self.geo.white_frame_local) if self.geo.white_frame_local else None
+        self.geo.clear_custom_white_frame_quad()
+        self.prepareGeometryChange()
+        self._shape_path = None
+        self.update()
+        self._commit_white_frame_programmatic(old_rect, old_quad)
+
+    def _commit_white_frame_programmatic(self, old_rect, old_quad):
+        patch = self.geo.to_region_data_patch()
+        # 同步清掉/写入渲染框的透视状态，避免旧 render_box_quad 残留导致
+        # 退出透视后仍被当成四边形。
+        patch.update(self.geo.to_render_box_patch())
+        new_data = build_white_frame_region_data(
+            self.region_index,
+            self.region_data,
+            patch,
+            self.geo.white_frame_local,
+            old_white_frame_local=old_rect,
+            edit_mode=None,
+            white_frame_quad_local=self.geo.white_frame_quad_local,
+            old_white_frame_quad_local=old_quad,
+        )
+        self.region_data = copy.deepcopy(new_data)
+        cb = self.geometry_callback
+        if cb is None or self._in_callback:
+            return
+        self._in_callback = True
+        try:
+            cb(self.region_index, new_data)
+        finally:
+            self._in_callback = False
 
     # ------------------------------------------------------------------
     # ID / 序列化
@@ -346,8 +517,16 @@ class RegionTextItem(QGraphicsItemGroup):
 
             path = QPainterPath()
             if self._show_white_box and self.geo.white_frame_local is not None:
-                left, top, right, bottom = self.geo.white_frame_local
-                path.addRect(QRectF(left, top, right - left, bottom - top))
+                quad = self.geo.white_frame_quad_local
+                if quad is not None:
+                    path.addPolygon(
+                        QPolygonF(
+                            [QPointF(float(x), float(y)) for x, y in quad]
+                        )
+                    )
+                else:
+                    left, top, right, bottom = self.geo.white_frame_local
+                    path.addRect(QRectF(left, top, right - left, bottom - top))
 
                 if self.isSelected():
                     metrics = self._white_handle_metrics()
@@ -458,6 +637,9 @@ class RegionTextItem(QGraphicsItemGroup):
     # ------------------------------------------------------------------
 
     def _white_corner_points(self) -> list:
+        quad = self.geo.white_frame_quad_local
+        if quad is not None:
+            return [QPointF(float(x), float(y)) for x, y in quad]
         wf = self.geo.white_frame_local
         if wf is None:
             return []
@@ -470,6 +652,9 @@ class RegionTextItem(QGraphicsItemGroup):
         ]
 
     def _white_edge_points(self) -> list:
+        # 透视四边形只提供 4 个角手柄，不提供边中点手柄
+        if self.geo.white_frame_quad_local is not None:
+            return []
         wf = self.geo.white_frame_local
         if wf is None:
             return []
@@ -482,18 +667,24 @@ class RegionTextItem(QGraphicsItemGroup):
         ]
 
     def _draw_white_box(self, painter, is_selected: bool):
-        wf = self.geo.white_frame_local
-        if wf is None:
-            return
-        left, top, right, bottom = wf
-        poly = QPolygonF(
-            [
-                QPointF(left, top),
-                QPointF(right, top),
-                QPointF(right, bottom),
-                QPointF(left, bottom),
-            ]
-        )
+        quad = self.geo.white_frame_quad_local
+        if quad is not None:
+            poly = QPolygonF(
+                [QPointF(float(x), float(y)) for x, y in quad]
+            )
+        else:
+            wf = self.geo.white_frame_local
+            if wf is None:
+                return
+            left, top, right, bottom = wf
+            poly = QPolygonF(
+                [
+                    QPointF(left, top),
+                    QPointF(right, top),
+                    QPointF(right, bottom),
+                    QPointF(left, bottom),
+                ]
+            )
 
         if is_selected:
             lod = self._lod()
@@ -649,6 +840,7 @@ class RegionTextItem(QGraphicsItemGroup):
     def _clear_drag_context(self):
         self._drag_handle_indices = None
         self._drag_start_white_frame_local = None
+        self._drag_start_white_frame_quad_local = None
         self._drag_start_white_handle_world = None
         self._drag_start_text_item_pos = QPointF()
         self._drag_start_pivot_scene = QPointF()
@@ -666,6 +858,11 @@ class RegionTextItem(QGraphicsItemGroup):
     def _capture_white_frame_drag_context(self, *, capture_text_pos: bool = False):
         self._drag_start_white_frame_local = (
             list(self.geo.white_frame_local) if self.geo.white_frame_local else None
+        )
+        self._drag_start_white_frame_quad_local = (
+            [list(p) for p in self.geo.white_frame_quad_local]
+            if self.geo.white_frame_quad_local is not None
+            else None
         )
         self._drag_start_white_handle_world = None
         if capture_text_pos:
@@ -685,10 +882,14 @@ class RegionTextItem(QGraphicsItemGroup):
             wf = item.geo.white_frame_local
             if wf is None:
                 continue
+            quad = item.geo.white_frame_quad_local
             self._batch_drag_peers.append(
                 {
                     "item": item,
                     "start_wf_local": list(wf),
+                    "start_wf_quad_local": (
+                        [list(p) for p in quad] if quad is not None else None
+                    ),
                     "start_text_pos": QPointF(item.text_item.pos()),
                     "start_center": list(item.geo.center),
                     "old_rect": item.sceneBoundingRect(),
@@ -705,11 +906,22 @@ class RegionTextItem(QGraphicsItemGroup):
             cos_a, sin_a = np.cos(angle_rad), np.sin(angle_rad)
             ldx = scene_dx * cos_a + scene_dy * sin_a
             ldy = -scene_dx * sin_a + scene_dy * cos_a
-            wf = peer["start_wf_local"]
-            moved = [wf[0] + ldx, wf[1] + ldy, wf[2] + ldx, wf[3] + ldy]
+            quad = peer.get("start_wf_quad_local")
             item.prepareGeometryChange()
             item._shape_path = None
-            item.geo.set_custom_white_frame_local(moved)
+            if quad is not None:
+                item.geo.set_custom_white_frame_quad(
+                    [[x + ldx, y + ldy] for x, y in quad]
+                )
+            else:
+                wf = peer["start_wf_local"]
+                moved = [
+                    wf[0] + ldx,
+                    wf[1] + ldy,
+                    wf[2] + ldx,
+                    wf[3] + ldy,
+                ]
+                item.geo.set_custom_white_frame_local(moved)
             item.text_item.setPos(peer["start_text_pos"] + QPointF(ldx, ldy))
             item.update()
             item._invalidate_scene_rect(peer["old_rect"])
@@ -730,6 +942,8 @@ class RegionTextItem(QGraphicsItemGroup):
                 item.geo.white_frame_local,
                 old_white_frame_local=peer["start_wf_local"],
                 edit_mode="white_move",
+                white_frame_quad_local=item.geo.white_frame_quad_local,
+                old_white_frame_quad_local=peer.get("start_wf_quad_local"),
             )
             item._emit_region_update(event, new_data)
 
@@ -1165,6 +1379,10 @@ class RegionTextItem(QGraphicsItemGroup):
         return None, (-1, -1)
 
     def _point_in_white_frame(self, pos: QPointF) -> bool:
+        quad = self.geo.white_frame_quad_local
+        if quad is not None:
+            poly = QPolygonF([QPointF(float(x), float(y)) for x, y in quad])
+            return bool(poly.containsPoint(pos, Qt.FillRule.OddEvenFill))
         wf = self.geo.white_frame_local
         if wf is None:
             return False
@@ -1508,6 +1726,10 @@ class RegionTextItem(QGraphicsItemGroup):
             ):
                 return
 
+            if self.geo.white_frame_quad_local is not None:
+                self._handle_perspective_corner_drag(event)
+                return
+
             left0, top0, right0, bottom0 = self._drag_start_white_frame_local
             cx, cy = self.geo.center
             start_verts = [
@@ -1584,10 +1806,39 @@ class RegionTextItem(QGraphicsItemGroup):
                 f"[RegionTextItem] _handle_white_frame_edit: {e}\n{traceback.format_exc()}"
             )
 
+    def _handle_perspective_corner_drag(self, event: QGraphicsSceneMouseEvent):
+        """透视模式：单个角点自由移动（局部坐标）。"""
+        if self._interaction_mode != "white_corner":
+            return
+        if self._drag_start_white_frame_quad_local is None:
+            return
+        idx = self._drag_handle_indices
+        if not (0 <= idx < 4):
+            return
+        local = self.mapFromScene(event.scenePos())
+        quad = [list(p) for p in self._drag_start_white_frame_quad_local]
+        quad[idx] = [float(local.x()), float(local.y())]
+        # 自交 / 凹四边形会让 quadToQuad 和导出 homography 失败；无效时
+        # 保留上一次有效状态，拖动不会跳成蝴蝶结。
+        if not _is_valid_quad(quad):
+            return
+        old_rect = self.sceneBoundingRect() if self.scene() else None
+        self.prepareGeometryChange()
+        self._shape_path = None
+        self.geo.set_custom_white_frame_quad(quad)
+        if self._text_source_pixmap is not None:
+            self.update_text_pixmap(self._text_source_pixmap, QPointF(0, 0))
+        self.update()
+        self._invalidate_scene_rect(old_rect)
+
     def _handle_white_frame_move(self, event: QGraphicsSceneMouseEvent):
         """执行白框平移逻辑，包含位置对齐吸附与辅助线显示。"""
         try:
             if self._drag_start_white_frame_local is None:
+                return
+
+            if self.geo.white_frame_quad_local is not None:
+                self._handle_perspective_frame_move(event)
                 return
 
             old_rect = self.sceneBoundingRect() if self.scene() else None
@@ -1663,6 +1914,30 @@ class RegionTextItem(QGraphicsItemGroup):
                 f"[RegionTextItem] _handle_white_frame_move: {e}\n{traceback.format_exc()}"
             )
 
+    def _handle_perspective_frame_move(self, event: QGraphicsSceneMouseEvent):
+        """透视模式：整体平移四边形（局部坐标）。"""
+        if self._drag_start_white_frame_quad_local is None:
+            return
+        old_rect = self.sceneBoundingRect() if self.scene() else None
+        scene_delta = event.scenePos() - self._drag_start_scene_pos
+
+        angle_rad = np.radians(self.rotation())
+        cos_a, sin_a = np.cos(angle_rad), np.sin(angle_rad)
+        dx = scene_delta.x() * cos_a + scene_delta.y() * sin_a
+        dy = -scene_delta.x() * sin_a + scene_delta.y() * cos_a
+
+        quad = [
+            [x + dx, y + dy] for x, y in self._drag_start_white_frame_quad_local
+        ]
+        self.prepareGeometryChange()
+        self._shape_path = None
+        self.geo.set_custom_white_frame_quad(quad)
+        self.text_item.setPos(self._drag_start_text_item_pos + QPointF(dx, dy))
+        self.update()
+        self._invalidate_scene_rect(old_rect)
+
+        self._move_batch_peers(scene_delta.x(), scene_delta.y())
+
     def _commit_white_frame(self, event, edit_mode=None):
         scene = self.scene()
         if (
@@ -1682,6 +1957,8 @@ class RegionTextItem(QGraphicsItemGroup):
             self.geo.white_frame_local,
             old_white_frame_local=self._drag_start_white_frame_local,
             edit_mode=edit_mode,
+            white_frame_quad_local=self.geo.white_frame_quad_local,
+            old_white_frame_quad_local=self._drag_start_white_frame_quad_local,
         )
         self._emit_region_update(event, new_data)
 
@@ -1696,6 +1973,16 @@ class RegionTextItem(QGraphicsItemGroup):
         left, top, right, bottom = self._drag_start_white_frame_local
         cx, cy = self.geo.center
         angle = self.rotation_angle
+
+        quad = self._drag_start_white_frame_quad_local
+        if quad is not None:
+            if self._interaction_mode != "white_corner":
+                return None
+            idx = self._drag_handle_indices
+            if not (0 <= idx < 4):
+                return None
+            point = (quad[idx][0] + cx, quad[idx][1] + cy)
+            return self._rotated_world_point(point, cx, cy, angle)
 
         if self._interaction_mode == "white_corner":
             idx = self._drag_handle_indices

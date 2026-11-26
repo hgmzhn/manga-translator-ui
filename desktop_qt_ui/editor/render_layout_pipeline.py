@@ -34,14 +34,25 @@ def calculate_region_dst_points(
     text_block: TextBlock,
     params: RenderParameters,
     override_dst_points=None,
+    perspective_quad=None,
 ) -> Optional[object]:
-    """计算文字渲染的目标四角点（世界坐标轴对齐矩形）。
+    """计算文字渲染的目标四角点（世界坐标）。
 
-    dst_points 以 text_block.center 为中心。在快照流程中，center 已经被设为
-    render_center（白框中心的世界坐标），因此 dst_points 自然与白框对齐。
+    默认返回以 text_block.center 为中心的轴对齐矩形；当区域启用了透视白框
+    （perspective_quad 非空）时，直接返回该世界坐标四边形，由渲染后端做
+    透视变换。在快照流程中，center 已经被设为 render_center（白框/四边形
+    中心的世界坐标），因此 dst_points 自然与白框对齐。
     """
     if override_dst_points is not None:
         return override_dst_points
+
+    region_font = params.font_family or getattr(text_block, "font_family", "")
+    text_renderer_backend.apply_font_for_render(region_font)
+
+    if perspective_quad is not None:
+        quad = np.asarray(perspective_quad, dtype=np.float32).reshape(-1, 2)
+        if len(quad) >= 4:
+            return quad[:4].reshape(1, 4, 2)
 
     font_size = text_block.font_size if text_block.font_size > 0 else 24
     translation = render_text_value_from_text_block(text_block)
@@ -52,8 +63,6 @@ def calculate_region_dst_points(
     line_spacing = params.line_spacing or 1.0
     letter_spacing = params.letter_spacing or 1.0
     target_lang = text_block.target_lang or "en_US"
-    region_font = params.font_family or getattr(text_block, "font_family", "")
-    text_renderer_backend.apply_font_for_render(region_font)
     # 编辑器尺寸计算与最终渲染保持一致，避免预览白框和最终文字尺寸不一致。
     box_w, box_h, _, _ = calc_box_from_font(
         font_size,

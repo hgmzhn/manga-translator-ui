@@ -2512,6 +2512,18 @@ async def dispatch(
         if hasattr(region, '_rich_text_rules_applied'):
             delattr(region, '_rich_text_rules_applied')
 
+    # 编辑器透视白框：用世界坐标四边形覆盖布局框（放在自动富文本二次测量之后）
+    for index, region in enumerate(text_regions):
+        quad = getattr(region, "perspective_quad", None)
+        if quad is None:
+            continue
+        try:
+            quad_arr = np.asarray(quad, dtype=np.float32).reshape(1, 4, 2)
+        except (TypeError, ValueError):
+            continue
+        if index < len(dst_points_list):
+            dst_points_list[index] = quad_arr
+
     # 与编辑器一致：每个区域先合成完整的特效、描边和正文，再按区域顺序
     # 叠到画布上，后面的区域覆盖前面的区域。不能跨区域分遍绘制，否则
     # 下层正文会浮到上层描边之上，破坏文本框之间的覆盖顺序。
@@ -2547,6 +2559,80 @@ async def dispatch(
     if return_debug_img and debug_img is not None:
         return img, debug_img
     return img
+
+def _is_perspective_quad(points) -> bool:
+    """判断 4 点是否需要四角透视映射。
+
+    只有旋转矩形（可用原生矩形路径表示）返回 False；对边平行但整体
+    倾斜的平行四边形仍是有效的透视四边形，必须保留四角映射。
+    """
+    pts = np.asarray(points, dtype=np.float32).reshape(4, 2)
+    top = pts[1] - pts[0]
+    right = pts[2] - pts[1]
+    bottom = pts[3] - pts[2]
+    left = pts[0] - pts[3]
+    scale = max(
+        1.0,
+        float(
+            max(
+                np.linalg.norm(top),
+                np.linalg.norm(right),
+                np.linalg.norm(bottom),
+                np.linalg.norm(left),
+            )
+        ),
+    )
+    tol = 0.01 * scale
+    parallel = (
+        np.linalg.norm(top + bottom) <= tol
+        and np.linalg.norm(right + left) <= tol
+    )
+    top_len = float(np.linalg.norm(top))
+    right_len = float(np.linalg.norm(right))
+    denom = max(top_len * right_len, 1e-6)
+    perpendicular = abs(float(np.dot(top, right))) / denom <= 0.01
+    return not (parallel and perpendicular)
+
+
+def _paste_premultiplied_rgba(img, layer, x: int, y: int, render_alpha=None):
+    """把预乘 RGBA 图层 alpha-over 到 img 的 (x, y) 位置。"""
+    if layer is None or layer.size == 0:
+        return img
+    img_h, img_w = img.shape[:2]
+    layer_h, layer_w = layer.shape[:2]
+    clip_x1 = max(0, int(x))
+    clip_y1 = max(0, int(y))
+    clip_x2 = min(img_w, int(x) + layer_w)
+    clip_y2 = min(img_h, int(y) + layer_h)
+    if clip_x2 <= clip_x1 or clip_y2 <= clip_y1:
+        return img
+
+    src_x1 = clip_x1 - int(x)
+    src_y1 = clip_y1 - int(y)
+    source = layer[
+        src_y1 : src_y1 + (clip_y2 - clip_y1),
+        src_x1 : src_x1 + (clip_x2 - clip_x1),
+    ]
+    canvas_region = source[:, :, :3]
+    mask_region = source[:, :, 3:4].astype(np.float32) / 255.0
+    target_region = img[clip_y1:clip_y2, clip_x1:clip_x2]
+    img[clip_y1:clip_y2, clip_x1:clip_x2] = np.clip(
+        target_region.astype(np.float32) * (1.0 - mask_region)
+        + canvas_region.astype(np.float32),
+        0,
+        255,
+    ).astype(np.uint8)
+
+    if render_alpha is not None:
+        try:
+            alpha_region = source[:, :, 3]
+            alpha_target = render_alpha[clip_y1:clip_y2, clip_x1:clip_x2]
+            if alpha_region.shape == alpha_target.shape:
+                np.maximum(alpha_target, alpha_region, out=alpha_target)
+        except Exception as alpha_error:
+            logger.debug(f"Failed to accumulate render alpha: {alpha_error}")
+    return img
+
 
 def _native_render_rect_points(center, width: int, height: int, angle: float) -> np.ndarray:
     """按原生 RGBA 尺寸生成实际渲染四角；angle 为图像坐标系顺时针角度。"""
@@ -2733,6 +2819,58 @@ def render(
     if h == 0 or w == 0:
         logger.warning(f"Skipping rendering for region with invalid dimensions (w={w}, h={h}). Text: '{region.translation}'")
         return img
+
+    # 编辑器透视白框：把文字图层直接透视变换到世界坐标四边形
+    perspective_quad = getattr(region, "perspective_quad", None)
+    if perspective_quad is not None:
+        quad = np.asarray(perspective_quad, dtype=np.float32).reshape(4, 2)
+        quad_area = 0.5 * abs(
+            float(np.dot(quad[:, 0], np.roll(quad[:, 1], -1)))
+            - float(np.dot(quad[:, 1], np.roll(quad[:, 0], -1)))
+        )
+        if quad_area >= 4.0:
+            premultiplied = _premultiply_rgba(temp_box)
+            src_quad = np.float32([[0, 0], [w, 0], [w, h], [0, h]])
+            homography = cv2.getPerspectiveTransform(src_quad, quad)
+            min_x, min_y = quad.min(axis=0)
+            max_x, max_y = quad.max(axis=0)
+            img_h, img_w = img.shape[:2]
+            clip_x1 = max(0, int(math.floor(float(min_x))))
+            clip_y1 = max(0, int(math.floor(float(min_y))))
+            clip_x2 = min(img_w, int(math.ceil(float(max_x))))
+            clip_y2 = min(img_h, int(math.ceil(float(max_y))))
+            if clip_x2 <= clip_x1 or clip_y2 <= clip_y1:
+                return img
+            # 平移必须在齐次坐标下左乘完整平移矩阵；直接改 homography
+            # 的 tx/ty 只对 w=1 的点成立，会把透视文字拉偏。
+            translate = np.array(
+                [
+                    [1.0, 0.0, -float(clip_x1)],
+                    [0.0, 1.0, -float(clip_y1)],
+                    [0.0, 0.0, 1.0],
+                ],
+                dtype=np.float64,
+            )
+            homography = translate @ homography
+            out_w = clip_x2 - clip_x1
+            out_h = clip_y2 - clip_y1
+            warped = cv2.warpPerspective(
+                premultiplied,
+                homography,
+                (out_w, out_h),
+                flags=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_CONSTANT,
+                borderValue=(0, 0, 0, 0),
+            )
+            region.dst_points = quad.reshape(1, 4, 2)
+            return _paste_premultiplied_rgba(
+                img,
+                warped,
+                clip_x1,
+                clip_y1,
+                render_alpha,
+            )
+
     layout_points = np.asarray(dst_points, dtype=np.float32).reshape(-1, 2)
     anchor = np.mean(layout_points[:4], axis=0)
     edge = layout_points[1] - layout_points[0]
