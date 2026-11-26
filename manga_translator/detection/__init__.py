@@ -16,6 +16,7 @@ from .craft import CRAFTDetector
 from .ctd import ComicTextDetector
 from .dbnet_convnext import DBConvNextDetector
 from .default import DefaultDetector
+from .manga_det import MangaDetDetector
 
 # from .paddle_rust import PaddleDetector  # 已移除
 from .none import NoneDetector
@@ -23,6 +24,7 @@ from .yolo_obb import YOLOOBBDetector
 
 DETECTORS = {
     Detector.default: DefaultDetector,
+    Detector.manga_det: MangaDetDetector,
     Detector.dbconvnext: DBConvNextDetector,
     Detector.ctd: ComicTextDetector,
     Detector.craft: CRAFTDetector,
