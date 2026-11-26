@@ -81,6 +81,7 @@ class BackendRenderResult:
 class BackendExportResult:
     generated_inpainted_image: Optional[np.ndarray] = None
     error: Optional[str] = None
+    inpainted_persisted: bool = False
 
 
 class ExportService:
@@ -221,6 +222,7 @@ class ExportService:
     def execute_export_job(self, job: "ExportJob") -> BackendExportResult:
         """Render, persist, and report one worker-owned export job."""
         rendered_image = None
+        inpainted_persisted = False
         export_started = time.perf_counter()
 
         try:
@@ -284,6 +286,7 @@ class ExportService:
                 if generated is None:
                     raise RuntimeError("Backend inpainting did not produce the final inpainted image")
                 self.save_inpainted_image(job.source_path, generated, job.config)
+                inpainted_persisted = True
             elif generated is not None:
                 raise RuntimeError(
                     f"{job.export_base.kind} export unexpectedly generated an inpaint image"
@@ -299,11 +302,17 @@ class ExportService:
             self.logger.info(
                 f"Image exported successfully to: {job.output_path} (total {time.perf_counter() - export_started:.2f}s, backend rendering {render_elapsed:.2f}s, saving {time.perf_counter() - save_started:.2f}s)"
             )
-            return BackendExportResult(generated)
+            return BackendExportResult(
+                generated,
+                inpainted_persisted=inpainted_persisted,
+            )
         except Exception as error:
             message = f"Backend rendering export failed: {error}"
             self.logger.error(message, exc_info=True)
-            return BackendExportResult(error=message)
+            return BackendExportResult(
+                error=message,
+                inpainted_persisted=inpainted_persisted,
+            )
         finally:
             if rendered_image is not None:
                 try:

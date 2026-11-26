@@ -145,6 +145,7 @@ class ExportOutcome:
     success: bool
     error: Optional[str] = None
     generated_artifact: Optional[InpaintArtifact] = None
+    inpainted_persisted: bool = False
 
 
 class EditorControllerExportService:
@@ -507,6 +508,7 @@ class EditorControllerExportService:
                 error=str(error),
             )
 
+        inpainted_persisted = bool(getattr(result, "inpainted_persisted", False))
         if result.error is not None:
             return ExportOutcome(
                 automatic=job.automatic,
@@ -514,6 +516,7 @@ class EditorControllerExportService:
                 output_path=job.output_path,
                 success=False,
                 error=result.error,
+                inpainted_persisted=inpainted_persisted,
             )
         generated_artifact = None
         if result.generated_inpainted_image is not None:
@@ -528,4 +531,5 @@ class EditorControllerExportService:
             output_path=job.output_path,
             success=True,
             generated_artifact=generated_artifact,
+            inpainted_persisted=inpainted_persisted,
         )

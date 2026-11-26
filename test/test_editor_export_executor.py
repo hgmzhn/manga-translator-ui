@@ -343,3 +343,78 @@ def test_export_job_wraps_generated_image_with_snapshot_identity(
     assert outcome.generated_artifact.key == export_base.inpaint_key
     assert np.array_equal(outcome.generated_artifact.mask, export_base.mask)
     assert np.array_equal(outcome.generated_artifact.image, generated)
+
+
+def test_failed_output_save_after_inpaint_persisted_still_invalidates_prefetch_and_reports_error(
+    monkeypatch,
+    tmp_path,
+):
+    from types import SimpleNamespace
+
+    import pytest
+    from PIL import Image
+
+    from editor.editor_controller import EditorController
+    from services.export_service import BackendRenderResult, ExportService
+
+    generated = np.full((6, 8, 3), 188, dtype=np.uint8)
+    rendered = Image.new("RGB", (8, 6), "white")
+    source_path = tmp_path / "page.png"
+    rendered.save(source_path)
+
+    persisted_paths = []
+    monkeypatch.setattr(
+        ExportService,
+        "_execute_backend_render",
+        lambda *_args, **_kwargs: BackendRenderResult(rendered, generated),
+    )
+    monkeypatch.setattr(
+        ExportService,
+        "save_inpainted_image",
+        lambda _self, path, _img, _cfg: persisted_paths.append(path) or path,
+    )
+
+    def _fail_save_rendered(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(ExportService, "_save_rendered_image", _fail_save_rendered)
+
+    job = ExportJob(
+        automatic=True,
+        source_path=str(source_path),
+        output_path=str(tmp_path / "out" / "page.png"),
+        export_base=_backend_inpaint_base(),
+        regions=[],
+        config={},
+    )
+    export_service = EditorControllerExportService(_Controller())
+    try:
+        outcome = export_service.execute_export_job(job)
+        job.release_resources()
+    finally:
+        export_service.shutdown()
+
+    assert persisted_paths == [str(source_path)]
+    assert outcome.success is False
+    assert outcome.inpainted_persisted is True
+    assert outcome.error and "disk full" in outcome.error
+
+    invalidated = []
+    errors = []
+    installed = []
+    fake_controller = SimpleNamespace(
+        document_service=SimpleNamespace(
+            invalidate_prefetched_document=invalidated.append
+        ),
+        model=SimpleNamespace(install_inpaint_artifact=installed.append),
+        get_toast_manager=lambda: SimpleNamespace(
+            show_error=lambda msg, duration=0: errors.append((msg, duration)),
+            show_success=lambda *a, **k: pytest.fail("must not show success toast"),
+        ),
+    )
+
+    EditorController._on_export_job_finished(fake_controller, outcome)
+    assert invalidated == [str(source_path)]
+    assert installed == []
+    assert len(errors) == 1
+    assert "disk full" in errors[0][0]
