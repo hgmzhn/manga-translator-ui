@@ -1614,6 +1614,7 @@ class EditorController(QObject):
                     stroke_width=params.stroke_width,
                     disable_font_border=params.disable_font_border,
                 )
+                copied_region.pop("bg_color", None)
             region_data.append(copied_region)
         if not region_data:
             self.logger.error("No valid region to copy")

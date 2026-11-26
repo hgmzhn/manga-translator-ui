@@ -253,11 +253,39 @@ def test_paste_region_style_accepts_saved_stroke_color_and_survives_save():
         config_service = SimpleNamespace(get_config=lambda: None)
         with patch("services.get_config_service", return_value=config_service):
             reloaded, _, _, _ = FileService().load_translation_json(image_path)
-    reloaded_params = render_service.get_region_parameters(1, reloaded[1])
+    reloaded_render_service = RenderParameterService()
+    reloaded_render_service.set_region_parameters(
+        1,
+        RenderParameters(
+            bg_color=(255, 255, 255), stroke_width=0.25, disable_font_border=True
+        ),
+    )
+    reloaded_params = reloaded_render_service.get_region_parameters(1, reloaded[1])
     assert reloaded_params.bg_color == pasted_params.bg_color
     assert reloaded_params.effective_stroke_width == pasted_params.effective_stroke_width
     assert reloaded_params.disable_font_border is False
     assert reloaded[1]["translation"] == target["translation"]
+
+
+def test_copy_regions_clears_stale_bg_color_alias():
+    """源区域同时含旧 bg_color 和更新后 bg_colors 时，整框复制粘贴应清除旧别名。"""
+    source = _region((100.0, 100.0), 80.0)
+    source.update(bg_color=[255, 255, 255], bg_colors=[18, 52, 86])
+    model = _model_with_regions([source])
+    controller = _controller(model)
+    render_service = RenderParameterService()
+    render_service.set_region_parameters(0, RenderParameters())
+
+    with patch(
+        "editor.editor_controller.get_render_parameter_service",
+        return_value=render_service,
+    ):
+        controller.copy_region(0)
+    controller.paste_region()
+
+    pasted = model.get_regions()[1]
+    assert pasted["bg_colors"] == [18, 52, 86]
+    assert "bg_color" not in pasted
 
 
 def test_paste_region_style_preserves_target_rich_text_overrides():
@@ -356,6 +384,7 @@ def main() -> int:
     test_paste_region_style_copies_stroke_without_changing_text_or_geometry()
     test_paste_region_style_restores_inherited_stroke_defaults()
     test_paste_region_style_accepts_saved_stroke_color_and_survives_save()
+    test_copy_regions_clears_stale_bg_color_alias()
     test_paste_region_style_preserves_target_rich_text_overrides()
     test_paste_region_style_uses_stroke_snapshot_from_copy_time()
     return 0
