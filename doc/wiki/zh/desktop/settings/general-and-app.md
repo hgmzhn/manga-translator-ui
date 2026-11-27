@@ -50,6 +50,14 @@ flowchart LR
 
 默认值：`false`。
 
+### 内置 MCP 服务与端口 {#mcp-server}
+
+“启用内置 MCP 服务”（`app.mcp_server_enabled`）与“MCP 服务端口”（`app.mcp_server_port`）位于“设置 → General”。开启后，桌面端在首帧显示后自动启动内置 MTUI-MCP HTTP/SSE 服务（默认 `127.0.0.1:8765`，暴露 `/mcp`、`/sse` 与 `/health`）以及本机认证的实时 GUI 会话桥接管道，方便 AI Agent 直接执行译文审校、局部蒙版修补与排版调整。重型 GPU 引擎工作进程默认按需懒启动，空闲时不额外占用显存。
+
+在界面中切换开关或修改端口（范围 `1~65535`）会立即热生效；监听地址由 `app.mcp_server_host` 控制（默认 `127.0.0.1`）。桌面端启动时还支持通过命令行 `--mcp` / `--no-mcp`、`--mcp-host`、`--mcp-port` 或环境变量 `MTUI_MCP_ENABLED`、`MTUI_MCP_HOST`、`MTUI_MCP_PORT` 临时覆盖，不改写 `config/config.json`。
+
+默认值：`app.mcp_server_enabled = true`，`app.mcp_server_port = 8765`。
+
 ### 启用过滤列表 {#filter-text-enabled}
 
 “启用过滤列表”开关位于“设置 → General”，带有“编辑过滤列表”按钮。开启后，OCR 结果命中过滤词（精确/包含规则，大小写不敏感）时跳过对应文本区域；过滤词文件由过滤列表编辑器维护。默认值：`false`。

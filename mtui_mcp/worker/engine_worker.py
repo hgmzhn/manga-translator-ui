@@ -1,0 +1,1315 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Standalone warm engine worker executed inside `MTUI_ROOT`'s Python environment.
+
+Provides fast (<0.3s) native Qt6 offscreen text rendering, PSD export,
+incremental neural inpainting (`lama_large` / `lama_mpe`), smart bubble layout
+& HanLP semantic line-breaking, and region OCR / translation.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import base64
+import copy
+import json
+import math
+import os
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import traceback
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any, Optional
+
+_WINDOWS_TRANSIENT_REPLACE_WINERRORS = frozenset({5, 32})
+_ATOMIC_REPLACE_RETRY_DELAYS = (0.02, 0.05, 0.1, 0.15, 0.2, 0.3)
+
+
+def _atomic_replace_file(
+    src: str,
+    dst: str,
+    *,
+    retry_delays: tuple[float, ...] = _ATOMIC_REPLACE_RETRY_DELAYS,
+) -> None:
+    """Atomically replace `dst` with `src`, retrying transient Windows access/sharing locks (`WinError 5`/`32`)."""
+    for delay in (*retry_delays, None):
+        try:
+            os.replace(src, dst)
+            return
+        except OSError as exc:
+            winerror = getattr(exc, "winerror", None)
+            is_transient_windows_lock = os.name == "nt" and (
+                isinstance(exc, PermissionError)
+                or winerror in _WINDOWS_TRANSIENT_REPLACE_WINERRORS
+            )
+            if not is_transient_windows_lock or delay is None:
+                raise
+            time.sleep(delay)
+
+
+def _setup_environment(mtui_root: str) -> None:
+    os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
+    os.environ.setdefault("QT_IMAGEIO_MAXALLOC", "1024")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    os.environ.setdefault("TQDM_DISABLE", "1")
+    font_dir = os.path.join(mtui_root, "fonts")
+    if os.path.isdir(font_dir):
+        os.environ.setdefault("QT_QPA_FONTDIR", font_dir)
+
+    desktop_dir = os.path.join(mtui_root, "desktop_qt_ui")
+    mcp_src_dir = str(Path(__file__).resolve().parents[2])
+    for p in (mcp_src_dir, desktop_dir, mtui_root):
+        if os.path.isdir(p) and p not in sys.path:
+            sys.path.insert(0, p)
+    os.chdir(mtui_root)
+
+
+class EngineRuntime:
+    """Thread-safe holder for manga-translator-ui services inside the worker process."""
+
+    def __init__(self, mtui_root: str):
+        self.mtui_root = os.path.abspath(mtui_root)
+        self.lock = threading.RLock()
+        self.last_used = time.time()
+        self._initialized = False
+        self._export_service = None
+        self._bubble_mask_cache: dict[tuple[str, int], Any] = {}
+
+    def ensure_initialized(self) -> None:
+        if self._initialized:
+            return
+        with self.lock:
+            if self._initialized:
+                return
+            # Load PyTorch before PyQt6 to prevent Windows DLL search-path collision (`c10.dll`, pytorch#166628)
+            try:
+                import torch  # noqa: F401
+            except ImportError:
+                pass
+
+            from manga_translator.rendering.text_render._fonts import (
+                _ensure_qt_runtime,
+                _register_project_fonts,
+                _register_system_fonts,
+            )
+
+            _ensure_qt_runtime()
+            _register_project_fonts()
+            _register_system_fonts()
+
+            from services import ServiceManager
+            from services.export_service import ExportService
+
+            ServiceManager.initialize(self.mtui_root, root_widget=None)
+            self._export_service = ExportService()
+            self._initialized = True
+
+    def ping(self) -> dict[str, Any]:
+        self.ensure_initialized()
+        self.last_used = time.time()
+        import torch
+        from PyQt6.QtGui import QFontDatabase
+        from services import get_config_service
+
+        cuda_ok = bool(torch.cuda.is_available())
+        gpu_name = torch.cuda.get_device_name(0) if cuda_ok else None
+        cfg_svc = get_config_service()
+        cfg_dict = cfg_svc.get_config().model_dump() if cfg_svc else {}
+
+        return {
+            "status": "ok",
+            "mtui_root": self.mtui_root,
+            "python_executable": sys.executable,
+            "python_version": sys.version.split()[0],
+            "torch_version": torch.__version__,
+            "cuda_available": cuda_ok,
+            "gpu_name": gpu_name,
+            "qt_font_family_count": len(QFontDatabase.families()),
+            "active_translator": (cfg_dict.get("translator") or {}).get("translator"),
+            "active_target_lang": (cfg_dict.get("translator") or {}).get("target_lang"),
+            "active_inpainter": (cfg_dict.get("inpainter") or {}).get("inpainter"),
+            "active_layout_mode": (cfg_dict.get("render") or {}).get("layout_mode"),
+            "default_font_family": (cfg_dict.get("render") or {}).get("font_family"),
+        }
+
+    def _get_config_dict(self) -> dict[str, Any]:
+        from services import get_config_service
+
+        cfg_svc = get_config_service()
+        if cfg_svc is not None:
+            # Reload user config from disk in case user edited settings in UI
+            try:
+                cfg_svc._load_configs_with_priority()
+            except Exception:
+                pass
+            cfg_obj = cfg_svc.get_config()
+            if hasattr(cfg_obj, "model_dump"):
+                return cfg_obj.model_dump()
+        return {}
+
+    @staticmethod
+    def _update_translation_map(output_path: str, source_path: str) -> None:
+        out_dir = os.path.dirname(os.path.abspath(output_path))
+        os.makedirs(out_dir, exist_ok=True)
+        map_file = os.path.join(out_dir, "translation_map.json")
+        mapping: dict[str, str] = {}
+        if os.path.isfile(map_file):
+            try:
+                with open(map_file, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    mapping = loaded
+            except Exception:
+                mapping = {}
+        mapping[os.path.normpath(output_path)] = os.path.normpath(source_path)
+        fd, tmp = tempfile.mkstemp(prefix=".translation_map.", suffix=".tmp", dir=out_dir)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(mapping, f, ensure_ascii=False, indent=2)
+            _atomic_replace_file(tmp, map_file)
+            tmp = ""
+        finally:
+            if tmp and os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+
+    @staticmethod
+    def _persist_last_export_dir(
+        json_path: str,
+        export_dir: str,
+        output_path: Optional[str] = None,
+    ) -> None:
+        if not json_path or not os.path.isfile(json_path):
+            return
+        tmp = ""
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, dict) or not data:
+                return
+            changed = False
+            norm_dir = os.path.normpath(export_dir)
+            norm_out = os.path.normpath(output_path) if output_path else None
+            for k, val in data.items():
+                if not isinstance(val, dict):
+                    continue
+                if val.get("last_export_dir") != norm_dir:
+                    val["last_export_dir"] = norm_dir
+                    changed = True
+                if norm_out and val.get("last_output_path") != norm_out:
+                    val["last_output_path"] = norm_out
+                    changed = True
+            if changed:
+                fd, tmp = tempfile.mkstemp(
+                    prefix=f".{os.path.basename(json_path)}.",
+                    suffix=".tmp",
+                    dir=os.path.dirname(json_path),
+                )
+                with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                _atomic_replace_file(tmp, json_path)
+                tmp = ""
+        except Exception:
+            pass
+        finally:
+            if tmp and os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+
+    def render_page(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Render a page using manga-translator-ui's exact ExportService + Qt6 offscreen engine."""
+        self.ensure_initialized()
+        with self.lock:
+            self.last_used = time.time()
+            t0 = time.perf_counter()
+
+            import cv2
+            import numpy as np
+            from editor.controller_export_service import (
+                EditorControllerExportService,
+                ExportJob,
+            )
+            from editor.document_state import ExportBase
+            from editor.inpaint_state import InpaintKey
+            from PIL import Image
+            from services import get_file_service, get_render_parameter_service
+
+            source_path = os.path.abspath(params["source_path"])
+            display_base_path = os.path.abspath(params.get("display_base_path") or source_path)
+            inpainted_path = os.path.abspath(params["inpainted_path"])
+            output_path = os.path.abspath(params["output_path"])
+            json_path = os.path.abspath(params["json_path"])
+            force_backend_inpaint = bool(params.get("force_backend_inpaint", False))
+            export_psd = bool(params.get("export_psd", False))
+            psd_script_only = bool(params.get("psd_script_only", False))
+            inpainter_override = params.get("inpainter")
+            render_overrides = params.get("render_overrides") or {}
+
+            config = self._get_config_dict()
+            if inpainter_override:
+                config.setdefault("inpainter", {})["inpainter"] = str(inpainter_override)
+            if export_psd or psd_script_only:
+                config.setdefault("cli", {})["export_editable_psd"] = True
+            if psd_script_only:
+                config.setdefault("cli", {})["psd_script_only"] = True
+            render_cfg = config.setdefault("render", {})
+            for rk, rv in render_overrides.items():
+                render_cfg[rk] = rv
+            # Strictly lock off ALL native auto-wrap / semantic line-break heuristics:
+            # line breaking (`\n` -> `[BR]`) is 100% judged and controlled by the Agent!
+            render_cfg["disable_auto_wrap"] = True
+            render_cfg["semantic_linebreak"] = False
+            render_cfg["optimize_line_breaks"] = False
+
+            with Image.open(display_base_path) as im:
+                source_pil = im.convert("RGB")
+            w, h = source_pil.size
+
+            file_svc = get_file_service()
+            regions, raw_mask, _, overlays = file_svc.load_translation_json(source_path)
+
+            # Align mask to display_base dimensions
+            mask_u8: Optional[np.ndarray] = None
+            if raw_mask is not None:
+                arr_m = np.asarray(raw_mask)
+                if arr_m.ndim == 3:
+                    arr_m = arr_m[..., 0]
+                if arr_m.shape != (h, w):
+                    arr_m = cv2.resize(arr_m, (w, h), interpolation=cv2.INTER_NEAREST)
+                mask_u8 = np.where(arr_m > 0, 255, 0).astype(np.uint8)
+
+            # Build enhanced regions just like EditorControllerExportService._build_enhanced_regions
+            render_param_svc = get_render_parameter_service()
+            render_param_svc.clear_cache()
+            quad_fn = getattr(EditorControllerExportService, "_perspective_quad_world", None)
+            enhanced_regions: list[dict[str, Any]] = []
+            for idx, reg in enumerate(regions):
+                rc = copy.deepcopy(reg)
+                quad_world = quad_fn(rc) if callable(quad_fn) else None
+                if quad_world is not None:
+                    rc["perspective_quad"] = quad_world
+                    rc["center"] = [
+                        float(np.mean([p[0] for p in quad_world])),
+                        float(np.mean([p[1] for p in quad_world])),
+                    ]
+                else:
+                    EditorControllerExportService.apply_white_frame_center(rc)
+                rc.update(render_param_svc.export_parameters_for_backend(idx, rc))
+                rc["disable_auto_wrap"] = True
+                rc["semantic_linebreak"] = False
+                rc["optimize_line_breaks"] = False
+                enhanced_regions.append(rc)
+
+            has_nonempty_mask = mask_u8 is not None and bool(np.any(mask_u8))
+            inpaint_key = InpaintKey(document_id=1, mask_revision=1)
+
+            if not has_nonempty_mask:
+                export_base = ExportBase(
+                    kind="source",
+                    source_image=source_pil,
+                    render_image=source_pil,
+                    mask=None,
+                    inpaint_key=None,
+                )
+            elif os.path.isfile(inpainted_path) and not force_backend_inpaint:
+                with Image.open(inpainted_path) as inp_im:
+                    inp_rgb = np.array(inp_im.convert("RGB"), dtype=np.uint8, copy=True)
+                if inp_rgb.shape[:2] != (h, w):
+                    inp_rgb = cv2.resize(inp_rgb, (w, h), interpolation=cv2.INTER_LANCZOS4)
+                export_base = ExportBase(
+                    kind="paired",
+                    source_image=source_pil,
+                    render_image=inp_rgb,
+                    mask=mask_u8,
+                    inpaint_key=inpaint_key,
+                )
+            else:
+                export_base = ExportBase(
+                    kind="backend_inpaint",
+                    source_image=source_pil,
+                    render_image=source_pil,
+                    mask=mask_u8,
+                    inpaint_key=inpaint_key,
+                )
+
+            paint_overlay = overlays.get("paint")
+            if paint_overlay is None:
+                from manga_translator.utils.path_manager import find_paint_overlay_path
+
+                legacy_po = find_paint_overlay_path(source_path)
+                if legacy_po and os.path.isfile(legacy_po):
+                    with Image.open(legacy_po) as po_im:
+                        paint_overlay = np.array(po_im.convert("RGBA"), dtype=np.uint8, copy=True)
+
+            job = ExportJob(
+                automatic=False,
+                source_path=source_path,
+                output_path=output_path,
+                export_base=export_base,
+                regions=enhanced_regions,
+                config=config,
+                paint_overlay=paint_overlay,
+                stamp_overlay=overlays.get("stamp"),
+                paste_overlays=tuple(overlays.get("paste_overlays") or ()),
+            )
+            try:
+                res = self._export_service.execute_export_job(job)
+            finally:
+                job.release_resources()
+
+            if res.error:
+                raise RuntimeError(res.error)
+
+            if not bool(params.get("proof_only", False)):
+                self._update_translation_map(output_path, source_path)
+                self._persist_last_export_dir(
+                    json_path,
+                    os.path.dirname(output_path),
+                    output_path=output_path,
+                )
+
+            return {
+                "status": "ok",
+                "output_path": output_path,
+                "export_base_kind": export_base.kind,
+                "region_count": len(enhanced_regions),
+                "export_psd": bool(export_psd or psd_script_only),
+                "psd_script_only": bool(config.get("cli", {}).get("psd_script_only", False)),
+                "elapsed_sec": round(time.perf_counter() - t0, 3),
+            }
+
+    def incremental_neural_inpaint(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Run incremental crop-box neural inpainting (`lama_large` / `lama_mpe`) matching `EditorControllerInpaintService`."""
+        self.ensure_initialized()
+        with self.lock:
+            self.last_used = time.time()
+            t0 = time.perf_counter()
+
+            import cv2
+            import numpy as np
+            import torch
+            from PIL import Image
+
+            from manga_translator.config import (
+                Inpainter,
+                InpainterConfig,
+                InpaintPrecision,
+            )
+            from manga_translator.inpainting import dispatch as inpaint_dispatch
+
+            display_base_path = os.path.abspath(params["display_base_path"])
+            inpainted_path = os.path.abspath(params["inpainted_path"])
+            padding = max(16, int(params.get("padding", 50)))
+            full_reinpaint = bool(params.get("full_reinpaint", False))
+
+            with Image.open(display_base_path) as im:
+                base_rgb = np.array(im.convert("RGB"), dtype=np.uint8, copy=True)
+            h, w = base_rgb.shape[:2]
+
+            def _decode_b64_mask(b64_str: Optional[str]) -> np.ndarray:
+                if not b64_str:
+                    return np.zeros((h, w), dtype=np.uint8)
+                buf = np.frombuffer(base64.b64decode(b64_str), dtype=np.uint8)
+                m = cv2.imdecode(buf, cv2.IMREAD_UNCHANGED)
+                if m is None:
+                    return np.zeros((h, w), dtype=np.uint8)
+                if m.ndim == 3:
+                    m = m[..., 0]
+                if m.shape != (h, w):
+                    m = cv2.resize(m, (w, h), interpolation=cv2.INTER_NEAREST)
+                return np.where(m > 0, 255, 0).astype(np.uint8)
+
+            current_mask = _decode_b64_mask(params.get("current_mask_b64"))
+            added_mask = _decode_b64_mask(params.get("added_mask_b64"))
+            removed_mask = _decode_b64_mask(params.get("removed_mask_b64"))
+
+            cfg = self._get_config_dict()
+            inp_cfg_dict = cfg.get("inpainter") or {}
+            cli_cfg_dict = cfg.get("cli") or {}
+
+            raw_inp = params.get("inpainter") or inp_cfg_dict.get("inpainter") or "lama_large"
+            inp_name = str(getattr(raw_inp, "value", raw_inp)).strip()
+            if "." in inp_name:
+                inp_name = inp_name.split(".", 1)[1]
+            try:
+                inpainter_enum = Inpainter(inp_name)
+            except ValueError:
+                try:
+                    inpainter_enum = Inpainter[inp_name]
+                except KeyError:
+                    inpainter_enum = Inpainter.lama_large
+
+            inp_config = InpainterConfig()
+            prec_str = str(inp_cfg_dict.get("inpainting_precision") or "fp32").strip()
+            if "." in prec_str:
+                prec_str = prec_str.split(".", 1)[1]
+            try:
+                inp_config.inpainting_precision = InpaintPrecision(prec_str)
+            except ValueError:
+                if hasattr(InpaintPrecision, prec_str):
+                    inp_config.inpainting_precision = InpaintPrecision[prec_str]
+            if hasattr(inp_config, "force_use_torch_inpainting"):
+                inp_config.force_use_torch_inpainting = bool(
+                    inp_cfg_dict.get("force_use_torch_inpainting", False)
+                )
+            raw_blur = (
+                params.get("blur_radius")
+                if params.get("blur_radius") is not None
+                else inp_cfg_dict.get("blur_radius", 0)
+            )
+            clamped_blur = max(0, min(200, int(raw_blur or 0)))
+            if hasattr(inp_config, "blur_radius"):
+                inp_config.blur_radius = clamped_blur
+
+            inpaint_size = int(params.get("inpainting_size") or inp_cfg_dict.get("inpainting_size") or 2048)
+            use_gpu = bool(cli_cfg_dict.get("use_gpu", True)) and torch.cuda.is_available()
+            device = "cuda" if use_gpu else "cpu"
+
+            def _run_dispatch(crop_img: np.ndarray, crop_mask: np.ndarray) -> np.ndarray:
+                loop = asyncio.new_event_loop()
+                try:
+                    res = loop.run_until_complete(
+                        inpaint_dispatch(
+                            inpainter_key=inpainter_enum,
+                            image=crop_img,
+                            mask=crop_mask,
+                            config=inp_config,
+                            inpainting_size=inpaint_size,
+                            device=device,
+                        )
+                    )
+                    return np.asarray(res, dtype=np.uint8)[..., :3].copy()
+                finally:
+                    loop.close()
+
+            blur_enum = getattr(Inpainter, "blur", None)
+            is_blur_inpainter = (
+                (blur_enum is not None and inpainter_enum == blur_enum)
+                or str(getattr(inpainter_enum, "value", inpainter_enum)).lower() == "blur"
+            )
+            has_prev = os.path.isfile(inpainted_path) and not full_reinpaint and not is_blur_inpainter
+            prev_rgb: Optional[np.ndarray] = None
+            if has_prev:
+                with Image.open(inpainted_path) as pim:
+                    prev_rgb = np.array(pim.convert("RGB"), dtype=np.uint8, copy=True)
+                if prev_rgb.shape[:2] != (h, w):
+                    prev_rgb = None
+
+            crop_box_used: Optional[list[int]] = None
+            if prev_rgb is None:
+                if np.any(current_mask):
+                    final_rgb = _run_dispatch(base_rgb.copy(), current_mask.copy())
+                    crop_box_used = [0, 0, w, h]
+                else:
+                    final_rgb = base_rgb.copy()
+            else:
+                final_rgb = prev_rgb.copy()
+                if np.any(removed_mask):
+                    unmasked = current_mask == 0
+                    final_rgb[unmasked] = base_rgb[unmasked]
+
+                if np.any(added_mask):
+                    ys, xs = np.where(added_mask > 0)
+                    y1 = max(0, int(np.min(ys)) - padding)
+                    y2 = min(h, int(np.max(ys)) + padding + 1)
+                    x1 = max(0, int(np.min(xs)) - padding)
+                    x2 = min(w, int(np.max(xs)) + padding + 1)
+                    repaired_crop = _run_dispatch(
+                        final_rgb[y1:y2, x1:x2].copy(),
+                        added_mask[y1:y2, x1:x2].copy(),
+                    )
+                    final_rgb[y1:y2, x1:x2] = repaired_crop
+                    crop_box_used = [x1, y1, x2, y2]
+
+                if np.any(removed_mask):
+                    unmasked = current_mask == 0
+                    final_rgb[unmasked] = base_rgb[unmasked]
+
+            self._export_service.save_inpainted_image(display_base_path, final_rgb, cfg)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            return {
+                "status": "ok",
+                "inpainted_path": inpainted_path,
+                "inpainter": inpainter_enum.value,
+                "blur_radius": clamped_blur,
+                "device": device,
+                "crop_box_xyxy": crop_box_used,
+                "elapsed_sec": round(time.perf_counter() - t0, 3),
+            }
+
+    def ocr_or_translate_regions(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Run native OCR and/or Translator on specified regions or custom boxes."""
+        self.ensure_initialized()
+        with self.lock:
+            self.last_used = time.time()
+            t0 = time.perf_counter()
+
+            import numpy as np
+            from PIL import Image
+            from services import (
+                get_config_service,
+                get_ocr_service,
+                get_translation_service,
+            )
+
+            from manga_translator.utils import Quadrilateral
+
+            display_base_path = os.path.abspath(params["display_base_path"])
+            json_path = params.get("json_path")
+            run_ocr = bool(params.get("run_ocr", True))
+            run_translate = bool(params.get("run_translate", False))
+            ocr_override = params.get("ocr")
+            translator_name = params.get("translator")
+            target_lang = params.get("target_lang")
+            region_indices = params.get("region_indices") or []
+            custom_boxes = params.get("custom_boxes_xyxy") or []
+            commit = bool(params.get("commit", False))
+
+            with Image.open(display_base_path) as im:
+                pil_img = im.convert("RGB")
+                img_rgb = np.array(pil_img, dtype=np.uint8, copy=True)
+            im_h, im_w = img_rgb.shape[:2]
+
+            raw_json = None
+            regions_list: list[dict[str, Any]] = []
+            if json_path and os.path.isfile(json_path):
+                with open(json_path, "r", encoding="utf-8") as f:
+                    raw_json = json.load(f)
+                first_k = next(iter(raw_json.keys()))
+                regions_list = raw_json[first_k].get("regions", [])
+
+            items_to_process: list[dict[str, Any]] = []
+            for r_idx in region_indices:
+                idx = int(r_idx)
+                if 0 <= idx < len(regions_list):
+                    reg = regions_list[idx]
+                    lines = reg.get("lines") or []
+                    pts_all = [
+                        (float(pt[0]), float(pt[1]))
+                        for poly in lines
+                        for pt in poly
+                        if isinstance(pt, (list, tuple)) and len(pt) >= 2
+                    ]
+                    if not pts_all:
+                        continue
+                    ang = float(reg.get("angle", 0.0) or 0.0)
+                    if abs(ang) > 1e-6:
+                        raw_center = reg.get("center")
+                        if isinstance(raw_center, (list, tuple)) and len(raw_center) >= 2:
+                            rcx, rcy = float(raw_center[0]), float(raw_center[1])
+                        else:
+                            raw_xs = [p[0] for p in pts_all]
+                            raw_ys = [p[1] for p in pts_all]
+                            rcx = (min(raw_xs) + max(raw_xs)) / 2.0
+                            rcy = (min(raw_ys) + max(raw_ys)) / 2.0
+                        rad = math.radians(ang)
+                        ca, sa = math.cos(rad), math.sin(rad)
+                        world_pts = [
+                            (
+                                rcx + (px - rcx) * ca - (py - rcy) * sa,
+                                rcy + (px - rcx) * sa + (py - rcy) * ca,
+                            )
+                            for px, py in pts_all
+                        ]
+                    else:
+                        world_pts = pts_all
+                    xs = [max(0.0, min(float(im_w), p[0])) for p in world_pts]
+                    ys = [max(0.0, min(float(im_h), p[1])) for p in world_pts]
+                    x1 = min(xs)
+                    y1 = min(ys)
+                    x2 = max(x1 + 1.0, max(xs))
+                    y2 = max(y1 + 1.0, max(ys))
+                    box_pts = np.array(
+                        [[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
+                        dtype=np.float32,
+                    )
+                    items_to_process.append(
+                        {
+                            "region_index": idx,
+                            "pts": box_pts,
+                            "text": str(reg.get("text", "")),
+                        }
+                    )
+
+            for cbox in custom_boxes:
+                x1, y1, x2, y2 = (float(v) for v in cbox[:4])
+                box_pts = np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]], dtype=np.float32)
+                items_to_process.append({"region_index": None, "pts": box_pts, "text": ""})
+
+            if not items_to_process:
+                return {"status": "ok", "results": [], "elapsed_sec": 0.0}
+
+            cfg_svc = get_config_service()
+            runtime_cfg = None
+            if cfg_svc is not None:
+                try:
+                    cfg_svc._load_configs_with_priority()
+                except Exception:
+                    pass
+                runtime_cfg = cfg_svc.get_config()
+
+            loop = asyncio.new_event_loop()
+            try:
+                if run_ocr:
+                    from manga_translator.config import Ocr
+                    from manga_translator.ocr import dispatch as dispatch_ocr
+
+                    ocr_svc = get_ocr_service()
+                    ocr_cfg = ocr_svc._get_current_config()
+
+                    def _parse_ocr_choice(raw_val: Any, *, strict: bool) -> Optional[Any]:
+                        if raw_val is None:
+                            return None
+                        if isinstance(raw_val, Ocr):
+                            return raw_val
+                        s = str(getattr(raw_val, "value", raw_val)).strip()
+                        if not s:
+                            return None
+                        if "." in s:
+                            s = s.split(".", 1)[1]
+                        try:
+                            return Ocr(s)
+                        except ValueError:
+                            if hasattr(Ocr, s):
+                                return Ocr[s]
+                        if strict:
+                            raise ValueError(f"Unsupported OCR model: {raw_val!r}")
+                        return None
+
+                    explicit_ocr = _parse_ocr_choice(ocr_override, strict=True)
+                    if explicit_ocr is not None:
+                        ocr_cfg.ocr = explicit_ocr
+                    else:
+                        editor_ocr_raw = getattr(getattr(runtime_cfg, "app", None), "editor_ocr", None)
+                        editor_ocr_enum = _parse_ocr_choice(editor_ocr_raw, strict=False)
+                        if editor_ocr_enum is not None:
+                            ocr_cfg.ocr = editor_ocr_enum
+
+                    loop.run_until_complete(ocr_svc.prepare_model(ocr_cfg.ocr))
+
+                    quads = [Quadrilateral(pts=it["pts"], text="", prob=1.0) for it in items_to_process]
+                    ocr_out = loop.run_until_complete(
+                        dispatch_ocr(
+                            ocr_cfg.ocr,
+                            img_rgb,
+                            quads,
+                            ocr_cfg,
+                            ocr_svc.device,
+                            False,
+                            runtime_config=runtime_cfg,
+                        )
+                    )
+                    for it, q_res in zip(items_to_process, ocr_out):
+                        it["text"] = str(getattr(q_res, "text", "") or "")
+                        it["prob"] = float(getattr(q_res, "prob", 1.0) or 1.0)
+
+                if run_translate:
+                    trans_svc = get_translation_service()
+                    from manga_translator.config import Translator
+
+                    tr_enum = None
+                    if translator_name:
+                        tr_str = str(getattr(translator_name, "value", translator_name)).strip()
+                        if "." in tr_str:
+                            tr_str = tr_str.split(".", 1)[1]
+                        if tr_str:
+                            try:
+                                tr_enum = Translator(tr_str)
+                            except ValueError:
+                                if hasattr(Translator, tr_str):
+                                    tr_enum = Translator[tr_str]
+                                else:
+                                    raise ValueError(f"Unsupported translator: {translator_name!r}")
+                    texts_in = [it["text"] for it in items_to_process]
+                    tr_results = loop.run_until_complete(
+                        trans_svc.translate_text_batch(
+                            texts_in,
+                            translator=tr_enum,
+                            target_lang=target_lang,
+                            image=pil_img,
+                            regions=regions_list or None,
+                        )
+                    )
+                    for it, tr_item in zip(items_to_process, tr_results):
+                        it["translation"] = tr_item.translated_text if tr_item else ""
+            finally:
+                loop.close()
+                try:
+                    import torch
+
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                except Exception:
+                    pass
+
+            out_records: list[dict[str, Any]] = []
+            changed_json = False
+            for it in items_to_process:
+                rec = {
+                    "region_index": it["region_index"],
+                    "source_text": it.get("text", ""),
+                    "ocr_prob": round(float(it.get("prob", 1.0)), 3),
+                    "translation": it.get("translation"),
+                }
+                out_records.append(rec)
+                if commit and raw_json is not None and it["region_index"] is not None:
+                    reg = regions_list[it["region_index"]]
+                    if run_ocr and it.get("text"):
+                        reg["text"] = it["text"]
+                        reg["texts"] = [it["text"]]
+                    if run_translate and it.get("translation") is not None:
+                        br_t = str(it["translation"]).replace("\n", "[BR]")
+                        reg["translation"] = br_t
+                        reg["translation_raw"] = br_t
+                        reg.pop("translation_rich", None)
+                    changed_json = True
+
+            if commit and changed_json and json_path:
+                fd, tmp = tempfile.mkstemp(
+                    prefix=f".{os.path.basename(json_path)}.",
+                    suffix=".tmp",
+                    dir=os.path.dirname(json_path),
+                )
+                try:
+                    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+                        json.dump(raw_json, f, ensure_ascii=False, indent=2)
+                    _atomic_replace_file(tmp, json_path)
+                    tmp = ""
+                finally:
+                    if tmp and os.path.exists(tmp):
+                        try:
+                            os.remove(tmp)
+                        except OSError:
+                            pass
+
+            return {
+                "status": "ok",
+                "committed": commit and changed_json,
+                "results": out_records,
+                "elapsed_sec": round(time.perf_counter() - t0, 3),
+            }
+
+    def release_vram(self) -> dict[str, Any]:
+        """Unload cached neural inpainter / OCR models inside the warm worker and empty PyTorch CUDA cache."""
+        import gc
+
+        import torch
+
+        with self.lock:
+            unloaded: list[str] = []
+            try:
+                from manga_translator import inpainting as mt_inpainting
+
+                cache = getattr(mt_inpainting, "inpainter_cache", None)
+                if isinstance(cache, dict) and cache:
+                    loop = asyncio.new_event_loop()
+                    try:
+                        for k, inst in list(cache.items()):
+                            unload_fn = getattr(inst, "unload", None)
+                            if callable(unload_fn):
+                                try:
+                                    res = unload_fn()
+                                    if asyncio.iscoroutine(res):
+                                        loop.run_until_complete(res)
+                                except Exception:
+                                    pass
+                            unloaded.append(f"inpainter:{k}")
+                        cache.clear()
+                    finally:
+                        loop.close()
+            except Exception:
+                pass
+
+            if self._initialized:
+                try:
+                    from services import get_ocr_service
+
+                    ocr_svc = get_ocr_service()
+                    if ocr_svc is not None:
+                        unload_cur = getattr(ocr_svc, "unload_current_model", None)
+                        cur_ocr = getattr(ocr_svc, "current_prepared_ocr", None)
+                        if callable(unload_cur):
+                            loop = asyncio.new_event_loop()
+                            try:
+                                res = unload_cur()
+                                if asyncio.iscoroutine(res):
+                                    loop.run_until_complete(res)
+                            finally:
+                                loop.close()
+                            if cur_ocr is not None:
+                                unloaded.append(f"ocr_service:{getattr(cur_ocr, 'value', cur_ocr)}")
+                        ocr_svc.model_prepared = False
+                        ocr_svc.current_prepared_ocr = None
+                        if getattr(ocr_svc, "_yolo_detector", None) is not None:
+                            ocr_svc._yolo_detector = None
+                except Exception:
+                    pass
+
+            try:
+                from manga_translator import ocr as mt_ocr
+
+                ocache = getattr(mt_ocr, "ocr_cache", None)
+                if isinstance(ocache, dict) and ocache:
+                    loop = asyncio.new_event_loop()
+                    try:
+                        for k, inst in list(ocache.items()):
+                            unload_fn = getattr(inst, "unload", None)
+                            if callable(unload_fn):
+                                try:
+                                    res = unload_fn()
+                                    if asyncio.iscoroutine(res):
+                                        loop.run_until_complete(res)
+                                except Exception:
+                                    pass
+                            unloaded.append(f"ocr:{k}")
+                        ocache.clear()
+                    finally:
+                        loop.close()
+            except Exception:
+                pass
+
+            gc.collect()
+            cuda_ok = bool(torch.cuda.is_available())
+            if cuda_ok:
+                torch.cuda.empty_cache()
+            alloc_mb = round(torch.cuda.memory_allocated() / (1024 * 1024), 1) if cuda_ok else 0.0
+            reserved_mb = round(torch.cuda.memory_reserved() / (1024 * 1024), 1) if cuda_ok else 0.0
+            return {
+                "status": "ok",
+                "unloaded": unloaded,
+                "cuda_allocated_mb": alloc_mb,
+                "cuda_reserved_mb": reserved_mb,
+            }
+
+    def run_cli_pipeline(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Execute `python -m manga_translator local` in a clean child process for batch/fresh translation."""
+        self.last_used = time.time()
+        t0 = time.perf_counter()
+        # Flush warm worker GPU models first so the child batch process never collides on 8GB VRAM
+        try:
+            self.release_vram()
+        except Exception:
+            pass
+
+        inputs = params.get("inputs") or []
+        if isinstance(inputs, str):
+            inputs = [inputs]
+        if not inputs:
+            raise ValueError("inputs list is required")
+
+        cmd = [sys.executable, "-m", "manga_translator", "local", "-i", *[str(x) for x in inputs]]
+        if params.get("output_dir"):
+            cmd.extend(["-o", str(params["output_dir"])])
+        if params.get("config_path"):
+            cmd.extend(["--config", str(params["config_path"])])
+        if params.get("overwrite", True):
+            cmd.append("--overwrite")
+        if params.get("use_gpu") is True:
+            cmd.append("--use-gpu")
+        if params.get("disable_onnx_gpu") is True:
+            cmd.append("--disable-onnx-gpu")
+        if params.get("output_format"):
+            cmd.extend(["--format", str(params["output_format"])])
+        if params.get("batch_size") is not None:
+            cmd.extend(["--batch-size", str(int(params["batch_size"]))])
+        if params.get("attempts") is not None:
+            cmd.extend(["--attempts", str(int(params["attempts"]))])
+        if bool(params.get("subprocess") or params.get("use_subprocess")):
+            cmd.append("--subprocess")
+        if params.get("memory_limit") is not None:
+            cmd.extend(["--memory-limit", str(int(params["memory_limit"]))])
+        if params.get("memory_percent") is not None:
+            cmd.extend(["--memory-percent", str(int(round(float(params["memory_percent"]))))])
+        if params.get("batch_per_restart") is not None:
+            cmd.extend(["--batch-per-restart", str(int(params["batch_per_restart"]))])
+
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["TQDM_DISABLE"] = "1"
+
+        proc = subprocess.run(
+            cmd,
+            cwd=self.mtui_root,
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=int(params.get("timeout_sec", 1800)),
+        )
+        tail_out = (proc.stdout or "")[-4000:]
+        tail_err = (proc.stderr or "")[-4000:]
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"manga_translator local exited with code {proc.returncode}:\nSTDOUT:\n{tail_out}\nSTDERR:\n{tail_err}"
+            )
+        return {
+            "status": "ok",
+            "returncode": proc.returncode,
+            "elapsed_sec": round(time.perf_counter() - t0, 2),
+            "stdout_tail": tail_out,
+        }
+
+    def detect_fonts(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Run local YuzuMarker ResNet-50 4x Ensemble font detection across a page or chapter and free GPU VRAM."""
+        import gc
+
+        import numpy as np
+        import torch
+        import torch.nn as nn
+        from PIL import Image
+        from torchvision.models import resnet50
+
+        from mtui_mcp.font_detector import (
+            CACHE_VERSION,
+            CLEAN_STRIP_RE,
+            FAMILY_NAMES,
+            FONT_COUNT,
+            INPUT_SIZE,
+            WEIGHT_NAMES,
+            classify_vcb_font_entry,
+            load_font_detection_cache,
+            recommend_mtui_font_for_prediction,
+            region_bbox_signature,
+            save_font_detection_cache_atomic,
+        )
+        from mtui_mcp.path_resolver import list_manga_pages_in_path
+        from mtui_mcp.project_store import (
+            load_page_json,
+            region_bbox_xyxy,
+            region_center,
+        )
+
+        self.last_used = time.time()
+        t0 = time.perf_counter()
+        target_path = str(params.get("target_path") or "").strip()
+        if not target_path:
+            raise ValueError("target_path is required for detect_fonts")
+        force_refresh = bool(params.get("force_refresh", False))
+
+        mdir = Path(self.mtui_root) / "models" / "yuzumarker"
+        labels_path = mdir / "font-labels-ex.json"
+        ckpts = sorted([p for p in mdir.glob("*.ckpt") if p.stat().st_size > 300_000_000], key=lambda p: p.name)
+        if not labels_path.is_file() or not ckpts:
+            raise FileNotFoundError(
+                f"YuzuMarker models not found under {mdir}. Expected font-labels-ex.json and >=1 ResNet-50 4x .ckpt."
+            )
+
+        pages = list_manga_pages_in_path(target_path)
+        if not pages:
+            return {"status": "ok", "scanned_pages": 0, "scanned_regions": 0, "cached_hits": 0, "elapsed_sec": 0.0}
+
+        # Group pages by work_dir so each work_dir gets its own `.yuzumarker_font_cache.json`
+        caches_by_work: dict[Path, dict[str, Any]] = {}
+        dirty_work_dirs: set[Path] = set()
+        pages_needing_gpu: list[Any] = []
+        cached_hits = 0
+
+        for pp in pages:
+            if not pp.json_exists or not pp.display_base_path.is_file():
+                continue
+            if pp.work_dir not in caches_by_work:
+                loaded = load_font_detection_cache(pp.work_dir)
+                try:
+                    loaded_ver = int(loaded.get("version") or 1)
+                except (TypeError, ValueError):
+                    loaded_ver = 1
+                if not isinstance(loaded.get("pages"), dict) or loaded_ver < CACHE_VERSION:
+                    loaded = {"version": CACHE_VERSION, "ensemble_ckpts": [c.name for c in ckpts], "pages": {}}
+                else:
+                    loaded["version"] = CACHE_VERSION
+                caches_by_work[pp.work_dir] = loaded
+            _, img_data = load_page_json(pp)
+            regs = img_data.get("regions", [])
+            if not regs:
+                continue
+            p_cache = caches_by_work[pp.work_dir]["pages"].get(pp.source_path.stem) or {}
+            by_sig = p_cache.get("by_bbox_sig") or {}
+            if not force_refresh and all(
+                (region_bbox_xyxy(r)[2] - region_bbox_xyxy(r)[0] < 4)
+                or (region_bbox_xyxy(r)[3] - region_bbox_xyxy(r)[1] < 4)
+                or (region_bbox_signature(region_bbox_xyxy(r)) in by_sig)
+                for r in regs
+            ):
+                cached_hits += len(regs)
+            else:
+                pages_needing_gpu.append(pp)
+
+        scanned_regions = 0
+        nets: list[Any] = []
+        fam_mat = None
+        wt_mat = None
+
+        def _crop_exact_data_py(rgb_arr: np.ndarray, bbox: list[float], delta: float) -> torch.Tensor:
+            ih, iw = rgb_arr.shape[:2]
+            x0 = max(0.0, min(float(iw - 1), float(bbox[0])))
+            y0 = max(0.0, min(float(ih - 1), float(bbox[1])))
+            x1 = max(x0 + 1.0, min(float(iw), float(bbox[2])))
+            y1 = max(y0 + 1.0, min(float(ih), float(bbox[3])))
+            bw, bh = x1 - x0, y1 - y0
+            x0 = max(0, int(round(x0 - delta * bw)))
+            y0 = max(0, int(round(y0 - delta * bh)))
+            x1 = min(iw, int(round(x1 + delta * bw)))
+            y1 = min(ih, int(round(y1 + delta * bh)))
+            pil = Image.fromarray(rgb_arr[y0:y1, x0:x1]).resize((INPUT_SIZE, INPUT_SIZE), Image.Resampling.BILINEAR)
+            arr = np.asarray(pil, dtype=np.float32).transpose(2, 0, 1) / 255.0
+            return torch.from_numpy(arr)
+
+        try:
+            if pages_needing_gpu:
+                # Release cached LaMa/OCR GPU weights before loading dual ResNet-50 4x checkpoints
+                try:
+                    self.release_vram()
+                except Exception:
+                    pass
+                raw_labels = json.loads(labels_path.read_text(encoding="utf-8"))
+                f2i = {f: i for i, f in enumerate(FAMILY_NAMES)}
+                w2i = {w: i for i, w in enumerate(WEIGHT_NAMES)}
+                device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+                fam_mat = torch.zeros((FONT_COUNT, len(FAMILY_NAMES)), dtype=torch.float32, device=device)
+                wt_mat = torch.zeros((FONT_COUNT, len(WEIGHT_NAMES)), dtype=torch.float32, device=device)
+                fam_idx_arr: list[int] = []
+                for i, entry in enumerate(raw_labels):
+                    fn, wn = classify_vcb_font_entry(entry)
+                    fam_idx_arr.append(f2i[fn])
+                    fam_mat[i, f2i[fn]] = 1.0
+                    wt_mat[i, w2i[wn]] = 1.0
+
+                for ckpt_p in ckpts:
+                    raw_ckpt = torch.load(str(ckpt_p), map_location="cpu", weights_only=False)
+                    sd = raw_ckpt["state_dict"] if "state_dict" in raw_ckpt else raw_ckpt
+                    clean_sd = {}
+                    for k, v in sd.items():
+                        nk = k
+                        if nk.startswith("model._orig_mod."):
+                            nk = nk[len("model._orig_mod.") :]
+                        elif nk.startswith("model."):
+                            nk = nk[len("model.") :]
+                        if nk.startswith("model."):
+                            clean_sd[nk] = v
+                    out_dim = int(clean_sd["model.fc.weight"].shape[0])
+                    holder = nn.Module()
+                    m_net = resnet50(weights=None)
+                    m_net.fc = nn.Linear(2048, out_dim)
+                    holder.model = m_net
+                    holder.load_state_dict(clean_sd, strict=True)
+                    m_net.eval().to(device)
+                    nets.append(m_net)
+                    del raw_ckpt, sd, clean_sd
+
+                for pp in pages_needing_gpu:
+                    _, img_data = load_page_json(pp)
+                    regs = img_data.get("regions", [])
+                    rgb = np.asarray(Image.open(pp.display_base_path).convert("RGB"))
+                    crops_tensors: list[torch.Tensor] = []
+                    valid_meta: list[tuple[int, dict[str, Any], list[float], tuple[float, float]]] = []
+                    for ridx, reg in enumerate(regs):
+                        bbox = region_bbox_xyxy(reg)
+                        if bbox[2] - bbox[0] < 4 or bbox[3] - bbox[1] < 4:
+                            continue
+                        crops_tensors.append(_crop_exact_data_py(rgb, bbox, 0.03))
+                        crops_tensors.append(_crop_exact_data_py(rgb, bbox, 0.08))
+                        valid_meta.append((ridx, reg, bbox, region_center(reg)))
+
+                    if not valid_meta:
+                        continue
+
+                    batch = torch.stack(crops_tensors, dim=0).to(device)
+                    with torch.inference_mode():
+                        prob_sum = None
+                        for m_net in nets:
+                            pr = torch.softmax(m_net(batch)[:, :FONT_COUNT], dim=-1)
+                            prob_sum = pr if prob_sum is None else (prob_sum + pr)
+                        p_ens = prob_sum / float(len(nets))  # type: ignore[operator]
+                        p_reg = p_ens.view(len(valid_meta), 2, FONT_COUNT).mean(dim=1)
+                        f_probs = torch.matmul(p_reg, fam_mat).cpu().numpy()
+                        w_probs = torch.matmul(p_reg, wt_mat).cpu().numpy()
+                        top_v, top_i = torch.topk(p_reg, 5, dim=-1)
+                        top_v_np = top_v.cpu().numpy()
+                        top_i_np = top_i.cpu().numpy()
+
+                    page_recs: list[dict[str, Any]] = []
+                    meta_by_ridx: dict[int, tuple[list[float], str]] = {}
+                    for k, (ridx, reg, bbox, cent) in enumerate(valid_meta):
+                        scanned_regions += 1
+                        fp = {FAMILY_NAMES[j]: round(float(f_probs[k, j]), 4) for j in range(len(FAMILY_NAMES))}
+                        wp = {WEIGHT_NAMES[j]: round(float(w_probs[k, j]), 4) for j in range(len(WEIGHT_NAMES))}
+                        best_fam = max(fp.items(), key=lambda kv: kv[1])[0]
+                        tfonts = [
+                            {
+                                "font": raw_labels[int(top_i_np[k, j])]["path"].split("/")[-1],
+                                "family": FAMILY_NAMES[fam_idx_arr[int(top_i_np[k, j])]],
+                                "prob": round(float(top_v_np[k, j]), 4),
+                            }
+                            for j in range(5)
+                        ]
+                        src_txt = str(reg.get("text") or "").strip()
+                        src_clean = CLEAN_STRIP_RE.sub("", src_txt)
+                        meta_by_ridx[ridx] = (bbox, src_txt)
+                        page_recs.append(
+                            {
+                                "ridx": ridx,
+                                "bbox_sig": region_bbox_signature(bbox),
+                                "n_clean_chars": len(src_clean),
+                                "center": [round(cent[0], 1), round(cent[1], 1)],
+                                "pred_family": best_fam,
+                                "pred_conf": fp[best_fam],
+                                "family_probs": fp,
+                                "bold_prob": round(float(wp["bold"] + wp["heavy"]), 4),
+                                "heavy_prob": round(float(wp["heavy"]), 4),
+                                "top_fonts": tfonts,
+                            }
+                        )
+
+                    # Same-panel short-box neighbor propagation (`<=2` clean chars & low top1_prob `<0.35` within `195px`)
+                    page_wh_cur = (int(rgb.shape[1]), int(rgb.shape[0]))
+                    for rec in page_recs:
+                        t1_p = float(rec["top_fonts"][0]["prob"]) if rec["top_fonts"] else 0.0
+                        if rec["n_clean_chars"] <= 2 and rec["pred_conf"] < 0.48 and t1_p < 0.35:
+                            cx, cy = rec["center"]
+                            best_nb = None
+                            best_dist = 195.0
+                            for other in page_recs:
+                                if other["ridx"] == rec["ridx"]:
+                                    continue
+                                ot1 = float(other["top_fonts"][0]["prob"]) if other["top_fonts"] else 0.0
+                                if other["n_clean_chars"] >= 3 and other["pred_conf"] >= 0.80 and ot1 >= 0.35:
+                                    d = math.hypot(cx - other["center"][0], cy - other["center"][1])
+                                    if d < best_dist:
+                                        best_dist = d
+                                        best_nb = other
+                            if best_nb is not None and best_nb["pred_family"] != rec["pred_family"]:
+                                rec["neighbor_propagated_family"] = best_nb["pred_family"]
+                                rec["neighbor_source_ridx"] = best_nb["ridx"]
+                                rec["neighbor_dist"] = round(best_dist, 1)
+
+                        rec_bbox, rec_src_txt = meta_by_ridx[rec["ridx"]]
+                        rec_ff, rec_b, _ = recommend_mtui_font_for_prediction(
+                            rec,
+                            bbox_wh=(max(1.0, rec_bbox[2] - rec_bbox[0]), max(1.0, rec_bbox[3] - rec_bbox[1])),
+                            source_text=rec_src_txt,
+                            page_wh=page_wh_cur,
+                        )
+                        rec["recommended_font_family"] = rec_ff
+                        rec["recommended_bold"] = rec_b
+
+                    by_sig_out = {r["bbox_sig"]: r for r in page_recs}
+                    by_ridx_out = {str(r["ridx"]): r for r in page_recs}
+                    caches_by_work[pp.work_dir]["pages"][pp.source_path.stem] = {
+                        "by_bbox_sig": by_sig_out,
+                        "by_ridx": by_ridx_out,
+                    }
+                    dirty_work_dirs.add(pp.work_dir)
+
+            for wdir in dirty_work_dirs:
+                save_font_detection_cache_atomic(wdir, caches_by_work[wdir])
+        finally:
+            nets.clear()
+            del fam_mat, wt_mat
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+        return {
+            "status": "ok",
+            "ensemble_models": [c.name for c in ckpts],
+            "scanned_pages": len(pages_needing_gpu),
+            "scanned_regions": scanned_regions,
+            "cached_hits": cached_hits,
+            "cache_files": [str(w / ".yuzumarker_font_cache.json") for w in caches_by_work],
+            "elapsed_sec": round(time.perf_counter() - t0, 2),
+        }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="MTUI-MCP Warm Engine Worker")
+    parser.add_argument("--mtui-root", required=True)
+    parser.add_argument("--port", type=int, default=0)
+    parser.add_argument("--token", required=True)
+    args = parser.parse_args()
+
+    # Keep original stdout fd solely for the 1-line startup handshake, then redirect stdout -> stderr!
+    handshake_stream = sys.stdout
+    sys.stdout = sys.stderr
+
+    _setup_environment(args.mtui_root)
+    runtime = EngineRuntime(args.mtui_root)
+    expected_token = args.token
+
+    class WorkerHandler(BaseHTTPRequestHandler):
+        def log_message(self, format: str, *log_args: Any) -> None:
+            return  # Silence HTTP access logs
+
+        def _send_json(self, code: int, payload: dict[str, Any]) -> None:
+            raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+        def do_POST(self) -> None:
+            token = self.headers.get("X-MTUI-Worker-Token", "")
+            if token != expected_token:
+                self._send_json(403, {"ok": False, "error": "Invalid worker token"})
+                return
+
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
+            try:
+                req = json.loads(body)
+                action = req.get("action")
+                params = req.get("params") or {}
+
+                if action == "ping":
+                    data = runtime.ping()
+                elif action == "render_page":
+                    data = runtime.render_page(params)
+                elif action == "incremental_neural_inpaint":
+                    data = runtime.incremental_neural_inpaint(params)
+                elif action == "ocr_or_translate_regions":
+                    data = runtime.ocr_or_translate_regions(params)
+                elif action == "run_cli_pipeline":
+                    data = runtime.run_cli_pipeline(params)
+                elif action == "detect_fonts":
+                    data = runtime.detect_fonts(params)
+                elif action == "release_vram":
+                    data = runtime.release_vram()
+                elif action == "shutdown":
+                    self._send_json(200, {"ok": True, "data": {"status": "shutting_down"}})
+                    threading.Thread(target=self.server.shutdown, daemon=True).start()
+                    return
+                else:
+                    self._send_json(400, {"ok": False, "error": f"Unknown action: {action!r}"})
+                    return
+
+                self._send_json(200, {"ok": True, "data": data})
+            except Exception as exc:
+                tb = traceback.format_exc()
+                sys.stderr.write(f"[MTUI-Worker Error] {tb}\n")
+                self._send_json(500, {"ok": False, "error": str(exc), "traceback": tb[-3000:]})
+
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), WorkerHandler)
+    actual_port = server.server_address[1]
+    handshake_stream.write(f"MTUI_WORKER_READY {json.dumps({'port': actual_port})}\n")
+    handshake_stream.flush()
+
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()

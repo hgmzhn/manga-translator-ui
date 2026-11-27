@@ -1,10 +1,10 @@
-from contextlib import redirect_stdout
-from io import StringIO
-
+import argparse
 import logging
 import os
 import sys
 import warnings
+from contextlib import redirect_stdout
+from io import StringIO
 
 # 抑制第三方库的警告（必须在导入其他库之前设置）
 warnings.filterwarnings('ignore', message='.*Triton.*')
@@ -144,13 +144,13 @@ except ImportError:
 with redirect_stdout(StringIO()):
     import qfluentwidgets  # noqa: F401
 
-from ui.main_window import MainWindow
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
 from services import init_services
+from ui.main_window import MainWindow
+from ui.secondary_pages.themed_message_box import install_themed_message_boxes
 from utils.app_version import get_app_version
 from utils.resource_helper import iter_existing_resource_paths, load_icon_from_resources
-from ui.secondary_pages.themed_message_box import install_themed_message_boxes
 
 
 # 全局异常处理器，捕获未处理的异常并记录到日志
@@ -266,12 +266,34 @@ def _apply_macos_native_app_icon(icon_path: str):
     return False
 
 
+def parse_desktop_mcp_args(argv: list[str] | None = None):
+    """解析桌面端可选 MCP 启动参数，保留未识别的 Qt 参数供 QApplication 处理。"""
+    parser = argparse.ArgumentParser(add_help=False)
+    mcp_group = parser.add_mutually_exclusive_group()
+    mcp_group.add_argument(
+        "--mcp",
+        dest="mcp_enabled",
+        action="store_true",
+        default=None,
+    )
+    mcp_group.add_argument(
+        "--no-mcp",
+        dest="mcp_enabled",
+        action="store_false",
+        default=None,
+    )
+    parser.add_argument("--mcp-host", dest="mcp_host", default=None)
+    parser.add_argument("--mcp-port", dest="mcp_port", type=int, default=None)
+    return parser.parse_known_args(argv)
+
+
 def main():
     """
     应用主入口
     """
     # --- 日志配置：所有格式化/控制台/文件/recent 写入都在监听线程 ---
     import atexit
+
     from services.log_service import configure_queue_logging, shutdown_queue_logging
 
     log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - [%(name)s] - %(message)s')
@@ -332,8 +354,12 @@ def main():
             True,
         )
     
+    # 0. 解析可选 MCP 参数（保留其余 Qt 参数传给 QApplication）
+    mcp_args, qt_remaining_args = parse_desktop_mcp_args(sys.argv[1:])
+    qt_argv = [sys.argv[0], *qt_remaining_args]
+
     # 1. 创建 QApplication 实例
-    app = QApplication(sys.argv)
+    app = QApplication(qt_argv)
     app.setApplicationName("Manga Translator UI")
     app.setOrganizationName("Manga Translator UI")
     app_version = get_app_version()
@@ -396,6 +422,16 @@ def main():
     if not init_services(root_dir):
         logging.fatal("Fatal: Service initialization failed.")
         sys.exit(1)
+
+    from services import get_mcp_service
+
+    mcp_service = get_mcp_service()
+    if mcp_service is not None:
+        mcp_service.set_cli_overrides(
+            enabled=mcp_args.mcp_enabled,
+            host=mcp_args.mcp_host,
+            port=mcp_args.mcp_port,
+        )
 
     # 3. 创建并显示主窗口
     main_window = MainWindow()
@@ -491,6 +527,13 @@ def main():
 
     # 4. 启动事件循环
     ret = app.exec()
+
+    try:
+        mcp_service = get_mcp_service()
+        if mcp_service is not None:
+            mcp_service.shutdown()
+    except Exception as e:
+        logging.error(f"Error shutting down MCP service: {e}", exc_info=True)
 
     # Persist the latest coalesced config/.env snapshots before services vanish.
     try:

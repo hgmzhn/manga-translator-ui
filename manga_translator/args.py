@@ -122,6 +122,13 @@ def create_parser():
     shared_parser.add_argument('--disable-onnx-gpu', action='store_true',
                               default=_env_true('MT_DISABLE_ONNX_GPU'),
                               help='禁用 ONNX Runtime GPU 加速')
+
+    # ===== MCP 模式（内置 MTUI-MCP 服务器） =====
+    subparsers.add_parser(
+        'mcp',
+        help='MCP 服务器模式（供 AI Agent 调用审校、图像修复与排版工具）',
+        add_help=False,
+    )
     
     return parser
 
@@ -129,9 +136,18 @@ def create_parser():
 def parse_args():
     """解析命令行参数"""
     parser = create_parser()
+
+    # MCP 子命令将后续参数完整委托给 mtui_mcp.__main__.main 解析（含 --help）
+    if len(sys.argv) > 1 and sys.argv[1] == 'mcp':
+        return argparse.Namespace(
+            mode='mcp',
+            mcp_argv=list(sys.argv[2:]),
+            disable_onnx_gpu=False,
+            verbose=False,
+        )
     
     # 如果第一个参数不是模式，默认使用 local 模式
-    if len(sys.argv) > 1 and sys.argv[1] not in ['web', 'local', 'ws', 'shared']:
+    if len(sys.argv) > 1 and sys.argv[1] not in ['web', 'local', 'ws', 'shared', 'mcp']:
         # 检查是否有 -i 参数（local 模式的必需参数）
         if '-i' in sys.argv or '--input' in sys.argv:
             # 在第一个参数前插入 'local'

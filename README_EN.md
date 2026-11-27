@@ -117,6 +117,7 @@ If this tool has helped you, you can **[support the author](#support-author)**! 
 - 📥 **PSD export** - Exports original, repaired, and text layers for further editing
 - 🔄 **JSON / TXT import and export** - Imports, exports, and writes text back
 - ⌨️ **Command-line mode** - Supports batch jobs and automation scripts
+- 🤖 **Built-in MCP server** - Auto-starts a local MCP endpoint alongside the desktop UI so AI agents can proofread translations, repair masks/inpainting, and polish rich-text typesetting
 - 🌐 **Web UI** - Includes account and quota management
 - 🐳 **Docker deployment** - Supports containerized operation
 
@@ -197,6 +198,32 @@ uv run --no-sync python -m manga_translator web --host 127.0.0.1 --port 8000 --u
 # Show all arguments
 uv run --no-sync python -m manga_translator --help
 ```
+
+### 🤖 Built-in MCP Server (AI Agent Proofreading & Typesetting)
+
+Use multimodal AI agents (**Antigravity**, **Codex**, **Claude Code**, **Cursor**, etc.) to proofread whole chapters, clean up residual ink or over-erased borders, and refine `richtext.v1` typesetting after initial translation.
+
+- **Desktop auto-start (recommended)**: Launching the Qt UI automatically starts the built-in MCP server at `http://127.0.0.1:8765/mcp` (Streamable HTTP; SSE at `/sse`) and the live Qt editor bridge (`mtui_live_gui_session`). Toggle or change the port anytime in **Settings → General**, or override at launch via `--no-mcp` / `--mcp-port`.
+- **Standalone headless STDIO mode**: Spawn on demand from any MCP client without opening the desktop window:
+
+```bash
+# Default STDIO mode (for MCP client command/args configuration)
+uv run --no-sync python -m mtui_mcp
+# Or via the main CLI subcommand
+uv run --no-sync python -m manga_translator mcp
+```
+
+```json
+{
+  "mcpServers": {
+    "mtui-mcp": {
+      "serverUrl": "http://127.0.0.1:8765/mcp"
+    }
+  }
+}
+```
+
+🤖 Want the full catalog of all 24 `mtui_*` tools, STDIO client configs, and proofreading workflows? [View MTUI-MCP documentation](mtui_mcp/README.md)
 
 📖 Need CLI options? [View command structure and arguments](https://hgmzhn.github.io/manga-translator-ui/en/cli/command-structure)
 

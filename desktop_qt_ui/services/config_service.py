@@ -14,7 +14,9 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from core.config_models import AppSettings
 from dotenv.parser import parse_stream
+
 from manga_translator.api_key_rotation import (
     env_has_any_indexed_value,
     get_rotation_env_keys,
@@ -37,8 +39,6 @@ from manga_translator.utils.dotenv_utils import (
     validate_env_key,
 )
 from manga_translator.utils.openai_compat import resolve_openai_compatible_api_key
-
-from core.config_models import AppSettings
 
 PRESET_SPECIAL_ENV_VARS = [
     "OCR_OPENAI_API_KEY",
@@ -508,6 +508,9 @@ class ConfigService(QObject):
                     "editor_suppress_unsaved_warning": False,
                     "editor_auto_rich_text_rules": True,
                     "editor_delete_and_recover": False,
+                    "mcp_server_enabled": True,
+                    "mcp_server_host": "127.0.0.1",
+                    "mcp_server_port": 8765,
                     "saved_colors": None,
                     "saved_style_presets": None,
                     "saved_rich_text_presets": None,
@@ -966,6 +969,10 @@ class ConfigService(QObject):
         打包后配置文件在 app.exe 同级/config/config-example.json
         开发时在 项目根目录/config/config-example.json
         """
+        if not getattr(sys, "frozen", False) and self.root_dir:
+            candidate_dir = os.path.join(self.root_dir, "config")
+            if os.path.isdir(candidate_dir):
+                return os.path.join(candidate_dir, "config-example.json")
         return get_config_path("config-example.json")
 
     def get_user_config_path(self) -> str:
@@ -975,6 +982,10 @@ class ConfigService(QObject):
         打包后：用户配置在 app.exe 同级/config/config.json（可写）
         开发时：在项目根目录的 config 目录
         """
+        if not getattr(sys, "frozen", False) and self.root_dir:
+            candidate_dir = os.path.join(self.root_dir, "config")
+            if os.path.isdir(candidate_dir):
+                return os.path.join(candidate_dir, "config.json")
         return get_config_path("config.json")
 
     def _load_configs_with_priority(self):

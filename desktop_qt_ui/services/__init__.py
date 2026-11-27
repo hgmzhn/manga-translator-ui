@@ -17,6 +17,7 @@ from .file_service import FileService
 from .history_service import EditorStateManager as HistoryService
 from .i18n_service import I18nManager
 from .log_service import LogService, setup_logging
+from .mcp_service import McpService
 from .ocr_service import OcrService
 from .preset_service import PresetService
 from .render_parameter_service import RenderParameterService
@@ -100,6 +101,7 @@ class ServiceContainer:
             self.services['history'] = HistoryService()
             self.services['render_parameter'] = RenderParameterService()
             self.services['resource_manager'] = ResourceManager()  # 新的资源管理器
+            self.services['mcp'] = McpService(self.root_dir)
 
             
         except Exception as e:
@@ -144,6 +146,7 @@ class ServiceContainer:
         """关闭所有服务"""
         
         shutdown_steps = [
+            ("mcp", ("shutdown", "stop", "close")),
             ("async", ("shutdown",)),
             ("resource_manager", ("cleanup_all", "shutdown", "cleanup")),
             ("translation", ("cleanup", "shutdown", "close")),
@@ -252,6 +255,11 @@ class ServiceManager:
     def get_preset_service(cls) -> Optional[PresetService]:
         """获取预设服务"""
         return cls.get_service('preset')
+
+    @classmethod
+    def get_mcp_service(cls) -> Optional[McpService]:
+        """获取内置 MCP 服务控制器"""
+        return cls.get_service('mcp')
     
     @classmethod
     def shutdown(cls):
@@ -315,6 +323,10 @@ def get_i18n_manager() -> Optional[I18nManager]:
 def get_preset_service() -> Optional[PresetService]:
     """获取预设服务的便捷函数"""
     return ServiceManager.get_preset_service()
+
+def get_mcp_service() -> Optional[McpService]:
+    """获取内置 MCP 服务的便捷函数"""
+    return ServiceManager.get_mcp_service()
 
 def shutdown_services():
     """关闭服务的便捷函数"""

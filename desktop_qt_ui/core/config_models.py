@@ -1,10 +1,10 @@
 from typing import Any, Dict, List, Optional, Union
 
-from manga_translator.custom_api_params import migrate_legacy_custom_api_params_config
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-
 from theme_registry import VALID_THEME_PREFERENCES as REGISTERED_THEME_PREFERENCES
 from theme_registry import VALID_THEMES as REGISTERED_THEMES
+
+from manga_translator.custom_api_params import migrate_legacy_custom_api_params_config
 
 VALID_LAYOUT_MODES = {"smart_scaling", "strict", "balloon_fill"}
 
@@ -214,6 +214,13 @@ class AppSection(BaseModel):
     unload_models_after_translation: bool = (
         False  # 翻译完成后卸载模型（释放内存更彻底，但下次使用需要重新加载）
     )
+    mcp_server_enabled: bool = (
+        True  # 启动桌面端时自动开启内置 MCP HTTP/SSE 服务与实时 GUI 桥接
+    )
+    mcp_server_host: str = "127.0.0.1"  # 内置 MCP HTTP/SSE 服务监听地址
+    mcp_server_port: int = Field(
+        default=8765, ge=0, le=65535
+    )  # 内置 MCP HTTP/SSE 服务监听端口
     saved_colors: Optional[List[str]] = None  # 保存的常用颜色列表
     saved_style_presets: Optional[Dict[str, Dict[str, Any]]] = (
         None  # 编辑器保存的样式组合

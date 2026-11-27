@@ -6,8 +6,8 @@
     "phase0Evidence": "doc/wiki/research/phase0-options-i18n-matrix.md"
   },
   "summary": {
-    "keys": 1517,
-    "exact": 1517,
+    "keys": 1523,
+    "exact": 1523,
     "missingInEnglish": 0,
     "missingInChinese": 0
   },
@@ -5053,6 +5053,24 @@
       "status": "exact"
     },
     {
+      "key": "desc_app_mcp_server_enabled",
+      "en_US": "Automatically start the built-in MTUI-MCP HTTP/SSE server and live GUI session bridge alongside the desktop app so AI agents (Antigravity, Claude, Cursor, Codex) can inspect, proofread, repair masks, and typeset pages. Heavy GPU worker processes stay lazy until invoked.",
+      "zh_CN": "启动桌面端时自动开启内置 MTUI-MCP HTTP/SSE 服务与实时 GUI 会话桥接，供 AI Agent（Antigravity、Claude、Cursor、Codex 等）直接执行漫画审校、局部消字修补与排版精修。GPU 引擎工作进程按需懒加载，空闲时不额外占用显存。",
+      "status": "exact"
+    },
+    {
+      "key": "desc_app_mcp_server_host",
+      "en_US": "Bind address for the built-in MCP HTTP/SSE server (default 127.0.0.1, loopback only).",
+      "zh_CN": "内置 MCP HTTP/SSE 服务的监听地址（默认 127.0.0.1，仅限本机回环访问）。",
+      "status": "exact"
+    },
+    {
+      "key": "desc_app_mcp_server_port",
+      "en_US": "Listening port for the built-in MCP HTTP/SSE server (default 8765; endpoints: /mcp, /sse, /health). Changes take effect immediately.",
+      "zh_CN": "内置 MCP HTTP/SSE 服务的监听端口（默认 8765，提供 /mcp、/sse 与 /health 端点）。修改后立即生效。",
+      "status": "exact"
+    },
+    {
       "key": "desc_app_theme",
       "en_US": "UI theme. Supports Light, Dark, Gray, Ocean, Forest, Sunset, Rose, and Follow System.",
       "zh_CN": "界面主题。支持浅色、深色、灰色、海洋、森林、落日、玫瑰和跟随系统。",
@@ -6760,6 +6778,24 @@
       "key": "label_max_requests_per_minute",
       "en_US": "Max Requests Per Minute",
       "zh_CN": "每分钟最大请求数",
+      "status": "exact"
+    },
+    {
+      "key": "label_mcp_server_enabled",
+      "en_US": "Enable Built-in MCP Server",
+      "zh_CN": "启用内置 MCP 服务",
+      "status": "exact"
+    },
+    {
+      "key": "label_mcp_server_host",
+      "en_US": "MCP Server Host",
+      "zh_CN": "MCP 服务监听地址",
+      "status": "exact"
+    },
+    {
+      "key": "label_mcp_server_port",
+      "en_US": "MCP Server Port",
+      "zh_CN": "MCP 服务端口",
       "status": "exact"
     },
     {

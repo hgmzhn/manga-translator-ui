@@ -30,7 +30,7 @@ The settings page groups parameters by the left-side tabs; tab titles come from 
 
 | Layout title / UI call key | English actual value | Simplified Chinese actual value | Visible parameter count | Page |
 | --- | --- | --- | ---: | --- |
-| `General` | General | 通用 | 17 | [General and Application Settings](../desktop/settings/general-and-app.md), [CLI, Batch, and Output](../desktop/settings/cli-batch-and-output.md) |
+| `General` | General | 通用 | 19 | [General and Application Settings](../desktop/settings/general-and-app.md), [CLI, Batch, and Output](../desktop/settings/cli-batch-and-output.md) |
 | `OCR` | OCR | 文字识别 | 17 | [OCR, Filtering, and Text-Line Merging](../desktop/settings/ocr-filter-and-merge.md) |
 | `Detection` | Detection | 检测 | 13 | [Detection](../desktop/settings/detection.md) |
 | `Translation` | Translation | 翻译 | 11 | [Translation settings](../desktop/settings/translation.md) |
@@ -46,7 +46,7 @@ The tables below group parameters by settings tab and record the stored key, the
 
 ### General {#tab-general}
 
-The 17 parameters of the General tab span two pages: application-level parameters are in [General and Application Settings](../desktop/settings/general-and-app.md), and CLI/output parameters are in [CLI, Batch, and Output](../desktop/settings/cli-batch-and-output.md).
+The 19 parameters of the General tab span two pages: application-level parameters are in [General and Application Settings](../desktop/settings/general-and-app.md), and CLI/output parameters are in [CLI, Batch, and Output](../desktop/settings/cli-batch-and-output.md).
 
 | Stored value | English actual value | Simplified Chinese actual value | Jump to |
 | --- | --- | --- | --- |
@@ -67,6 +67,8 @@ The 17 parameters of the General tab span two pages: application-level parameter
 | `cli.export_editable_psd` | Export Editable PSD | 导出可编辑PSD | [#cli-export-editable-psd](../desktop/settings/cli-batch-and-output.md#cli-export-editable-psd) |
 | `cli.psd_script_only` | Generate PSD Script Only | 仅生成PSD脚本 | [#cli-psd-script-only](../desktop/settings/cli-batch-and-output.md#cli-psd-script-only) |
 | `app.unload_models_after_translation` | Unload Models After Translation | 翻译完成后卸载模型 | [#unload-models](../desktop/settings/general-and-app.md#unload-models) |
+| `app.mcp_server_enabled` | Enable Built-in MCP Server | 启用内置 MCP 服务 | [#mcp-server](../desktop/settings/general-and-app.md#mcp-server) |
+| `app.mcp_server_port` | MCP Server Port | MCP 服务端口 | [#mcp-server](../desktop/settings/general-and-app.md#mcp-server) |
 
 ### OCR {#tab-ocr}
 

@@ -30,7 +30,7 @@ lastUpdated: true
 
 | 布局标题 / UI 调用 key | English 实际值 | 简体中文实际值 | 可见参数数 | 对应页面 |
 | --- | --- | --- | ---: | --- |
-| `General` | General | 通用 | 17 | [通用与应用设置](../desktop/settings/general-and-app.md)、[CLI、批量与输出](../desktop/settings/cli-batch-and-output.md) |
+| `General` | General | 通用 | 19 | [通用与应用设置](../desktop/settings/general-and-app.md)、[CLI、批量与输出](../desktop/settings/cli-batch-and-output.md) |
 | `OCR` | OCR | 文字识别 | 17 | [OCR、过滤与文本行合并](../desktop/settings/ocr-filter-and-merge.md) |
 | `Detection` | Detection | 检测 | 13 | [检测](../desktop/settings/detection.md) |
 | `Translation` | Translation | 翻译 | 11 | [翻译设置](../desktop/settings/translation.md) |
@@ -46,7 +46,7 @@ lastUpdated: true
 
 ### 通用 {#tab-general}
 
-通用页签的 17 个参数分散在两个页面：应用级参数见[通用与应用设置](../desktop/settings/general-and-app.md)，CLI/输出参数见[CLI、批量与输出](../desktop/settings/cli-batch-and-output.md)。
+通用页签的 19 个参数分散在两个页面：应用级参数见[通用与应用设置](../desktop/settings/general-and-app.md)，CLI/输出参数见[CLI、批量与输出](../desktop/settings/cli-batch-and-output.md)。
 
 | 存储值 | English 实际值 | 简体中文实际值 | 跳转 |
 | --- | --- | --- | --- |
@@ -67,6 +67,8 @@ lastUpdated: true
 | `cli.export_editable_psd` | Export Editable PSD | 导出可编辑PSD | [#cli-export-editable-psd](../desktop/settings/cli-batch-and-output.md#cli-export-editable-psd) |
 | `cli.psd_script_only` | Generate PSD Script Only | 仅生成PSD脚本 | [#cli-psd-script-only](../desktop/settings/cli-batch-and-output.md#cli-psd-script-only) |
 | `app.unload_models_after_translation` | Unload Models After Translation | 翻译完成后卸载模型 | [#unload-models](../desktop/settings/general-and-app.md#unload-models) |
+| `app.mcp_server_enabled` | Enable Built-in MCP Server | 启用内置 MCP 服务 | [#mcp-server](../desktop/settings/general-and-app.md#mcp-server) |
+| `app.mcp_server_port` | MCP Server Port | MCP 服务端口 | [#mcp-server](../desktop/settings/general-and-app.md#mcp-server) |
 
 ### 文字识别 {#tab-ocr}
 

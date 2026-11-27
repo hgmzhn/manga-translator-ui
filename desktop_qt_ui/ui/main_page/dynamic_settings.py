@@ -20,12 +20,12 @@ from qfluentwidgets import (
 )
 from qfluentwidgets import LineEdit as FluentLineEdit
 from qfluentwidgets import PushButton as QPushButton
+from utils.font_list import FontComboBox, set_system_fonts_enabled
 
 from ui.widgets.hover_hint import set_hover_hint
 from ui.widgets.toggle_switch import ToggleSwitch
 from ui.widgets.wheel_filter import NoWheelComboBox as QComboBox
 from ui.widgets.widget_cleanup import clear_layout
-from utils.font_list import FontComboBox, set_system_fonts_enabled
 
 
 class IntRangeValidator(QIntValidator):
@@ -231,6 +231,7 @@ _SKIPPED_SETTING_KEYS = frozenset({
     "app.favorite_folders",
     "app.folder_dialog_sort",
     "app.current_preset",
+    "app.mcp_server_host",
 })
 
 _OPTIONAL_INPUT_KEYS = frozenset({
@@ -270,7 +271,6 @@ def _clear_layout_widgets(layout, *, restore_stretch: bool = False):
 
 def _env_group_structure_signature(active_api_groups: dict, current_env_values: dict) -> str:
     from manga_translator.api_key_rotation import get_rotation_slot_count
-
     from ui.main_page.env_management import API_ROTATION_UI_MAX_SLOTS
 
     slot_counts = {}
@@ -1060,6 +1060,16 @@ def _on_numeric_input_changed(self, text, full_key, value_type, widget=None):
             if target_widget is not None:
                 target_widget.setText("0")
             return
+        if full_key == "app.mcp_server_port":
+            self.setting_changed.emit(full_key, 8765)
+            target_widget = widget
+            if target_widget is None:
+                binding = getattr(self, "_settings_value_bindings", {}).get(full_key)
+                if binding:
+                    target_widget = binding[0]
+            if target_widget is not None:
+                target_widget.setText("8765")
+            return
         # 空值 = 使用默认值 (None)
         self.setting_changed.emit(full_key, None)
     else:
@@ -1079,6 +1089,21 @@ def _on_numeric_input_changed(self, text, full_key, value_type, widget=None):
                             target_widget = binding[0]
                     if target_widget is not None:
                         target_widget.setText(str(current_val if current_val is not None else 0))
+                    return
+            if full_key == "app.mcp_server_port":
+                if value < 1 or value > 65535:
+                    current_val = getattr(
+                        getattr(self.config_service.get_config(), "app", None),
+                        "mcp_server_port",
+                        8765,
+                    )
+                    target_widget = widget
+                    if target_widget is None:
+                        binding = getattr(self, "_settings_value_bindings", {}).get(full_key)
+                        if binding:
+                            target_widget = binding[0]
+                    if target_widget is not None:
+                        target_widget.setText(str(current_val if current_val is not None else 8765))
                     return
             self.setting_changed.emit(full_key, value)
         except ValueError:
@@ -1328,6 +1353,9 @@ def _create_param_widgets(self, data, parent_layout, prefix=""):
             if full_key == "inpainter.blur_radius":
                 widget.setValidator(IntRangeValidator(0, 200, widget, default_val=0))
                 widget.setPlaceholderText("0~200")
+            elif full_key == "app.mcp_server_port":
+                widget.setValidator(IntRangeValidator(1, 65535, widget, default_val=8765))
+                widget.setPlaceholderText("1~65535")
             widget.editingFinished.connect(lambda k=full_key, w=widget: self._on_numeric_input_changed(w.text(), k, float if isinstance(value, float) else int, w))
 
         elif value is None and key in _OPTIONAL_INPUT_KEYS:

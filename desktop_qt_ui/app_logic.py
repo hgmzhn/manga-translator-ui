@@ -15,6 +15,29 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from PIL import Image
+from PyQt6.QtCore import (
+    QObject,
+    QRunnable,
+    Qt,
+    QTimer,
+    pyqtSignal,
+    pyqtSlot,
+)
+from PyQt6.QtWidgets import QFileDialog
+from services import (
+    get_config_service,
+    get_file_service,
+    get_i18n_manager,
+    get_logger,
+    get_preset_service,
+    get_state_manager,
+    get_translation_service,
+)
+from services.state_manager import AppStateKey
+from utils.asyncio_cleanup import shutdown_event_loop
+from utils.font_list import fonts_directory
+
 from manga_translator.config import (
     Alignment,
     Colorizer,
@@ -42,29 +65,6 @@ from manga_translator.utils.system_proxy import (
     openai_http_client_kwargs,
     system_proxy_request_kwargs,
 )
-from PIL import Image
-from PyQt6.QtCore import (
-    QObject,
-    QRunnable,
-    Qt,
-    QTimer,
-    pyqtSignal,
-    pyqtSlot,
-)
-from PyQt6.QtWidgets import QFileDialog
-
-from services import (
-    get_config_service,
-    get_file_service,
-    get_i18n_manager,
-    get_logger,
-    get_preset_service,
-    get_state_manager,
-    get_translation_service,
-)
-from services.state_manager import AppStateKey
-from utils.asyncio_cleanup import shutdown_event_loop
-from utils.font_list import fonts_directory
 
 
 @dataclass
@@ -1121,6 +1121,22 @@ class MainAppLogic(QObject):
                 self.logger.debug("Render setting changed: '{config_key}'".format(config_key=full_key))
                 self.render_setting_changed.emit()
 
+            # 当内置 MCP 服务开关或监听地址/端口更改时，实时热应用
+            if full_key in (
+                'app.mcp_server_enabled',
+                'app.mcp_server_host',
+                'app.mcp_server_port',
+            ):
+                from services import get_mcp_service
+
+                mcp_service = get_mcp_service()
+                if mcp_service is not None:
+                    mcp_service.apply_config(
+                        enabled=bool(config_obj.app.mcp_server_enabled),
+                        host=str(config_obj.app.mcp_server_host),
+                        port=int(config_obj.app.mcp_server_port),
+                    )
+
         except Exception as e:
             self.logger.error(f"Error saving single config change for {full_key}: {e}")
     # endregion
@@ -1332,6 +1348,9 @@ class MainAppLogic(QObject):
                     "last_output_path": self._t("label_last_output_path"),
                     "save_to_source_dir": self._t("label_save_to_source_dir"),
                     "psd_script_only": self._t("label_psd_script_only"),
+                    "mcp_server_enabled": self._t("label_mcp_server_enabled"),
+                    "mcp_server_host": self._t("label_mcp_server_host"),
+                    "mcp_server_port": self._t("label_mcp_server_port"),
                     "line_spacing": self._t("label_line_spacing"),
                     "letter_spacing": self._t("label_letter_spacing"),
                     "font_size": self._t("label_font_size"),

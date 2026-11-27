@@ -50,6 +50,14 @@ flowchart LR
 
 Default: `false`.
 
+### Built-in MCP Server and Port {#mcp-server}
+
+“Enable Built-in MCP Server” (`app.mcp_server_enabled`) and “MCP Server Port” (`app.mcp_server_port`) are located on Settings → General. When enabled, the desktop app automatically starts the embedded MTUI-MCP HTTP/SSE server (default `127.0.0.1:8765`, exposing `/mcp`, `/sse`, and `/health`) together with an authenticated local live-GUI IPC session bridge right after the main window renders, allowing AI agents to inspect, proofread, repair masks, and typeset pages. The GPU engine worker subprocess stays lazy until invoked, consuming no extra VRAM while idle.
+
+Toggling the switch or updating the port (`1–65535`) takes effect immediately without restarting the application; the bind address is controlled by `app.mcp_server_host` (default `127.0.0.1`). At startup, `--mcp` / `--no-mcp`, `--mcp-host`, `--mcp-port`, or environment variables `MTUI_MCP_ENABLED`, `MTUI_MCP_HOST`, and `MTUI_MCP_PORT` can override runtime behavior without rewriting `config/config.json`.
+
+Defaults: `app.mcp_server_enabled = true`, `app.mcp_server_port = 8765`.
+
 ### Enable Filter List {#filter-text-enabled}
 
 The “Enable Filter List” toggle is on Settings → General and has an “Edit Filter List” button. When enabled, an OCR result that matches a filter word (exact/contains rules, case-insensitive) skips that text region; the filter-word file is maintained by the filter-list editor. Default: `false`.

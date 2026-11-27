@@ -1,6 +1,17 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_data_files, collect_all, get_package_paths
+from PyInstaller.utils.hooks import (
+    collect_all,
+    collect_data_files,
+    collect_submodules,
+    copy_metadata,
+    get_package_paths,
+)
 import os
+import sys
+
+project_root = os.path.abspath(os.path.join(SPECPATH, '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 # Collect data files dynamically instead of using a hardcoded path
 # Use try-except to handle cases where packages might not be found
@@ -46,11 +57,46 @@ try:
 except Exception:
     pass
 
+# MCP SDK 元数据、子模块及依赖
+mcp_datas, mcp_binaries, mcp_hiddenimports = [], [], []
+try:
+    mcp_datas, mcp_binaries, mcp_hiddenimports = collect_all('mcp')
+except Exception:
+    pass
+
+for _mcp_dist in ('mcp', 'mcp-types', 'sse-starlette', 'httpx2'):
+    try:
+        mcp_datas += copy_metadata(_mcp_dist)
+    except Exception:
+        pass
+
+for _mcp_pkg in ('mcp_types', 'sse_starlette', 'httpx2'):
+    try:
+        mcp_hiddenimports += collect_submodules(_mcp_pkg)
+    except Exception:
+        pass
+
+# 内置 mtui_mcp 服务、worker 脚本及配套 skill 资源
+try:
+    mtui_mcp_datas = collect_data_files('mtui_mcp', include_py_files=True)
+except Exception:
+    mtui_mcp_datas = []
+
+try:
+    mtui_mcp_hiddenimports = collect_submodules('mtui_mcp')
+except Exception:
+    mtui_mcp_hiddenimports = [
+        'mtui_mcp',
+        'mtui_mcp.__main__',
+        'mtui_mcp.server',
+        'mtui_mcp.embedded_server',
+    ]
+
 a = Analysis(
     ['../desktop_qt_ui/main.py'],  # 相对于packaging目录
-    pathex=[],
-    binaries=onnx_binaries + pythainlp_binaries + nlpo3_binaries,
-    datas=py3langid_datas + unidic_datas + pythainlp_datas + nlpo3_datas + onnx_datas + opencc_datas,  # 添加所有数据文件
+    pathex=[project_root],
+    binaries=onnx_binaries + pythainlp_binaries + nlpo3_binaries + mcp_binaries,
+    datas=py3langid_datas + unidic_datas + pythainlp_datas + nlpo3_datas + onnx_datas + opencc_datas + mcp_datas + mtui_mcp_datas,  # 添加所有数据文件
     hiddenimports=[
         'pydensecrf.eigen', 
         'bsdiff4.core', 
@@ -65,7 +111,7 @@ a = Analysis(
         'manga_translator.ocr.paddleocr_vl_model.modeling_paddleocr_vl',
         'manga_translator.ocr.paddleocr_vl_model.processing_paddleocr_vl',
         'manga_translator.ocr.paddleocr_vl_model.image_processing',
-    ] + pythainlp_hiddenimports + nlpo3_hiddenimports + onnx_hiddenimports,  # 添加隐式导入
+    ] + pythainlp_hiddenimports + nlpo3_hiddenimports + onnx_hiddenimports + mcp_hiddenimports + mtui_mcp_hiddenimports,  # 添加隐式导入
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[os.path.join(SPECPATH, 'pyi_rth_onnxruntime.py')],
