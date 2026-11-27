@@ -117,6 +117,8 @@ def populate_language_combo(self):
         self.language_combo.clear()
         if self.i18n:
             available_locales = self.i18n.get_available_locales()
+            if not current_language or current_language == "auto" or current_language not in available_locales:
+                current_language = self.i18n.get_current_locale()
             selected_index = 0
             for idx, (locale_code, locale_info) in enumerate(available_locales.items()):
                 self.language_combo.addItem(locale_info.name, locale_code)

@@ -15,7 +15,7 @@ from .async_service import AsyncService
 from .config_service import ConfigService
 from .file_service import FileService
 from .history_service import EditorStateManager as HistoryService
-from .i18n_service import I18nManager
+from .i18n_service import I18nManager, setup_i18n
 from .log_service import LogService, setup_logging
 from .ocr_service import OcrService
 from .preset_service import PresetService
@@ -73,7 +73,7 @@ class ServiceContainer:
         locale_dir = os.path.join(self.root_dir, "desktop_qt_ui", "locales")
         config = self.services['config'].get_config()
         ui_language = config.app.ui_language if hasattr(config.app, 'ui_language') else "auto"
-        self.services['i18n'] = I18nManager(locale_dir=locale_dir, fallback_locale="zh_CN", config_language=ui_language)
+        self.services['i18n'] = setup_i18n(locale_dir=locale_dir, fallback_locale="zh_CN", config_language=ui_language)
         
         # 初始化预设服务
         self.services['preset'] = PresetService(config_service=self.services['config'])
