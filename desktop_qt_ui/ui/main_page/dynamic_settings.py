@@ -916,12 +916,16 @@ def _finalize_settings_ui(self, build_seq: int | None = None):
     self.preset_combo = QComboBox()
     self.preset_combo.setMinimumWidth(180)
     self.preset_combo.setEditable(False)
-    self._refresh_preset_list()
+    self._refresh_preset_list(emit_change=False)
 
     saved_preset = self.controller.config_service.get_current_preset()
     index = self.preset_combo.findText(saved_preset)
     if index >= 0:
-        self.preset_combo.setCurrentIndex(index)
+        self.preset_combo.blockSignals(True)
+        try:
+            self.preset_combo.setCurrentIndex(index)
+        finally:
+            self.preset_combo.blockSignals(False)
 
     self.add_preset_button = QPushButton("+")
     self.add_preset_button.setFixedWidth(36)

@@ -77,7 +77,8 @@ def _font_search_placeholder(locale_code: str) -> str:
         from services.i18n_service import get_i18n_manager
         i18n = get_i18n_manager()
         if i18n:
-            return i18n.translate(key, locale_code=locale_code)
+            resolved = i18n._resolve_locale(locale_code) or locale_code
+            return i18n.translate(key, locale_code=resolved)
     except Exception:
         pass
     return key

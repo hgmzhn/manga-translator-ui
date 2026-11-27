@@ -5,7 +5,8 @@ from types import SimpleNamespace
 
 import services
 from services import i18n_service
-from services.i18n_service import I18nManager, setup_i18n
+from services.i18n_service import I18nManager
+from ui.main_page import env_management
 from ui.main_page.view import MainView
 from utils.font_list import _font_search_placeholder
 
@@ -121,29 +122,37 @@ def test_font_search_placeholder_uses_i18n(tmp_path, monkeypatch):
     monkeypatch.setattr(i18n_service, "_i18n_manager", manager)
 
     assert _font_search_placeholder("fr_FR") == "Rechercher des polices…"
+    assert _font_search_placeholder("fr_CA") == "Rechercher des polices…"
     assert _font_search_placeholder("zh_CN") == "搜索字体…"
     # Missing key in another locale falls back to fallback_locale (zh_CN)
     assert _font_search_placeholder("es_ES") == "搜索字体…"
 
 
 def test_setup_i18n_shares_singleton_with_service_container(tmp_path, monkeypatch):
-    (tmp_path / "zh_CN.json").write_text("{}", encoding="utf-8")
-    (tmp_path / "fr_FR.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "desktop_qt_ui" / "locales").mkdir(parents=True)
+    (tmp_path / "desktop_qt_ui" / "locales" / "zh_CN.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "desktop_qt_ui" / "locales" / "fr_FR.json").write_text("{}", encoding="utf-8")
 
-    manager = setup_i18n(
-        locale_dir=str(tmp_path),
-        fallback_locale="zh_CN",
-        config_language="zh_CN",
+    monkeypatch.setattr(i18n_service, "_i18n_manager", i18n_service._i18n_manager)
+    monkeypatch.setattr(services.ServiceManager, "_container", None)
+
+    fake_config = SimpleNamespace(
+        app=SimpleNamespace(ui_language="fr_FR"),
+        cli=SimpleNamespace(verbose=False),
     )
-    monkeypatch.setattr(
-        services.ServiceManager,
-        "get_service",
-        staticmethod(lambda name: manager if name == "i18n" else None),
-    )
+    monkeypatch.setattr(services, "LogService", lambda: SimpleNamespace(set_console_log_level=lambda *_: None))
+    monkeypatch.setattr(services, "StateManager", lambda: SimpleNamespace(set_app_ready=lambda *_: None))
+    monkeypatch.setattr(services, "ConfigService", lambda root: SimpleNamespace(get_config=lambda: fake_config))
+    monkeypatch.setattr(services, "PresetService", lambda config_service=None: SimpleNamespace())
+
+    container = services.ServiceContainer(str(tmp_path))
+    container._init_essential_services()
+    services.ServiceManager._container = container
 
     assert services.get_i18n_manager() is i18n_service.get_i18n_manager()
-    assert manager.set_locale("fr_FR") is True
-    assert i18n_service.get_i18n_manager().get_current_locale() == "fr_FR"
+    assert services.get_i18n_manager().get_current_locale() == "fr_FR"
+    assert services.get_i18n_manager().set_locale("zh_CN") is True
+    assert i18n_service.get_i18n_manager().get_current_locale() == "zh_CN"
 
 
 def test_main_view_refresh_ui_texts_reloads_dynamic_settings_and_combos():
@@ -172,6 +181,52 @@ def test_main_view_refresh_ui_texts_reloads_dynamic_settings_and_combos():
     assert "_create_dynamic_settings" in calls
     assert calls.index("_clear_dynamic_settings") < calls.index("_create_dynamic_settings")
     assert "_refresh_dynamic_setting_texts" not in calls
+
+
+def test_refresh_preset_list_preserves_saved_preset_without_emitting():
+    class _FakeCombo:
+        def __init__(self):
+            self._items = []
+            self._idx = -1
+
+        def blockSignals(self, _):
+            pass
+
+        def clear(self):
+            self._items.clear()
+            self._idx = -1
+
+        def addItems(self, items):
+            self._items.extend(items)
+            if self._idx < 0 and self._items:
+                self._idx = 0
+
+        def setCurrentText(self, text):
+            self._idx = self._items.index(text)
+
+        def setCurrentIndex(self, idx):
+            self._idx = idx
+
+        def currentText(self):
+            return self._items[self._idx] if 0 <= self._idx < len(self._items) else ""
+
+        def currentIndex(self):
+            return self._idx
+
+    emitted = []
+    fake_view = SimpleNamespace(
+        preset_combo=_FakeCombo(),
+        controller=SimpleNamespace(
+            get_presets_list=lambda: ["Personal", "Work"],
+            config_service=SimpleNamespace(get_current_preset=lambda: "Work"),
+        ),
+        _on_preset_changed=lambda name: emitted.append(name),
+    )
+
+    env_management.refresh_preset_list(fake_view, emit_change=False)
+
+    assert fake_view.preset_combo.currentText() == "Work"
+    assert emitted == []
 
 
 def test_all_locale_files_complete_no_duplicates_and_valid_placeholders():
