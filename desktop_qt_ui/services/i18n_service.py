@@ -180,7 +180,10 @@ class I18nManager:
     
     def set_locale(self, locale_code: str) -> bool:
         """设置当前语言"""
-        resolved = self._resolve_locale(locale_code)
+        if locale_code == "auto":
+            resolved = self._resolve_locale(self._detect_system_locale()) or self.fallback_locale
+        else:
+            resolved = self._resolve_locale(locale_code)
         if not resolved:
             self.logger.warning(f"Unsupported language: {locale_code}")
             return False

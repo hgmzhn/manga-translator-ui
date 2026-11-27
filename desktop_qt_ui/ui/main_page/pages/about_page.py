@@ -153,10 +153,15 @@ def _populate_about_language_combo(self):
         selected_index = 0
         if self.i18n:
             available_locales = self.i18n.get_available_locales()
-            if not current_language or current_language == "auto" or current_language not in available_locales:
+            if not current_language or (
+                current_language != "auto" and current_language not in available_locales
+            ):
                 current_language = self.i18n.get_current_locale()
+            self.about_language_combo.addItem(
+                self._t("Follow System"), userData="auto"
+            )
             for index, (locale_code, locale_info) in enumerate(
-                available_locales.items()
+                available_locales.items(), start=1
             ):
                 self.about_language_combo.addItem(
                     locale_info.name, userData=locale_code
