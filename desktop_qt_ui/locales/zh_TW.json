@@ -579,7 +579,6 @@
   "Start Colorizing": "開始上色",
   "Start Upscaling": "開始放大",
   "Generate Original Text Template": "僅產生原文範本",
-  "Open Directory": "開啟目錄",
   "Find": "尋找",
   "Replace with": "取代为",
   "Replace All": "全部取代",
@@ -1524,5 +1523,14 @@
   "api_test_error_model_unavailable": "連線成功，但模型 {model} 無法使用：{error}",
   "api_test_error_remote_image": "下載產生的圖片失敗：HTTP {status}",
   "api_test_error_sakura_base": "請先設定 SAKURA_API_BASE。",
-  "api_test_error_unsupported": "此翻譯器不支援 API 測試。"
+  "api_test_error_unsupported": "此翻譯器不支援 API 測試。",
+  "Search fonts…": "搜尋字型…",
+  "Clear Selected": "清除選中",
+  "Compare with Original (Two Panels)": "與原圖對比（雙欄）",
+  "Start JSON Translation": "開始僅翻譯（JSON）",
+  "The selected features are missing required API Keys (.env):\n{details}\n\nPlease fill one of the listed API key fields in API Keys (.env) and try again.": "目前所選功能缺少必填的 API Keys(.env)：\n{details}\n\n請在 API金鑰(.env) 中填寫上面列出的任一對應 API Key 後再重試。",
+  "Tip: Requires existing JSON data. The app reads original text from JSON, translates it, writes results back to JSON, and deletes imagename_original.txt after success": "提示：需要預先存在 JSON 資料。程式會從 JSON 讀取原文並執行翻譯，完成後回寫 JSON，並刪除圖片名_original.txt。",
+  "Unable to validate API Keys (.env). Please check the log and try again.": "無法驗證 API Keys(.env)，請檢查日誌後再重試。",
+  "desc_detector_import_yolo_labels": "從 manga_translator_work/yolo_labels 讀取與圖片同名的 YOLO 標註檔案。在不同工作流程下依約定替換檢測框或補生成遮罩。",
+  "label_import_yolo_labels": "匯入固定YOLO框"
 }

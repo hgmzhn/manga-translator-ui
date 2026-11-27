@@ -627,7 +627,7 @@ class MainWindow(FluentWindow):
     def _change_language(self, locale_code: str):
         """切换语言"""
         if self.i18n and self.i18n.set_locale(locale_code):
-            self._apply_qt_translator(locale_code)
+            self._apply_qt_translator(self.i18n.get_current_locale())
             # 保存语言设置到配置
             config = self.config_service.get_config()
             config.app.ui_language = locale_code

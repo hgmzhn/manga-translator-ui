@@ -383,6 +383,10 @@ class MainView(QObject):
         if hasattr(self, "about_page"):
             self._refresh_about_page_texts()
         self.refresh_tab_titles()
+        if hasattr(self, "populate_theme_combo"):
+            self.populate_theme_combo()
+        if hasattr(self, "populate_language_combo"):
+            self.populate_language_combo()
 
 
         if hasattr(self, "translation_page_title"):
@@ -460,7 +464,11 @@ class MainView(QObject):
             self.settings_desc_key.setText("")
         if hasattr(self, "settings_desc_text"):
             self.settings_desc_text.setText(self._t("Settings Desc Placeholder"))
-        self._refresh_dynamic_setting_texts()
+        if getattr(self, "_settings_ui_ready", False) or getattr(self, "_env_api_groups_signature", None) is not None:
+            self._clear_dynamic_settings()
+            self._create_dynamic_settings()
+        else:
+            self._refresh_dynamic_setting_texts()
 
         if hasattr(self, "env_page_title_label"):
             self.env_page_title_label.setText(self._t("API Management"))
@@ -501,6 +509,8 @@ class MainView(QObject):
             self.prompt_delete_button.setText(self._t("Delete"))
         if hasattr(self, "prompt_preview_panel") and hasattr(self.prompt_preview_panel, "refresh_ui_texts"):
             self.prompt_preview_panel.refresh_ui_texts()
+        if hasattr(self, "_refresh_prompt_manager"):
+            self._refresh_prompt_manager()
 
         if hasattr(self, "replacements_page_title_label"):
             self.replacements_page_title_label.setText(self._t("Replacement Rules"))

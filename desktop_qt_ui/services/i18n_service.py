@@ -36,68 +36,125 @@ class I18nManager:
         
         os.makedirs(self.locale_dir, exist_ok=True)
         
-        # 初始化支持的语言
+        # 初始化支持的语言（自动扫描 locale_dir 下的 *.json）
         self._init_supported_locales()
         
         # 根据配置决定语言
         if config_language == "auto":
             # 自动检测系统语言
             system_locale = self._detect_system_locale()
-            if system_locale and system_locale in self.available_locales:
-                self.current_locale = system_locale
-            else:
-                self.current_locale = fallback_locale
+            resolved = self._resolve_locale(system_locale)
+            self.current_locale = resolved if resolved else fallback_locale
         else:
-            # 使用配置的语言
-            if config_language in self.available_locales:
-                self.current_locale = config_language
-            else:
-                self.current_locale = fallback_locale
+            # 使用配置的语言（支持精确或语言前缀匹配）
+            resolved = self._resolve_locale(config_language)
+            self.current_locale = resolved if resolved else fallback_locale
         
         # 加载翻译
         self._load_all_translations()
         
     
+    def _build_locale_info(self, locale_code: str) -> LocaleInfo:
+        """使用 QLocale 自动构建语言信息"""
+        native_name = locale_code
+        english_name = locale_code
+        direction = "ltr"
+        try:
+            from PyQt6.QtCore import QLocale, Qt
+            qlocale = QLocale(locale_code)
+            if qlocale.language() != QLocale.Language.AnyLanguage:
+                ql_native = qlocale.nativeLanguageName()
+                if ql_native:
+                    native_name = ql_native[:1].upper() + ql_native[1:]
+                ql_english = QLocale.languageToString(qlocale.language())
+                if ql_english:
+                    english_name = ql_english
+                if qlocale.textDirection() == Qt.LayoutDirection.RightToLeft:
+                    direction = "rtl"
+        except Exception:
+            pass
+
+        return LocaleInfo(locale_code, native_name, english_name, direction=direction)
+
     def _init_supported_locales(self):
-        """初始化支持的语言列表"""
+        """动态扫描语言目录并初始化支持的语言列表"""
+        discovered_codes = []
+        try:
+            for entry in sorted(os.listdir(self.locale_dir)):
+                if entry.endswith(".json") and not entry.startswith("."):
+                    code = entry[:-5]
+                    if code:
+                        discovered_codes.append(code)
+        except OSError as e:
+            self.logger.warning(f"Failed to scan locale directory {self.locale_dir}: {e}")
+
+        if not discovered_codes and self.fallback_locale:
+            discovered_codes.append(self.fallback_locale)
+
         self.available_locales = {
-            "zh_CN": LocaleInfo("zh_CN", "简体中文", "Simplified Chinese"),
-            "zh_TW": LocaleInfo("zh_TW", "繁體中文", "Traditional Chinese"),
-            "en_US": LocaleInfo("en_US", "English", "English"),
-            "ja_JP": LocaleInfo("ja_JP", "日本語", "Japanese"),
-            "ko_KR": LocaleInfo("ko_KR", "한국어", "Korean"),
-            "es_ES": LocaleInfo("es_ES", "Español", "Spanish"),
+            code: self._build_locale_info(code) for code in discovered_codes
         }
-    
+
+    def _resolve_locale(self, locale_code: Optional[str]) -> Optional[str]:
+        """将任意语言代码解析为 available_locales 中存在的标准代码"""
+        if not locale_code:
+            return None
+        normalized = str(locale_code).strip().split(".", 1)[0].replace("-", "_")
+        if not normalized or normalized.upper() in ("C", "POSIX"):
+            return None
+
+        if normalized in self.available_locales:
+            return normalized
+
+        lower_map = {code.lower(): code for code in self.available_locales}
+        if normalized.lower() in lower_map:
+            return lower_map[normalized.lower()]
+
+        lang = normalized.split("_", 1)[0].lower()
+        if (
+            self.fallback_locale
+            and self.fallback_locale in self.available_locales
+            and self.fallback_locale.split("_", 1)[0].lower() == lang
+        ):
+            return self.fallback_locale
+
+        for code in self.available_locales:
+            if code.split("_", 1)[0].lower() == lang:
+                return code
+
+        return None
+
     def _detect_system_locale(self) -> str:
         """检测系统语言"""
+        candidates = []
         try:
-            # 尝试获取系统语言
-            system_locale = locale.getdefaultlocale()[0]
-            if system_locale:
-                # 标准化语言代码
-                if '_' not in system_locale and len(system_locale) == 2:
-                    # 如果只有语言代码，添加默认国家代码
-                    lang_country_map = {
-                        'zh': 'zh_CN',
-                        'en': 'en_US',
-                        'ja': 'ja_JP',
-                        'ko': 'ko_KR',
-                        'es': 'es_ES',
-                        'fr': 'fr_FR',
-                        'de': 'de_DE',
-                        'it': 'it_IT',
-                        'pt': 'pt_BR',
-                        'ru': 'ru_RU',
-                        'ar': 'ar_SA'
-                    }
-                    system_locale = lang_country_map.get(system_locale, self.fallback_locale)
-                
-                return system_locale
-                
-        except Exception as e:
-            self.logger.warning(f"Failed to detect system language: {e}")
-        
+            from PyQt6.QtCore import QLocale
+            qt_locale = QLocale.system().name()
+            if qt_locale:
+                candidates.append(qt_locale)
+        except Exception:
+            pass
+
+        try:
+            sys_locale = locale.getlocale()[0]
+            if sys_locale:
+                candidates.append(sys_locale)
+        except Exception:
+            pass
+
+        if not candidates:
+            try:
+                default_loc = locale.getdefaultlocale()[0]
+                if default_loc:
+                    candidates.append(default_loc)
+            except Exception as e:
+                self.logger.warning(f"Failed to detect system language: {e}")
+
+        for candidate in candidates:
+            resolved = self._resolve_locale(candidate)
+            if resolved:
+                return resolved
+
         return self.fallback_locale
     
     def _load_all_translations(self):
@@ -115,206 +172,29 @@ class I18nManager:
                     self.translations[locale_code] = json.load(f)
                 self.logger.debug(f"Loading translation file: {translation_file}")
             else:
-                # 如果翻译文件不存在，创建空的翻译字典
                 self.translations[locale_code] = {}
-                
-                # 为主要语言创建基础翻译文件
-                if locale_code in ['zh_CN', 'en_US']:
-                    self._create_base_translation_file(locale_code)
                     
         except Exception as e:
             self.logger.error(f"Failed to load translation file for {locale_code}: {e}")
             self.translations[locale_code] = {}
     
-    def _create_base_translation_file(self, locale_code: str):
-        """创建基础翻译文件"""
-        try:
-            base_translations = self._get_base_translations(locale_code)
-            
-            translation_file = os.path.join(self.locale_dir, f"{locale_code}.json")
-            with open(translation_file, 'w', encoding='utf-8') as f:
-                json.dump(base_translations, f, ensure_ascii=False, indent=2)
-            
-            self.translations[locale_code] = base_translations
-            self.logger.info(f"Creating base translation file: {translation_file}")
-            
-        except Exception as e:
-            self.logger.error(f"Failed to create base translation file: {e}")
-    
-    def _get_base_translations(self, locale_code: str) -> Dict[str, str]:
-        """获取基础翻译内容"""
-        if locale_code == "zh_CN":
-            return {
-                # 菜单和按钮
-                "File": "文件",
-                "Edit": "编辑",
-                "View": "视图",
-                "Tools": "工具",
-                "Help": "帮助",
-                "Open": "打开",
-                "Save": "保存",
-                "Exit": "退出",
-                "Cancel": "取消",
-                "OK": "确定",
-                "Yes": "是",
-                "No": "否",
-                
-                # 应用标题和界面
-                "Manga Image Translator UI": "漫画图片翻译器 UI",
-                "Main View": "主视图",
-                "Editor View": "编辑器视图",
-                "Settings": "设置",
-                "About": "关于",
-                
-                # 翻译相关
-                "Start Translation": "开始翻译",
-                "Stop Translation": "停止翻译",
-                "Stopping...": "停止中...",
-                "Translation Settings": "翻译设置",
-                "Translator": "翻译引擎",
-                "Target Language": "目标语言",
-                "Source Language": "源语言",
-                "Translation Progress": "翻译进度",
-                "Translation Complete": "翻译完成",
-                "Translation Failed": "翻译失败",
-                "Task Completed": "任务完成",
-                "Translation completed, {count} files saved.\n\nOpen results in editor?": "翻译完成，已保存 {count} 个文件。\n\n是否在编辑器中打开结果？",
-                
-                # 文件操作
-                "Add Files": "添加文件",
-                "Add Folder": "添加文件夹",
-                "Clear List": "清空列表",
-                "Remove Selected": "删除选中",
-                "Select All": "全选",
-                "File List": "文件列表",
-                "Output Folder": "输出文件夹",
-                
-                # 进度和状态
-                "Progress": "进度",
-                "Status": "状态",
-                "Ready": "就绪",
-                "Processing": "处理中",
-                "Completed": "已完成",
-                "Error": "错误",
-                "Warning": "警告",
-                "Information": "信息",
-                
-                # 编辑器
-                "Editor": "编辑器",
-                "Original Text": "原文",
-                "Translated Text": "译文",
-                "Font Size": "字体大小",
-                "Font Color": "字体颜色",
-                "Stroke Color": "描边颜色",
-                "Stroke Width": "描边宽度",
-                "Line Spacing": "行间距",
-                "Letter Spacing": "字间距",
-                "Rotation": "旋转",
-                "Position": "位置",
-                "Copy": "复制",
-                "Translate": "翻译",
-                "Paste": "粘贴",
-                "Undo": "撤销",
-                "Redo": "重做",
-                
-                # 配置
-                "Configuration": "配置",
-                "Load Config": "加载配置",
-                "Save Config": "保存配置",
-                "Reset Config": "重置配置",
-                "API Settings": "API设置",
-                "Advanced Settings": "高级设置",
-                
-                # 错误信息
-                "Error occurred": "发生错误",
-                "File not found": "文件未找到",
-                "Invalid file format": "无效的文件格式",
-                "Network error": "网络错误",
-                "API error": "API错误",
-                "Configuration error": "配置错误",
-                
-                # 成功信息
-                "Operation successful": "操作成功",
-                "File saved successfully": "文件保存成功",
-                "Configuration loaded": "配置已加载",
-                "Translation completed successfully": "翻译完成",
-                
-                # API测试
-                "Test": "测试",
-                "Testing": "测试中",
-                "Get Models": "获取模型",
-                "Select Model": "选择模型",
-                "Available models:": "可用模型：",
-                "Please enter API key first": "请先输入API密钥",
-                "Testing API connection, please wait...": "正在测试API连接，请稍候...",
-                "API connection test successful!": "API连接测试成功！",
-                "API connection test failed": "API连接测试失败",
-                "Fetching models, please wait...": "正在获取模型列表，请稍候...",
-                "Failed to get models": "获取模型列表失败",
-            }
-        elif locale_code == "en_US":
-            return {
-                # 菜单和按钮
-                "File": "File",
-                "Edit": "Edit",
-                "View": "View",
-                "Tools": "Tools",
-                "Help": "Help",
-                "Open": "Open",
-                "Save": "Save",
-                "Exit": "Exit",
-                "Cancel": "Cancel",
-                "OK": "OK",
-                "Yes": "Yes",
-                "No": "No",
-                
-                # 应用标题和界面
-                "Manga Image Translator UI": "Manga Image Translator UI",
-                "Main View": "Main View",
-                "Editor View": "Editor View",
-                "Settings": "Settings",
-                "About": "About",
-                
-                # 翻译相关
-                "Start Translation": "Start Translation",
-                "Stop Translation": "Stop Translation",
-                "Translation Settings": "Translation Settings",
-                "Translator": "Translator",
-                "Target Language": "Target Language",
-                "Source Language": "Source Language",
-                "Translation Progress": "Translation Progress",
-                "Translation Complete": "Translation Complete",
-                "Translation Failed": "Translation Failed",
-                
-                # 其他保持英文原样
-                "Add Files": "Add Files",
-                "Add Folder": "Add Folder",
-                "Clear List": "Clear List",
-                "Remove Selected": "Remove Selected",
-                "Select All": "Select All",
-                "File List": "File List",
-                "Output Folder": "Output Folder",
-                "Copy": "Copy",
-                "Translate": "Translate",
-                "Paste": "Paste",
-            }
-        else:
-            # 其他语言返回空字典，使用回退机制
-            return {}
-    
     def set_locale(self, locale_code: str) -> bool:
         """设置当前语言"""
-        if locale_code not in self.available_locales:
+        if locale_code == "auto":
+            resolved = self._resolve_locale(self._detect_system_locale()) or self.fallback_locale
+        else:
+            resolved = self._resolve_locale(locale_code)
+        if not resolved:
             self.logger.warning(f"Unsupported language: {locale_code}")
             return False
         
         old_locale = self.current_locale
-        self.current_locale = locale_code
+        self.current_locale = resolved
         
         # 每次切换语言都重载翻译，确保运行中更新的词条能立即生效
-        self._load_locale_translation(locale_code)
+        self._load_locale_translation(resolved)
         
-        self.logger.info(f"Switching language: {old_locale} -> {locale_code}")
+        self.logger.info(f"Switching language: {old_locale} -> {resolved}")
         return True
     
     def get_current_locale(self) -> str:
@@ -351,7 +231,7 @@ class I18nManager:
             translation = key
         
         # 格式化翻译（支持参数替换）
-        if kwargs and translation != key:
+        if kwargs:
             try:
                 translation = translation.format(**kwargs)
             except Exception as e:

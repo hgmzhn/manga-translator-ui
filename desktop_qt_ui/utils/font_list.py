@@ -70,14 +70,18 @@ FONT_FILE_EXTENSIONS = (".ttf", ".otf", ".ttc")
 FONT_STYLE_SEPARATOR = "::"
 _REGISTERED_FONT_FAMILIES: dict[str, list[str]] = {}
 _ORIGINAL_FONT_DISPLAY_NAMES: dict[str, str] = {}
-_FONT_SEARCH_PLACEHOLDERS = {
-    "zh_CN": "搜索字体…",
-    "zh_TW": "搜尋字型…",
-    "ja_JP": "フォントを検索…",
-    "ko_KR": "글꼴 검색…",
-    "es_ES": "Buscar fuentes…",
-    "en_US": "Search fonts…",
-}
+def _font_search_placeholder(locale_code: str) -> str:
+    """Resolve font search placeholder via i18n."""
+    key = "Search fonts…"
+    try:
+        from services.i18n_service import get_i18n_manager
+        i18n = get_i18n_manager()
+        if i18n:
+            resolved = i18n._resolve_locale(locale_code) or locale_code
+            return i18n.translate(key, locale_code=resolved)
+    except Exception:
+        pass
+    return key
 _SYSTEM_FONTS_ENABLED = True
 _FONT_COMBO_INSTANCES: weakref.WeakSet = weakref.WeakSet()
 _FONT_DIRECTORY_SIGNATURE: tuple | None = None
@@ -1155,9 +1159,7 @@ class FontComboBox(TopLevelComboBox):
         ]
         menu = _FontComboBoxMenu(
             entries,
-            _FONT_SEARCH_PLACEHOLDERS.get(
-                locale_code, _FONT_SEARCH_PLACEHOLDERS["en_US"]
-            ),
+            _font_search_placeholder(locale_code),
             self._popup_parent(),
         )
         menu.fontHovered.connect(self.fontPreviewChanged)

@@ -1702,13 +1702,16 @@ def on_get_models_clicked(self, key: str):
     )
 
 
-def refresh_preset_list(self):
+def refresh_preset_list(self, *, emit_change: bool = True):
     """刷新预设列表。"""
     if not hasattr(self, "preset_combo"):
         return
 
     current_text = self.preset_combo.currentText()
     current_index = self.preset_combo.currentIndex()
+    saved_preset = ""
+    if not current_text and hasattr(self, "controller") and self.controller:
+        saved_preset = self.controller.config_service.get_current_preset() or ""
 
     pending_preset_change = None
     self.preset_combo.blockSignals(True)
@@ -1725,10 +1728,13 @@ def refresh_preset_list(self):
 
             if current_text and current_text in presets:
                 self.preset_combo.setCurrentText(current_text)
+            elif saved_preset and saved_preset in presets:
+                self.preset_combo.setCurrentText(saved_preset)
             else:
-                new_index = min(current_index, len(presets) - 1)
+                new_index = max(0, min(current_index, len(presets) - 1))
                 self.preset_combo.setCurrentIndex(new_index)
-                pending_preset_change = self.preset_combo.currentText()
+                if emit_change:
+                    pending_preset_change = self.preset_combo.currentText()
     finally:
         self.preset_combo.blockSignals(False)
     if hasattr(self, "delete_preset_button"):
