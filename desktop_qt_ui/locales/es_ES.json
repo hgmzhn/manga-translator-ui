@@ -578,7 +578,6 @@
   "Start Colorizing": "Iniciar colorización",
   "Start Upscaling": "Iniciar ampliación",
   "Generate Original Text Template": "Generar plantilla de texto original",
-  "Open Directory": "Abrir directorio",
   "Find": "Buscar",
   "Replace with": "Reemplazar con",
   "Replace All": "Reemplazar todo",
@@ -1522,5 +1521,16 @@
   "api_test_error_model_unavailable": "La conexión se ha realizado correctamente, pero el modelo {model} no está disponible: {error}",
   "api_test_error_remote_image": "Error al descargar la imagen generada: HTTP {status}",
   "api_test_error_sakura_base": "Configura primero SAKURA_API_BASE.",
-  "api_test_error_unsupported": "Este traductor no admite pruebas de API."
+  "api_test_error_unsupported": "Este traductor no admite pruebas de API.",
+  "Search fonts…": "Buscar fuentes…",
+  "Clear Selected": "Limpiar selección",
+  "Compare with Original (Two Panels)": "Comparar con el original (dos paneles)",
+  "Start JSON Translation": "Iniciar traducción JSON",
+  "The selected features are missing required API Keys (.env):\n{details}\n\nPlease fill one of the listed API key fields in API Keys (.env) and try again.": "A las funciones seleccionadas les faltan claves API obligatorias (.env):\n{details}\n\nComplete uno de los campos de clave API indicados en Claves API (.env) e inténtelo de nuevo.",
+  "Tip: Requires existing JSON data. The app reads original text from JSON, translates it, writes results back to JSON, and deletes imagename_original.txt after success": "Consejo: Requiere datos JSON existentes. La aplicación lee el texto original del JSON, lo traduce, guarda los resultados en el JSON y elimina imagename_original.txt tras completarse.",
+  "Unable to validate API Keys (.env). Please check the log and try again.": "No se pudieron validar las claves API (.env). Revise el registro e inténtelo de nuevo.",
+  "desc_colorizer_ai_colorizer_history_pages": "Adjunta automáticamente las páginas anteriores ya coloreadas como imágenes de referencia para la solicitud de colorización IA actual. Es solo contexto visual, sin texto. Establezca 0 para desactivar.",
+  "desc_detector_import_yolo_labels": "Lee archivos de anotación YOLO con el mismo nombre desde manga_translator_work/yolo_labels. Según el flujo de trabajo activo, las cajas importadas reemplazan las cajas de texto o regeneran máscaras.",
+  "label_ai_colorizer_history_pages": "Páginas de historial de colorización IA",
+  "label_import_yolo_labels": "Importar cajas YOLO fijas"
 }
