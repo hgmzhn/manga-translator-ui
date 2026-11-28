@@ -19,6 +19,7 @@ from mtui_mcp.font_detector import (
     recommend_mtui_font_for_prediction,
     region_bbox_signature,
 )
+from mtui_mcp.project_store import region_bbox_xyxy, region_center
 from mtui_mcp.qa_auditor import (
     _detect_structural_and_border_cv_issues,
     _measure_raw_stroke_stem_p90,
@@ -142,8 +143,26 @@ def test_p0_zhsrxt_inherently_heavy_no_faux_bold_and_w7_w9_suppression() -> None
     for jp_font, hp in (("DFSoGeiStd-W7.otf", 0.0), ("DFSoGeiStd-W9.otf", 1.0)):
         ym_cache = {
             "by_ridx": {
-                "0": {"pred_family": "ANTIQUE", "pred_conf": 0.98, "bold_prob": 0.9, "heavy_prob": 0.0, "family_probs": {"ANTIQUE": 0.98}, "top_fonts": [{"font": "FOT-AnticCezannePro-DB.otf", "family": "ANTIQUE", "prob": 0.95}]},
-                "1": {"pred_family": "POP_CHISEL", "pred_conf": 1.0, "bold_prob": 1.0, "heavy_prob": hp, "family_probs": {"POP_CHISEL": 1.0}, "top_fonts": [{"font": jp_font, "family": "POP_CHISEL", "prob": 0.93}]},
+                "0": {
+                    "bbox_sig": region_bbox_signature(region_bbox_xyxy(regs[0])),
+                    "center": list(region_center(regs[0])),
+                    "pred_family": "ANTIQUE",
+                    "pred_conf": 0.98,
+                    "bold_prob": 0.9,
+                    "heavy_prob": 0.0,
+                    "family_probs": {"ANTIQUE": 0.98},
+                    "top_fonts": [{"font": "FOT-AnticCezannePro-DB.otf", "family": "ANTIQUE", "prob": 0.95}],
+                },
+                "1": {
+                    "bbox_sig": region_bbox_signature(region_bbox_xyxy(regs[1])),
+                    "center": list(region_center(regs[1])),
+                    "pred_family": "POP_CHISEL",
+                    "pred_conf": 1.0,
+                    "bold_prob": 1.0,
+                    "heavy_prob": hp,
+                    "family_probs": {"POP_CHISEL": 1.0},
+                    "top_fonts": [{"font": jp_font, "family": "POP_CHISEL", "prob": 0.93}],
+                },
             }
         }
         iss = _detect_structural_and_border_cv_issues(page, inp, None, regs, yuzumarker_page_cache=ym_cache)
@@ -155,8 +174,26 @@ def test_p0_zhsrxt_inherently_heavy_no_faux_bold_and_w7_w9_suppression() -> None
     regs_bold = [regs[0], {**regs[1], "bold": True}]
     ym_w7 = {
         "by_ridx": {
-            "0": {"pred_family": "ANTIQUE", "pred_conf": 0.98, "bold_prob": 0.9, "heavy_prob": 0.0, "family_probs": {"ANTIQUE": 0.98}, "top_fonts": [{"font": "FOT-AnticCezannePro-DB.otf", "family": "ANTIQUE", "prob": 0.95}]},
-            "1": {"pred_family": "POP_CHISEL", "pred_conf": 1.0, "bold_prob": 1.0, "heavy_prob": 0.0, "family_probs": {"POP_CHISEL": 1.0}, "top_fonts": [{"font": "DFSoGeiStd-W7.otf", "family": "POP_CHISEL", "prob": 0.93}]},
+            "0": {
+                "bbox_sig": region_bbox_signature(region_bbox_xyxy(regs_bold[0])),
+                "center": list(region_center(regs_bold[0])),
+                "pred_family": "ANTIQUE",
+                "pred_conf": 0.98,
+                "bold_prob": 0.9,
+                "heavy_prob": 0.0,
+                "family_probs": {"ANTIQUE": 0.98},
+                "top_fonts": [{"font": "FOT-AnticCezannePro-DB.otf", "family": "ANTIQUE", "prob": 0.95}],
+            },
+            "1": {
+                "bbox_sig": region_bbox_signature(region_bbox_xyxy(regs_bold[1])),
+                "center": list(region_center(regs_bold[1])),
+                "pred_family": "POP_CHISEL",
+                "pred_conf": 1.0,
+                "bold_prob": 1.0,
+                "heavy_prob": 0.0,
+                "family_probs": {"POP_CHISEL": 1.0},
+                "top_fonts": [{"font": "DFSoGeiStd-W7.otf", "family": "POP_CHISEL", "prob": 0.93}],
+            },
         }
     }
     iss_b = _detect_structural_and_border_cv_issues(page, inp, None, regs_bold, yuzumarker_page_cache=ym_w7)
@@ -295,11 +332,19 @@ def test_p1_stem_p90_safeguards_and_check9a_warning_cap() -> None:
     assert shw_2 == shw_3 and ref_2 == ref_3
     assert stem_3[2] >= 3.0
 
+    ym_p1_raw = {
+        "0": {"pred_family": "MINCHO", "pred_conf": 0.97, "bold_prob": 0.97, "heavy_prob": 0.90, "family_probs": {"MINCHO": 0.97, "ANTIQUE": 0.02}, "top_fonts": [{"font": "A-OTF-RyuminPr6-Heavy.otf", "family": "MINCHO", "prob": 0.50}]},
+        "1": {"pred_family": "KAISHO_BRUSH", "pred_conf": 0.95, "bold_prob": 0.95, "heavy_prob": 0.10, "family_probs": {"KAISHO_BRUSH": 0.95, "ANTIQUE": 0.02}, "top_fonts": [{"font": "A-OTF-KaishoMCBK1Pro-DeBold.otf", "family": "KAISHO_BRUSH", "prob": 0.88}]},
+        "2": {"pred_family": "MINCHO", "pred_conf": 0.98, "bold_prob": 1.0, "heavy_prob": 0.95, "family_probs": {"MINCHO": 0.98, "ANTIQUE": 0.0}, "top_fonts": [{"font": "A-OTF-RyuminPr5-Ultra.otf", "family": "MINCHO", "prob": 0.85}]},
+    }
     ym_cache = {
         "by_ridx": {
-            "0": {"pred_family": "MINCHO", "pred_conf": 0.97, "bold_prob": 0.97, "heavy_prob": 0.90, "family_probs": {"MINCHO": 0.97, "ANTIQUE": 0.02}, "top_fonts": [{"font": "A-OTF-RyuminPr6-Heavy.otf", "family": "MINCHO", "prob": 0.50}]},
-            "1": {"pred_family": "KAISHO_BRUSH", "pred_conf": 0.95, "bold_prob": 0.95, "heavy_prob": 0.10, "family_probs": {"KAISHO_BRUSH": 0.95, "ANTIQUE": 0.02}, "top_fonts": [{"font": "A-OTF-KaishoMCBK1Pro-DeBold.otf", "family": "KAISHO_BRUSH", "prob": 0.88}]},
-            "2": {"pred_family": "MINCHO", "pred_conf": 0.98, "bold_prob": 1.0, "heavy_prob": 0.95, "family_probs": {"MINCHO": 0.98, "ANTIQUE": 0.0}, "top_fonts": [{"font": "A-OTF-RyuminPr5-Ultra.otf", "family": "MINCHO", "prob": 0.85}]},
+            k: {
+                **v,
+                "bbox_sig": region_bbox_signature(region_bbox_xyxy(regs[int(k)])),
+                "center": list(region_center(regs[int(k)])),
+            }
+            for k, v in ym_p1_raw.items()
         }
     }
     issues = _detect_structural_and_border_cv_issues(page, inp, None, regs, yuzumarker_page_cache=ym_cache)
@@ -416,7 +461,10 @@ def test_p0_p1_verify_crops_ym_line_unlock_and_1arg_mock_compat(monkeypatch: pyt
     assert "rec=ZHSRXT2011-GB [LOCKED>=0.90]" in line_sogei
 
     line_mock, _, mis_mock = fmt(
-        ym_v20_051,
+        {
+            **ym_v20_051,
+            "top_fonts": [{"font": "TelopMinProN-H.otf", "family": "MINCHO", "prob": 0.75}],
+        },
         ff="FZCuSong-B09",
         shw=2.0,
         reg_hw=2.0,

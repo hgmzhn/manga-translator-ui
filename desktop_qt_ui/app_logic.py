@@ -1120,8 +1120,14 @@ class MainAppLogic(QObject):
             else:
                 return
 
+            resolve_fn = getattr(mcp_service, "resolve_effective_config_values", None)
+            effective_enabled = (
+                resolve_fn(enabled=enabled, host=host, port=port)[0]
+                if callable(resolve_fn)
+                else enabled
+            )
             if (
-                enabled
+                effective_enabled
                 and not mcp_service.is_running
                 and not getattr(mcp_service, "has_started_once", False)
                 and mcp_service.is_autostart_suppressed_by_pytest()

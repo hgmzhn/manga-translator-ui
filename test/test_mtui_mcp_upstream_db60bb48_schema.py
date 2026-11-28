@@ -364,6 +364,7 @@ def test_last_output_path_resolution_bg_colors_precedence_and_windows_atomic_ret
     assert (resolved.work_dir / ".yuzumarker_font_cache.json").is_file()
     assert atomic_glossary_p.is_file()
     assert list(tmp_path.rglob("*.tmp")) == []
+    assert list(tmp_path.rglob(".atomic_img.png.*.png")) == []
 
 
 def test_server_24_tools_enhancements_and_worker_contracts(

@@ -108,6 +108,50 @@ def _find_source_from_translation_map(image_path: Path) -> Optional[Path]:
     return None
 
 
+def _find_unique_image_by_stem(
+    directory: Path,
+    stem: str,
+    *,
+    preferred_ext: Optional[str] = None,
+    exclude_path: Optional[Path] = None,
+) -> Optional[Path]:
+    """Return ``directory / f'{stem}{preferred_ext}'`` when present, else the unique stem match across image extensions."""
+    if not directory.is_dir():
+        return None
+    excl_norm = (
+        os.path.normcase(os.path.normpath(os.path.abspath(str(exclude_path))))
+        if exclude_path is not None
+        else None
+    )
+    if preferred_ext and preferred_ext.lower() in SUPPORTED_IMAGE_EXTENSIONS:
+        same = directory / f"{stem}{preferred_ext}"
+        if same.is_file():
+            same_norm = os.path.normcase(os.path.normpath(os.path.abspath(str(same))))
+            if same_norm != excl_norm:
+                return same
+
+    stem_cf = os.path.normcase(stem)
+    matches: list[Path] = []
+    seen_norms: set[str] = set()
+    try:
+        entries = sorted(directory.iterdir(), key=lambda p: p.name)
+    except OSError:
+        entries = []
+    for entry in entries:
+        if not entry.is_file() or entry.suffix.lower() not in SUPPORTED_IMAGE_EXTENSIONS:
+            continue
+        if os.path.normcase(entry.stem) != stem_cf:
+            continue
+        enorm = os.path.normcase(os.path.normpath(os.path.abspath(str(entry))))
+        if enorm == excl_norm or enorm in seen_norms:
+            continue
+        seen_norms.add(enorm)
+        matches.append(entry)
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
 def resolve_source_image_path(path_like: str | Path) -> Path:
     """Resolve any page reference (source image, work JSON, inpainted, editor_base, or translated output) to the canonical source image path."""
     raw = Path(path_like).expanduser()
@@ -129,10 +173,9 @@ def resolve_source_image_path(path_like: str | Path) -> Path:
             src_dir = norm.parent.parent.parent
         else:
             src_dir = norm.parent
-        for ext in SUPPORTED_IMAGE_EXTENSIONS:
-            candidate = src_dir / f"{stem}{ext}"
-            if candidate.is_file():
-                return candidate
+        found_from_json = _find_unique_image_by_stem(src_dir, stem)
+        if found_from_json is not None:
+            return found_from_json
         return norm
 
     # 2. Check translation_map.json in output directory
@@ -152,25 +195,17 @@ def resolve_source_image_path(path_like: str | Path) -> Path:
         stem = norm.stem
         if stem.endswith("_inpainted"):
             stem = stem[: -len("_inpainted")]
-        same_ext = src_dir / f"{stem}{norm.suffix}"
-        if same_ext.is_file():
-            return same_ext
-        for ext in SUPPORTED_IMAGE_EXTENSIONS:
-            candidate = src_dir / f"{stem}{ext}"
-            if candidate.is_file():
-                return candidate
+        found_inp = _find_unique_image_by_stem(src_dir, stem, preferred_ext=norm.suffix)
+        if found_inp is not None:
+            return found_inp
     if parent.name == RESULT_SUBDIR and grandparent.name == WORK_DIR_NAME:
         src_dir = grandparent.parent
         stem = norm.stem
         if stem.endswith("-translated"):
             stem = stem[: -len("-translated")]
-        same_ext = src_dir / f"{stem}{norm.suffix}"
-        if same_ext.is_file():
-            return same_ext
-        for ext in SUPPORTED_IMAGE_EXTENSIONS:
-            candidate = src_dir / f"{stem}{ext}"
-            if candidate.is_file():
-                return candidate
+        found_res = _find_unique_image_by_stem(src_dir, stem, preferred_ext=norm.suffix)
+        if found_res is not None:
+            return found_res
 
     # 4. Passed a rendered output image inside `<folder>-translated/<name>` or `<stem>-translated.<ext>`
     #    when no manga_translator_work exists next to `norm` itself.
@@ -178,10 +213,14 @@ def resolve_source_image_path(path_like: str | Path) -> Path:
     if not own_work_json.is_file():
         if norm.stem.endswith("-translated"):
             orig_stem = norm.stem[: -len("-translated")]
-            for ext in (norm.suffix, *SUPPORTED_IMAGE_EXTENSIONS):
-                candidate = norm.parent / f"{orig_stem}{ext}"
-                if candidate.is_file():
-                    return candidate
+            found_inline = _find_unique_image_by_stem(
+                norm.parent,
+                orig_stem,
+                preferred_ext=norm.suffix,
+                exclude_path=norm,
+            )
+            if found_inline is not None:
+                return found_inline
         # Walk ancestor directories to see if an ancestor ends with `-translated`
         parts = list(norm.parts)
         for idx in range(len(parts) - 2, 0, -1):
@@ -189,12 +228,14 @@ def resolve_source_image_path(path_like: str | Path) -> Path:
             if folder_name.endswith("-translated"):
                 raw_folder = folder_name[: -len("-translated")]
                 rebuilt = Path(*parts[:idx], raw_folder, *parts[idx + 1 :])
-                if rebuilt.is_file():
-                    return rebuilt
-                for ext in SUPPORTED_IMAGE_EXTENSIONS:
-                    alt = rebuilt.with_suffix(ext)
-                    if alt.is_file():
-                        return alt
+                found_sib = _find_unique_image_by_stem(
+                    rebuilt.parent,
+                    rebuilt.stem,
+                    preferred_ext=rebuilt.suffix,
+                    exclude_path=norm,
+                )
+                if found_sib is not None:
+                    return found_sib
 
     return norm
 
@@ -283,7 +324,7 @@ def resolve_page_paths(
     inpainted_path = work_dir / INPAINTED_SUBDIR / f"{stem}_inpainted{ext}"
     inpainted_exists = inpainted_path.is_file()
     if not inpainted_exists and (work_dir / INPAINTED_SUBDIR).is_dir():
-        for alt_ext in (".png", ".jpg", ".webp", *SUPPORTED_IMAGE_EXTENSIONS):
+        for alt_ext in (".png", ".jpg", ".webp", *sorted(SUPPORTED_IMAGE_EXTENSIONS)):
             alt_inpaint = work_dir / INPAINTED_SUBDIR / f"{stem}_inpainted{alt_ext}"
             if alt_inpaint.is_file():
                 inpainted_path = alt_inpaint
@@ -430,4 +471,10 @@ def list_manga_pages_in_path(target_path: str | Path, recursive: bool = False) -
             continue
         seen_sources.add(norm_src)
         resolved_pages.append(page_paths)
+    resolved_pages.sort(
+        key=lambda p: (
+            natural_sort_key(os.path.normpath(os.path.abspath(str(p.source_path.parent)))),
+            natural_sort_key(p.source_path.name),
+        )
+    )
     return resolved_pages

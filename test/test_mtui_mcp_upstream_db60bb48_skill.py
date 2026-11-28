@@ -15,6 +15,10 @@ import pytest
 from PIL import Image
 
 from mtui_mcp.config import get_runtime_settings
+from mtui_mcp.font_detector import (
+    classify_current_mtui_font,
+    recommend_mtui_font_for_prediction,
+)
 from mtui_mcp.path_resolver import SUPPORTED_IMAGE_EXTENSIONS, resolve_page_paths
 from mtui_mcp.project_store import encode_mask_base64, save_page_json_atomic, save_rgb_image_atomic
 from mtui_mcp.richtext_builder import region_is_bold
@@ -373,7 +377,15 @@ def test_s4_slice5_cli_audit_translate_backup_symlink_and_verify_crops_contracts
     assert not captured_subproc["runner_tmp"].exists()
     assert not captured_subproc["payload_tmp"].exists()
 
-    # Now test resume backfill (`overwrite=False`) when 002.png is missing from before_dir
+    # R2-F74: Seed distinct baseline content in `before_dir / "001.png"` and distinct result in `res_dir / "002.png"`
+    # so `overwrite=False` resume backfill proves existing `001.png` is NOT overwritten while `002.png` is backfilled.
+    baseline_001_rgb = np.full((120, 100, 3), (18, 92, 214), dtype=np.uint8)
+    res_002_rgb = np.full((120, 100, 3), (212, 48, 86), dtype=np.uint8)
+    Image.fromarray(baseline_001_rgb).save(before_dir / "001.png")
+    Image.fromarray(res_002_rgb).save(res_dir / "002.png")
+    baseline_001_bytes = (before_dir / "001.png").read_bytes()
+    expected_002_bytes = (res_dir / "002.png").read_bytes()
+    assert baseline_001_bytes != (res_dir / "001.png").read_bytes()
     (before_dir / "002.png").unlink()
     kept_plus_copied = aac._backup_result_to_before(
         res_dir,
@@ -383,6 +395,10 @@ def test_s4_slice5_cli_audit_translate_backup_symlink_and_verify_crops_contracts
     )
     assert kept_plus_copied == 2
     assert (before_dir / "001.png").is_file() and (before_dir / "002.png").is_file()
+    assert (before_dir / "001.png").read_bytes() == baseline_001_bytes
+    assert np.array_equal(np.asarray(Image.open(before_dir / "001.png").convert("RGB")), baseline_001_rgb)
+    assert (before_dir / "002.png").read_bytes() == expected_002_bytes
+    assert np.array_equal(np.asarray(Image.open(before_dir / "002.png").convert("RGB")), res_002_rgb)
     assert list(before_dir.glob("*.tmp")) == []
 
     # F59: cmd_audit decodes nested array `mask_raw` via decode_mask_base64 without TypeError
@@ -445,3 +461,212 @@ def test_s4_slice5_cli_audit_translate_backup_symlink_and_verify_crops_contracts
     assert len(mf_all["missing_artifact_pages"]) == 1
     assert mf_all["missing_artifact_pages"][0]["page"] == "008.png"
     assert "missing_rendered_output" in mf_all["missing_artifact_pages"][0]["reason"]
+    assert "missing_inpainted" in mf_all["missing_artifact_pages"][0]["reason"]
+
+
+def test_s5_r2_slice5_ym_top1_gate_missing_inpainted_snapshot_cleanup_and_compare_coverage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(get_runtime_settings(), "mtui_root", None)
+    aac = _load_aac_module(monkeypatch)
+    fmt = aac._format_verify_crop_ym_line
+
+    # R2-F07: `top1 < 0.68` and all Step-1 handbook pre-exceptions must NEVER lock `[LOCKED>=0.90]`
+    # or emit `[⚠ HIGH-CONF YM MISMATCH!]`, even when `pred_conf >= 0.90`.
+    ym_low_top1 = {
+        "n_clean_chars": 5,
+        "pred_family": "ROUND_GOTHIC",
+        "pred_conf": 0.95,
+        "bold_prob": 0.10,
+        "heavy_prob": 0.0,
+        "top_fonts": [{"font": "FOT-SeuratPro-M.otf", "family": "ROUND_GOTHIC", "prob": 0.50}],
+    }
+    line_t1_match, _, mis_t1_match = fmt(
+        ym_low_top1,
+        ff="FZZhunYuan-M02",
+        shw=2.0,
+        reg_hw=2.0,
+        recommend_fn=recommend_mtui_font_for_prediction,
+        classify_fn=classify_current_mtui_font,
+    )
+    assert mis_t1_match is False
+    assert "[LOCKED>=0.90]" not in line_t1_match
+    assert "HIGH-CONF YM MISMATCH" not in line_t1_match
+    assert "[TOP1<0.68:" in line_t1_match
+
+    line_t1_diff, _, mis_t1_diff = fmt(
+        ym_low_top1,
+        ff="FZHei-B01",
+        shw=2.0,
+        reg_hw=2.0,
+        recommend_fn=recommend_mtui_font_for_prediction,
+        classify_fn=classify_current_mtui_font,
+    )
+    assert mis_t1_diff is False
+    assert "[LOCKED>=0.90]" not in line_t1_diff
+    assert "HIGH-CONF YM MISMATCH" not in line_t1_diff
+    assert "[TOP1<0.68:" in line_t1_diff
+
+    # When `top1 >= 0.68` and no Step-1 pre-exceptions apply, lock / mismatch work normally.
+    ym_hi_top1 = {
+        **ym_low_top1,
+        "top_fonts": [{"font": "FOT-SeuratPro-M.otf", "family": "ROUND_GOTHIC", "prob": 0.72}],
+    }
+    line_hi_ok, _, mis_hi_ok = fmt(
+        ym_hi_top1,
+        ff="FZZhunYuan-M02",
+        shw=2.0,
+        reg_hw=2.0,
+        recommend_fn=recommend_mtui_font_for_prediction,
+        classify_fn=classify_current_mtui_font,
+    )
+    assert mis_hi_ok is False
+    assert "rec=FZZhunYuan-M02 [LOCKED>=0.90]" in line_hi_ok
+
+    line_hi_mis, _, mis_hi_mis = fmt(
+        ym_hi_top1,
+        ff="FZHei-B01",
+        shw=2.0,
+        reg_hw=2.0,
+        recommend_fn=recommend_mtui_font_for_prediction,
+        classify_fn=classify_current_mtui_font,
+    )
+    assert mis_hi_mis is True
+    assert "[⚠ HIGH-CONF YM MISMATCH!]" in line_hi_mis
+
+    # Step-1 `[THIN-STEM]` and non-core `KAISHO_BRUSH` pre-exceptions also suppress high-conf mismatch/lock.
+    line_thin_ant, _, mis_thin_ant = fmt(
+        {
+            "n_clean_chars": 6,
+            "pred_family": "MINCHO",
+            "pred_conf": 0.99,
+            "bold_prob": 0.99,
+            "heavy_prob": 0.70,
+            "top_fonts": [{"font": "A-OTF-RyuminPr6-Heavy.otf", "family": "MINCHO", "prob": 0.82}],
+        },
+        ff="FZHei-B01",
+        shw=2.0,
+        reg_hw=2.0,
+        stem_hw=2.05,
+        bbox_wh=(110.0, 125.0),
+        source_text="おいオシアン……！",
+        page_wh=(1350, 1920),
+        recommend_fn=recommend_mtui_font_for_prediction,
+        classify_fn=classify_current_mtui_font,
+    )
+    assert mis_thin_ant is False
+    assert "[THIN-STEM:" in line_thin_ant
+    assert "HIGH-CONF YM MISMATCH" not in line_thin_ant
+    assert "[LOCKED>=0.90]" not in line_thin_ant
+
+    line_noncore_kai, _, mis_noncore_kai = fmt(
+        {
+            "n_clean_chars": 8,
+            "pred_family": "KAISHO_BRUSH",
+            "pred_conf": 0.98,
+            "bold_prob": 0.95,
+            "heavy_prob": 0.10,
+            "top_fonts": [{"font": "DFKKaiShoC-W7.ttc", "family": "KAISHO_BRUSH", "prob": 0.91}],
+        },
+        ff="FZYaSong-DB-GBK",
+        shw=2.2,
+        reg_hw=2.0,
+        recommend_fn=recommend_mtui_font_for_prediction,
+        classify_fn=classify_current_mtui_font,
+    )
+    assert mis_noncore_kai is False
+    assert "[LOCKED>=0.90]" not in line_noncore_kai
+    assert "HIGH-CONF YM MISMATCH" not in line_noncore_kai
+
+    # R2-F87: Missing `inpainted` sidecar on a page requiring inpaint verification is flagged in `missing_artifact_pages`
+    # instead of silently falling back to `_classify_page_regions_in_bubble(None, regs)` 2-panel bubble cards,
+    # whereas a genuinely textless page (`regions: []`, no `mask_raw`) remains in `skipped_pages` (`no_visible_regions`).
+    ch_inp = tmp_path / "ch_missing_inp"
+    ch_inp.mkdir()
+    p1 = ch_inp / "001.png"
+    p2 = ch_inp / "002.png"
+    dark_art = np.full((240, 240, 3), 150, dtype=np.uint8)
+    Image.fromarray(dark_art).save(p1)
+    Image.fromarray(dark_art).save(p2)
+
+    p1_paths = resolve_page_paths(p1)
+    save_rgb_image_atomic(dark_art, p1_paths.rendered_output_path)
+    save_page_json_atomic(
+        p1_paths,
+        str(p1.resolve()),
+        {
+            "regions": [
+                {
+                    "lines": [[[60.0, 60.0], [150.0, 60.0], [150.0, 170.0], [60.0, 170.0]]],
+                    "center": [105.0, 115.0],
+                    "text": "ぐぬぬ",
+                    "translation": "可恶",
+                    "font_family": "FZHei-B01",
+                    "font_size": 24,
+                    "direction": "v",
+                    "alignment": "left",
+                }
+            ]
+        },
+        auto_initial_snapshot=False,
+    )
+
+    p2_paths = resolve_page_paths(p2)
+    save_rgb_image_atomic(dark_art, p2_paths.rendered_output_path)
+    save_page_json_atomic(p2_paths, str(p2.resolve()), {"regions": []}, auto_initial_snapshot=False)
+
+    mf_missing = aac.cmd_verify_crops(ch_inp, tmp_path / "vc_missing_inp")
+    assert mf_missing["selected_pages"] == ["001.png", "002.png"]
+    assert mf_missing["exported_pages"] == []
+    assert mf_missing["total_bubbles_exported"] == 0
+    assert mf_missing["missing_artifact_pages"] == [
+        {"page": "001.png", "page_number": 1, "reason": "missing_inpainted"}
+    ]
+    assert {"page": "002.png", "page_number": 2, "reason": "no_visible_regions"} in mf_missing["skipped_pages"]
+
+    # Once `inpainted` is present, page 1 exports as a 3-panel frameless card with zero missing artifacts.
+    save_rgb_image_atomic(dark_art, p1_paths.inpainted_path)
+    mf_complete = aac.cmd_verify_crops(ch_inp, tmp_path / "vc_complete_inp")
+    assert mf_complete["missing_artifact_pages"] == []
+    assert mf_complete["exported_pages"] == ["001.png"]
+    assert mf_complete["frameless_regions_exported"] == 1
+
+    # R2-F88 + R2-F49: `SKILL.md` / `unattended_batch_ops.md` contracts & `cmd_compare` coverage check
+    skill_dir = _bootstrap.ROOT / "mtui_mcp" / "skills" / "mtui-manga-proofreading"
+    skill_md = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+    batch_md = (skill_dir / "references" / "unattended_batch_ops.md").read_text(encoding="utf-8")
+
+    assert 'mtui_snapshots(target_path="<CHAPTER>", action="cleanup", snapshot_id="<RECORDED_ID>")' in skill_md
+    assert 'mtui_snapshots(target_path="<CHAPTER>", action="cleanup", snapshot_id="<RECORDED_ID>")' in batch_md
+    assert 'action="cleanup", label=' not in skill_md
+    assert 'action="cleanup", label=' not in batch_md
+    assert "initial_before_mcp" in skill_md
+    assert "initial_before_mcp" in batch_md
+    assert "created_snapshot_ids" in skill_md
+    assert "created_snapshot_ids" in batch_md
+    assert "missing_before == 0" in batch_md and "missing_after == 0" in batch_md
+
+    before_cmp = tmp_path / "before_cmp"
+    before_cmp.mkdir()
+    Image.fromarray(dark_art).save(before_cmp / "001.png")
+    Image.fromarray(dark_art).save(before_cmp / "002.png")
+    cmp_full = aac.cmd_compare(
+        raw_dir=ch_inp,
+        before_dir=before_cmp,
+        after_dir=None,
+        out_dir=tmp_path / "cmp_zero_diff_ok",
+    )
+    assert cmp_full["sheets_generated"] == 0
+    assert cmp_full["compared_page_count"] == 2
+    assert cmp_full["complete_coverage"] is True
+
+    p2_paths.rendered_output_path.unlink()
+    cmp_incomplete = aac.cmd_compare(
+        raw_dir=ch_inp,
+        before_dir=before_cmp,
+        after_dir=None,
+        out_dir=tmp_path / "cmp_incomplete",
+    )
+    assert cmp_incomplete["sheets_generated"] == 0
+    assert cmp_incomplete["missing_after_pages"] == ["002.png"]
+    assert cmp_incomplete["complete_coverage"] is False

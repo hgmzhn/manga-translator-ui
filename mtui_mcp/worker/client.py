@@ -24,7 +24,7 @@ from ..config import get_runtime_settings
 logger = logging.getLogger("mtui_mcp.worker_client")
 
 _LOOPBACK_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-_SHUTDOWN_DRAIN_WAIT_SEC = 12.0
+_SHUTDOWN_DRAIN_WAIT_SEC = 14.0
 
 
 class MtuiWorkerClient:
@@ -32,7 +32,9 @@ class MtuiWorkerClient:
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
+        self._state_cond = threading.Condition(self._lock)
         self._proc: Optional[subprocess.Popen[str]] = None
+        self._shutting_down_procs: set[subprocess.Popen[str]] = set()
         self._port: Optional[int] = None
         self._token: str = ""
         self._bound_root: Optional[Path] = None
@@ -57,14 +59,23 @@ class MtuiWorkerClient:
         self,
         startup_timeout_sec: float = 45.0,
     ) -> tuple[subprocess.Popen[str], int, str]:
-        settings = get_runtime_settings()
-        if not settings.is_engine_available or settings.mtui_root is None or settings.mtui_python is None:
-            raise RuntimeError(
-                "manga-translator-ui runtime is not configured or its Python environment was not found. "
-                "Set MTUI_ROOT environment variable or call mtui_status(mtui_root=...)."
-            )
+        deadline = time.monotonic() + max(0.1, float(startup_timeout_sec))
 
         with self._lock:
+            # R2-F27: Never spawn a replacement worker while a previous worker process is still draining/exiting
+            while self._shutting_down_procs:
+                remaining_drain = deadline - time.monotonic()
+                if remaining_drain <= 0:
+                    raise TimeoutError("Timed out waiting for previous MTUI Engine Worker to finish shutting down")
+                self._state_cond.wait(timeout=min(0.25, remaining_drain))
+
+            settings = get_runtime_settings()
+            if not settings.is_engine_available or settings.mtui_root is None or settings.mtui_python is None:
+                raise RuntimeError(
+                    "manga-translator-ui runtime is not configured or its Python environment was not found. "
+                    "Set MTUI_ROOT environment variable or call mtui_status(mtui_root=...)."
+                )
+
             if (
                 self.is_running
                 and self._proc is not None
@@ -142,7 +153,8 @@ class MtuiWorkerClient:
             if proc.stderr is not None:
                 threading.Thread(target=self._drain_stderr, args=(proc.stderr,), daemon=True).start()
 
-            handshake_q: queue.Queue[Optional[str]] = queue.Queue()
+            # R2-F57: Keep `handshake_q` strictly bounded to READY or EOF; stream pre-READY logs into `_stderr_ring`
+            handshake_q: queue.Queue[Optional[str]] = queue.Queue(maxsize=2)
 
             def _read_stdout(pipe: Any) -> None:
                 handshake_done = False
@@ -151,24 +163,25 @@ class MtuiWorkerClient:
                         if not raw_line:
                             break
                         stripped = raw_line.rstrip("\r\n")
-                        if not handshake_done:
+                        if not handshake_done and "MTUI_WORKER_READY" in stripped:
+                            handshake_done = True
                             handshake_q.put(stripped)
-                            if "MTUI_WORKER_READY" in stripped:
-                                handshake_done = True
                         else:
                             self._stderr_ring.append(stripped)
                 except Exception:
                     pass
                 finally:
                     if not handshake_done:
-                        handshake_q.put(None)
+                        try:
+                            handshake_q.put_nowait(None)
+                        except queue.Full:
+                            pass
 
             if proc.stdout is not None:
                 threading.Thread(target=_read_stdout, args=(proc.stdout,), daemon=True).start()
             else:
-                handshake_q.put(None)
+                handshake_q.put_nowait(None)
 
-            deadline = time.monotonic() + max(0.1, float(startup_timeout_sec))
             ready_port: Optional[int] = None
             try:
                 while True:
@@ -338,8 +351,11 @@ class MtuiWorkerClient:
         return parsed.get("data") or {}
 
     def shutdown(self, expected_proc: Optional[subprocess.Popen[str]] = None) -> None:
+        wait_deadline = time.monotonic() + _SHUTDOWN_DRAIN_WAIT_SEC + 4.0
         with self._lock:
             if expected_proc is not None and self._proc is not expected_proc:
+                while expected_proc in self._shutting_down_procs and time.monotonic() < wait_deadline:
+                    self._state_cond.wait(timeout=0.25)
                 return
             proc = self._proc
             port = self._port
@@ -349,9 +365,11 @@ class MtuiWorkerClient:
             self._token = ""
             self._bound_root = None
             self._bound_python = None
-
-        if proc is None:
-            return
+            if proc is None:
+                while self._shutting_down_procs and time.monotonic() < wait_deadline:
+                    self._state_cond.wait(timeout=0.25)
+                return
+            self._shutting_down_procs.add(proc)
 
         try:
             sent_shutdown = False
@@ -401,6 +419,9 @@ class MtuiWorkerClient:
                         pipe.close()
                     except Exception:
                         pass
+            with self._lock:
+                self._shutting_down_procs.discard(proc)
+                self._state_cond.notify_all()
 
 
 _WORKER_CLIENT: Optional[MtuiWorkerClient] = None

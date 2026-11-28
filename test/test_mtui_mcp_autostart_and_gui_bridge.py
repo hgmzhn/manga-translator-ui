@@ -7,7 +7,6 @@ import inspect
 import json
 import os
 import shutil
-import socket
 import subprocess
 import sys
 import threading
@@ -37,6 +36,7 @@ from mtui_mcp.__main__ import _run_mcp_transport
 from mtui_mcp.config import _discover_mtui_python, _discover_mtui_root, get_runtime_settings
 from mtui_mcp.embedded_server import EmbeddedMcpHttpServer, is_loopback_host
 from mtui_mcp.gui_bridge import (
+    abort_ipc_connection,
     call_live_gui,
     gui_session_paths,
     is_live_gui_session_available,
@@ -71,12 +71,6 @@ def _import_streamable_http_client():
         from mcp.client.streamable_http import streamablehttp_client
 
         return streamablehttp_client
-
-
-def _pick_free_tcp_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
 
 
 @pytest.mark.asyncio
@@ -153,11 +147,33 @@ async def test_embedded_mcp_http_server_health_streamable_http_sse_and_port_conf
                 assert not getattr(sse_status, "is_error", getattr(sse_status, "isError", False))
                 assert "engine_available" in json.loads(sse_status.content[0].text)
 
-        # 4. Port-in-use conflict returns False gracefully without crashing or disturbing active server
-        conflict_srv = EmbeddedMcpHttpServer(host="127.0.0.1", port=srv.bound_port, mtui_root=ROOT, warm_up=False)
+        # 4. Port-in-use conflict returns False gracefully without crashing, disturbing active server, or warming worker (R2-F05)
+        warm_up_calls: list[int] = []
+        monkeypatch.setattr(
+            "mtui_mcp.embedded_server.get_worker_client",
+            lambda: types.SimpleNamespace(
+                ensure_started=lambda: warm_up_calls.append(1),
+                is_running=False,
+                shutdown=lambda: None,
+            ),
+        )
+        conflict_srv = EmbeddedMcpHttpServer(
+            host="127.0.0.1",
+            port=srv.bound_port,
+            mtui_root=ROOT,
+            warm_up=True,
+        )
         assert conflict_srv.start(timeout=2.0) is False
         assert conflict_srv.is_running is False
+        assert warm_up_calls == []
         assert srv.is_running is True
+
+        warm_srv = EmbeddedMcpHttpServer(host="127.0.0.1", port=0, mtui_root=ROOT, warm_up=True)
+        try:
+            assert warm_srv.start(timeout=5.0) is True
+            assert warm_up_calls == [1]
+        finally:
+            warm_srv.stop()
     finally:
         srv.stop()
 
@@ -170,6 +186,7 @@ async def test_embedded_mcp_http_server_health_streamable_http_sse_and_port_conf
 @pytest.mark.asyncio
 async def test_non_loopback_http_requires_bearer_token_and_redacts_health_mtui_root(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """F13 & F54: Non-loopback binds require MTUI_MCP_AUTH_TOKEN, guard /mcp + /sse + /messages/, and omit mtui_root on unauth /health."""
     from mcp import ClientSession
@@ -184,18 +201,46 @@ async def test_non_loopback_http_requires_bearer_token_and_redacts_health_mtui_r
     assert is_loopback_host("::1") is True
     assert is_loopback_host("[::1]") is True
     assert is_loopback_host("localhost") is True
+    assert is_loopback_host("") is False
+    assert is_loopback_host("   ") is False
+    assert is_loopback_host("[]") is False
     assert is_loopback_host("0.0.0.0") is False
     assert is_loopback_host("::") is False
     assert is_loopback_host("192.168.1.25") is False
 
-    # 1. Refuses non-loopback bind when MTUI_MCP_AUTH_TOKEN is unset
+    # 1. Refuses non-loopback or wildcard ("") bind when MTUI_MCP_AUTH_TOKEN is unset (R2-F12)
     monkeypatch.delenv("MTUI_MCP_AUTH_TOKEN", raising=False)
-    unauth_srv = EmbeddedMcpHttpServer(host="0.0.0.0", port=0, mtui_root=ROOT, warm_up=False)
-    assert unauth_srv.start(timeout=2.0) is False
-    assert unauth_srv.is_running is False
+    for wildcard_host in ("0.0.0.0", ""):
+        unauth_srv = EmbeddedMcpHttpServer(host=wildcard_host, port=0, mtui_root=ROOT, warm_up=False)
+        assert unauth_srv.start(timeout=2.0) is False
+        assert unauth_srv.is_running is False
 
-    with pytest.raises(RuntimeError, match="MTUI_MCP_AUTH_TOKEN"):
-        _run_mcp_transport("streamable-http", "0.0.0.0", 0)
+        with pytest.raises(RuntimeError, match="MTUI_MCP_AUTH_TOKEN"):
+            _run_mcp_transport("streamable-http", wildcard_host, 0)
+
+    # R2-F52: Bracketed IPv6 loopback `--host "[::1]"` normalizes to `"::1"` in both unauthenticated and authenticated branches
+    recorded_mcp_runs: list[tuple[str, Any, Any]] = []
+    recorded_uvicorn_runs: list[tuple[Any, Any]] = []
+    with monkeypatch.context() as mp_ipv6:
+        mp_ipv6.setattr(
+            "mtui_mcp.__main__.mcp.run",
+            lambda transport="stdio", host=None, port=None, **_kw: recorded_mcp_runs.append(
+                (transport, host, port)
+            ),
+        )
+        mp_ipv6.setattr(
+            "mtui_mcp.__main__.uvicorn.run",
+            lambda _app, host=None, port=None, **_kw: recorded_uvicorn_runs.append((host, port)),
+        )
+        _run_mcp_transport("streamable-http", "[::1]", 8765)
+        assert recorded_mcp_runs == [("streamable-http", "::1", 8765)]
+        import mtui_mcp.__main__ as main_mod
+
+        if getattr(main_mod.mcp, "settings", None) is not None and hasattr(main_mod.mcp.settings, "host"):
+            assert main_mod.mcp.settings.host == "::1"
+
+        _run_mcp_transport("streamable-http", "[::1]", 8765, auth_token="ipv6-token")
+        assert recorded_uvicorn_runs == [("::1", 8765)]
 
     # 2. Starts cleanly when MTUI_MCP_AUTH_TOKEN is configured and enforces Bearer token
     secret_token = f"mtui-test-token-{uuid.uuid4().hex}"
@@ -238,7 +283,33 @@ async def test_non_loopback_http_requires_bearer_token_and_redacts_health_mtui_r
                 urllib.request.urlopen(bad_req, timeout=5.0)
             assert bad_exc.value.code == 401
 
-        # Valid Bearer token allows full MCP Streamable HTTP session + enforces F54 python override block
+        # Valid Bearer token allows full MCP Streamable HTTP session + enforces F54/R2-F82 python override policy block
+        async def _verify_authenticated_mcp_session(session: ClientSession) -> None:
+            init_res = await session.initialize()
+            srv_info = getattr(init_res, "server_info", None) or getattr(init_res, "serverInfo")
+            assert srv_info.name == "mtui-mcp"
+
+            ok_status = await session.call_tool("mtui_status", {"warm_up_worker": False})
+            assert not getattr(ok_status, "is_error", getattr(ok_status, "isError", False))
+            assert "engine_available" in json.loads(ok_status.content[0].text)
+
+            caplog.clear()
+            py_override_res = await session.call_tool(
+                "mtui_status",
+                {"mtui_python": sys.executable, "warm_up_worker": False},
+            )
+            assert getattr(py_override_res, "is_error", getattr(py_override_res, "isError", False))
+            err_text = "\n".join(getattr(c, "text", "") for c in py_override_res.content)
+            logged_causes = "\n".join(
+                f"{rec.getMessage()}\n{rec.exc_info[1]!r}\n{rec.exc_info[1].__cause__!r}"
+                if rec.exc_info and rec.exc_info[1] is not None
+                else rec.getMessage()
+                for rec in caplog.records
+            )
+            combined_diag = f"{err_text}\n{caplog.text}\n{logged_causes}"
+            assert "mtui_python" in combined_diag
+            assert "disabled over HTTP/SSE transport" in combined_diag
+
         streamable_client = _import_streamable_http_client()
         sig_params = inspect.signature(streamable_client).parameters
         auth_headers = {"Authorization": f"Bearer {secret_token}"}
@@ -246,20 +317,11 @@ async def test_non_loopback_http_requires_bearer_token_and_redacts_health_mtui_r
             async with httpx.AsyncClient(headers=auth_headers, trust_env=False) as http_client:
                 async with streamable_client(f"{base_local}/mcp", http_client=http_client) as streams:
                     async with ClientSession(streams[0], streams[1]) as session:
-                        init_res = await session.initialize()
-                        srv_info = getattr(init_res, "server_info", None) or getattr(init_res, "serverInfo")
-                        assert srv_info.name == "mtui-mcp"
-                        py_override_res = await session.call_tool(
-                            "mtui_status",
-                            {"mtui_python": sys.executable, "warm_up_worker": False},
-                        )
-                        assert getattr(py_override_res, "is_error", getattr(py_override_res, "isError", False))
+                        await _verify_authenticated_mcp_session(session)
         else:
             async with streamable_client(f"{base_local}/mcp", headers=auth_headers) as streams:
                 async with ClientSession(streams[0], streams[1]) as session:
-                    init_res = await session.initialize()
-                    srv_info = getattr(init_res, "server_info", None) or getattr(init_res, "serverInfo")
-                    assert srv_info.name == "mtui-mcp"
+                    await _verify_authenticated_mcp_session(session)
     finally:
         srv.stop()
 
@@ -520,23 +582,89 @@ def test_mcp_gui_bridge_server_qt_main_thread_roundtrip_and_cleanup(
         )
         assert dup_bridge.start() is False
 
-        # F08: Stalled client handshake must NOT block accept loop for healthy concurrent clients
-        stalled_raw_client = Client(expected_addr, authkey=None)
-        try:
-            t0 = time.monotonic()
-            observed_threads.clear()
-            status_json = _run_in_worker_pumping_qt(lambda: json.loads(mtui_live_gui_session(action="status")))
-            assert time.monotonic() - t0 < 2.0
-            assert status_json["live_gui_connected"] is True
-            gui_state = status_json["gui_state"]
-            assert gui_state["status"] == "ok"
-            assert gui_state["total_pages"] == 2
-            assert gui_state["translation_running"] is True
-            assert os.path.normcase(gui_state["active_page"]) == os.path.normcase(str(p1.resolve()))
-            assert observed_threads and all(t == _QAPP.thread() for t in observed_threads)
-        finally:
+        # F08 & R2-F80: Stalled client handshake must NOT block accept loop while the first handshake is STILL blocked
+        import services.mcp_service as mcp_svc_mod
+
+        orig_deliver_challenge = mcp_svc_mod.deliver_challenge
+        handshake_count_lock = threading.Lock()
+        handshake_call_count = {"n": 0}
+        first_handshake_started = threading.Event()
+        release_first_handshake = threading.Event()
+        first_handshake_finished = threading.Event()
+
+        def _gated_deliver_challenge(conn_obj: Any, key_bytes: bytes) -> None:
+            with handshake_count_lock:
+                handshake_call_count["n"] += 1
+                idx = handshake_call_count["n"]
+            if idx == 1:
+                first_handshake_started.set()
+                try:
+                    release_first_handshake.wait(timeout=5.0)
+                    return orig_deliver_challenge(conn_obj, key_bytes)
+                finally:
+                    first_handshake_finished.set()
+            return orig_deliver_challenge(conn_obj, key_bytes)
+
+        bridge.handshake_timeout = 3.0
+        stalled_raw_client = None
+        with monkeypatch.context() as mp_hs:
+            mp_hs.setattr(mcp_svc_mod, "deliver_challenge", _gated_deliver_challenge)
+            stalled_raw_client = Client(expected_addr, authkey=None)
             try:
-                stalled_raw_client.close()
+                assert first_handshake_started.wait(timeout=2.0) is True
+                assert first_handshake_finished.is_set() is False
+                observed_threads.clear()
+                status_json = _run_in_worker_pumping_qt(
+                    lambda: json.loads(mtui_live_gui_session(action="status"))
+                )
+                assert first_handshake_finished.is_set() is False
+                assert status_json["live_gui_connected"] is True
+                gui_state = status_json["gui_state"]
+                assert gui_state["status"] == "ok"
+                assert gui_state["total_pages"] == 2
+                assert gui_state["translation_running"] is True
+                assert os.path.normcase(gui_state["active_page"]) == os.path.normcase(str(p1.resolve()))
+                assert observed_threads and all(t == _QAPP.thread() for t in observed_threads)
+            finally:
+                release_first_handshake.set()
+                if stalled_raw_client is not None:
+                    try:
+                        stalled_raw_client.close()
+                    except Exception:
+                        pass
+                bridge.handshake_timeout = 0.4
+
+        # R2-F50: Post-auth partial frame read stalls are aborted within request_read_timeout
+        bridge.request_read_timeout = 0.18
+        partial_peer = Client(expected_addr, authkey=None)
+        try:
+            auth_bytes = expected_key.read_bytes()
+            from multiprocessing.connection import answer_challenge, deliver_challenge
+
+            answer_challenge(partial_peer, auth_bytes)
+            deliver_challenge(partial_peer, auth_bytes)
+            if os.name == "nt":
+                import _winapi
+
+                _winapi.WriteFile(partial_peer.fileno(), b"{")
+            else:
+                os.write(partial_peer.fileno(), b"\x00\x00")
+            # Wait slightly past request_read_timeout and verify bridge aborted the stalled connection handler
+            deadline_partial = time.monotonic() + 1.5
+            while time.monotonic() < deadline_partial:
+                time.sleep(0.05)
+                conn_threads = [
+                    t for t in threading.enumerate() if t.name == "mtui-gui-bridge-conn" and t.is_alive()
+                ]
+                if not conn_threads:
+                    break
+            assert [
+                t for t in threading.enumerate() if t.name == "mtui-gui-bridge-conn" and t.is_alive()
+            ] == []
+        finally:
+            bridge.request_read_timeout = 5.0
+            try:
+                partial_peer.close()
             except Exception:
                 pass
 
@@ -642,6 +770,121 @@ def test_mcp_gui_bridge_server_qt_main_thread_roundtrip_and_cleanup(
         assert os.path.normcase(editor_model.get_source_image_path()) == os.path.normcase(str(p2.resolve()))
         assert editor_model.get_regions()[0]["translation"] == "最新P2编辑不可被覆盖"
 
+        # 6b. R2-F09: Timed-out `open_page(p1)` must NEVER switch pages late after background load finishes!
+        load_hook["stall_path"] = p1.resolve()
+        load_hook["started"].clear()
+        load_hook["release"].clear()
+        try:
+            with pytest.raises(TimeoutError):
+                _run_in_worker_pumping_qt(
+                    lambda: call_live_gui(
+                        "open_page",
+                        session_name=session_name,
+                        path=str(p1),
+                        force=True,
+                        timeout_sec=0.12,
+                    )
+                )
+            assert load_hook["started"].is_set()
+            # Release worker AFTER client deadline expired and pump Qt events: page must remain p2!
+            load_hook["stall_path"] = None
+            load_hook["release"].set()
+            pump_end = time.monotonic() + 0.25
+            while time.monotonic() < pump_end:
+                _QAPP.processEvents()
+                time.sleep(0.01)
+            assert os.path.normcase(editor_model.get_source_image_path()) == os.path.normcase(str(p2.resolve()))
+            assert editor_model.get_regions()[0]["translation"] == "最新P2编辑不可被覆盖"
+        finally:
+            load_hook["stall_path"] = None
+            load_hook["release"].set()
+
+        # 6c. R2-F11: Reloading active page while concurrent GUI or disk edits occur must reject stale snapshot!
+        for auto_save_mode, edited_text in ((True, "R2F11自动保存期间新编辑"), (False, "R2F11未保存期间新编辑")):
+            auto_save_flag["enabled"] = auto_save_mode
+            if auto_save_mode:
+                history.mark_clean()
+            load_hook["stall_path"] = p2.resolve()
+            load_hook["started"].clear()
+            load_hook["release"].clear()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as reload_pool:
+                reload_fut = reload_pool.submit(
+                    call_live_gui,
+                    "open_page",
+                    session_name=session_name,
+                    path=str(p2),
+                    reload=True,
+                    force=True,
+                )
+                deadline_rl = time.monotonic() + 5.0
+                while not load_hook["started"].is_set() and time.monotonic() < deadline_rl:
+                    _QAPP.processEvents()
+                    time.sleep(0.005)
+                assert load_hook["started"].is_set()
+
+                # User edits p2 in GUI while DocumentLoadWorker.load(p2) is mid-flight
+                mid_regs = editor_model.get_regions()
+                history.record_edit(mid_regs)
+                editor_model.update_region(0, {**mid_regs[0], "translation": edited_text})
+
+                load_hook["stall_path"] = None
+                load_hook["release"].set()
+                with pytest.raises(RuntimeError, match="changed while loading"):
+                    _run_in_worker_pumping_qt(reload_fut.result)
+
+            assert os.path.normcase(editor_model.get_source_image_path()) == os.path.normcase(str(p2.resolve()))
+            assert editor_model.get_regions()[0]["translation"] == edited_text
+
+        # Also verify concurrent on-disk JSON update during load is rejected before overwriting
+        auto_save_flag["enabled"] = False
+        history.mark_clean()
+        load_hook["stall_path"] = p2.resolve()
+        load_hook["started"].clear()
+        load_hook["release"].clear()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as disk_pool:
+            disk_fut = disk_pool.submit(
+                call_live_gui,
+                "open_page",
+                session_name=session_name,
+                path=str(p2),
+                reload=True,
+                force=True,
+            )
+            deadline_dk = time.monotonic() + 5.0
+            while not load_hook["started"].is_set() and time.monotonic() < deadline_dk:
+                _QAPP.processEvents()
+                time.sleep(0.005)
+            assert load_hook["started"].is_set()
+
+            pp2 = resolve_page_paths(p2)
+            save_page_json_atomic(
+                pp2,
+                str(p2.resolve()),
+                {
+                    "regions": [
+                        {
+                            "lines": [[[20.0, 20.0], [100.0, 20.0], [100.0, 120.0], [20.0, 120.0]]],
+                            "center": [60.0, 70.0],
+                            "text": "二頁目",
+                            "translation": "磁盘并发更新台词",
+                            "font_family": "FZHei-B01",
+                            "font_size": 24,
+                            "direction": "v",
+                            "alignment": "left",
+                        }
+                    ]
+                },
+                auto_initial_snapshot=False,
+            )
+
+            load_hook["stall_path"] = None
+            load_hook["release"].set()
+            with pytest.raises(RuntimeError, match="changed while loading"):
+                _run_in_worker_pumping_qt(disk_fut.result)
+
+        assert os.path.normcase(editor_model.get_source_image_path()) == os.path.normcase(str(p2.resolve()))
+        assert editor_model.get_regions()[0]["translation"] == "R2F11未保存期间新编辑"
+
         # 7. F06: Disabling/stopping bridge invalidates in-flight `open_page` before GUI side effects!
         load_hook["stall_path"] = p1.resolve()
         load_hook["started"].clear()
@@ -667,7 +910,7 @@ def test_mcp_gui_bridge_server_qt_main_thread_roundtrip_and_cleanup(
                 _run_in_worker_pumping_qt(inflight_fut.result)
 
         assert os.path.normcase(editor_model.get_source_image_path()) == os.path.normcase(str(p2.resolve()))
-        assert editor_model.get_regions()[0]["translation"] == "最新P2编辑不可被覆盖"
+        assert editor_model.get_regions()[0]["translation"] == "R2F11未保存期间新编辑"
     finally:
         load_hook["stall_path"] = None
         load_hook["release"].set()
@@ -808,6 +1051,109 @@ def test_gui_bridge_client_handshake_timeout_and_dispatcher_thread_safety(
     finally:
         bridge.stop()
 
+    # 4. R2-F34: abort_ipc_connection skips already-closed connections without touching fileno()
+    class _ClosedConnSpy:
+        closed = True
+
+        @staticmethod
+        def fileno() -> int:
+            raise AssertionError("fileno() must not be read on an already-closed connection")
+
+    abort_ipc_connection(_ClosedConnSpy())
+
+    # 5. R2-F72: On Windows, busy Named Pipe connection waits respect caller's deadline without accumulating 20s threads
+    if os.name == "nt":
+        import _winapi
+
+        busy_sess = f"pytest-busypipe-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+        busy_addr, busy_key = gui_session_paths(busy_sess)
+        busy_key.parent.mkdir(parents=True, exist_ok=True)
+        busy_key.write_bytes(b"k" * 32)
+        srv_pipe = _winapi.CreateNamedPipe(
+            busy_addr,
+            _winapi.PIPE_ACCESS_DUPLEX | _winapi.FILE_FLAG_OVERLAPPED,
+            _winapi.PIPE_TYPE_MESSAGE | _winapi.PIPE_READMODE_MESSAGE | _winapi.PIPE_WAIT,
+            1,
+            8192,
+            8192,
+            0,
+            _winapi.NULL,
+        )
+        occupied_client = None
+        try:
+            occupied_client = _winapi.CreateFile(
+                busy_addr,
+                _winapi.GENERIC_READ | _winapi.GENERIC_WRITE,
+                0,
+                _winapi.NULL,
+                _winapi.OPEN_EXISTING,
+                _winapi.FILE_FLAG_OVERLAPPED,
+                _winapi.NULL,
+            )
+            before_client_threads = {
+                t for t in threading.enumerate() if t.name == "mtui-gui-bridge-client" and t.is_alive()
+            }
+            for _ in range(3):
+                t_busy = time.monotonic()
+                with pytest.raises(TimeoutError):
+                    call_live_gui("list_pages", session_name=busy_sess, timeout_sec=0.1)
+                assert time.monotonic() - t_busy < 0.8
+            time.sleep(0.15)
+            after_client_threads = {
+                t for t in threading.enumerate() if t.name == "mtui-gui-bridge-client" and t.is_alive()
+            }
+            assert after_client_threads - before_client_threads == set()
+        finally:
+            if occupied_client is not None:
+                _winapi.CloseHandle(occupied_client)
+            _winapi.CloseHandle(srv_pipe)
+            busy_key.unlink(missing_ok=True)
+
+    # 6. R2-F10: Lock directory failure cleans up _ACTIVE_BRIDGE_ADDRESSES and does NOT abort independent HTTP startup
+    lockfail_sess = f"pytest-lockfail-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+    lockfail_addr = (
+        f"\\\\.\\pipe\\{lockfail_sess}"
+        if os.name == "nt"
+        else str(Path(os.environ.get("TMPDIR", "/tmp")) / f"{lockfail_sess}.sock")
+    )
+    blocked_parent = Path(ROOT) / ".pytest_tmp_lockfail_file"
+    blocked_parent.write_bytes(b"not-a-dir")
+    bad_key_path = blocked_parent / "sub" / "bridge.key"
+    try:
+        assert _acquire_session_lockfile(bad_key_path.with_suffix(".lock")) is None
+        with monkeypatch.context() as mp_lf:
+            mp_lf.setattr(
+                "services.mcp_service.gui_session_paths",
+                lambda _s=None: (lockfail_addr, bad_key_path),
+            )
+            lf_svc = McpService(str(ROOT), session_name=lockfail_sess)
+            try:
+                assert lf_svc.start(host="127.0.0.1", port=0) is True
+                assert lf_svc.http_running is True
+                assert lf_svc.gui_bridge_running is False
+            finally:
+                lf_svc.shutdown()
+
+        # Once the parent directory is writable again, the same bridge address binds cleanly in the same process
+        repaired_dir = Path(ROOT) / ".pytest_tmp_lockfail_dir"
+        repaired_dir.mkdir(exist_ok=True)
+        good_key_path = repaired_dir / "bridge.key"
+        try:
+            with monkeypatch.context() as mp_ok:
+                mp_ok.setattr(
+                    "services.mcp_service.gui_session_paths",
+                    lambda _s=None: (lockfail_addr, good_key_path),
+                )
+                recovered_bridge = McpGuiBridgeServer(session_name=lockfail_sess)
+                try:
+                    assert recovered_bridge.start() is True
+                finally:
+                    recovered_bridge.stop()
+        finally:
+            shutil.rmtree(repaired_dir, ignore_errors=True)
+    finally:
+        blocked_parent.unlink(missing_ok=True)
+
 
 def test_mcp_service_config_defaults_locales_cli_args_and_live_toggle(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -922,20 +1268,86 @@ def test_mcp_service_config_defaults_locales_cli_args_and_live_toggle(
         with urllib.request.urlopen(svc.health_url, timeout=5.0) as resp:
             assert resp.status == 200
 
-        # F72: CLI --mcp-port override survives toggling enabled off/on when user didn't edit port
-        cli_port = _pick_free_tcp_port()
-        svc.set_cli_overrides(host="127.0.0.1", port=cli_port)
-        assert svc.apply_config(enabled=False, host="127.0.0.1", port=8765) is False
-        assert svc.is_running is False
-        assert not key_path.exists()
+        live_bound_port = svc.bound_port
+        assert live_bound_port is not None and live_bound_port > 0
 
-        assert svc.apply_config(enabled=True, host="127.0.0.1", port=8765) is True
-        assert svc.bound_port == cli_port
+        # F72 & R2-F81: CLI --mcp-port override survives toggling enabled off/on without TOCTOU released-port races
+        ovr_svc = McpService(str(ROOT), session_name=f"{session_name}-ovr")
+        recorded_starts: list[tuple[str, int]] = []
+        shutdown_count = {"n": 0}
+        monkeypatch.setattr(
+            ovr_svc,
+            "start",
+            lambda host="127.0.0.1", port=8765, **_kw: recorded_starts.append((host, int(port))) or True,
+        )
+        monkeypatch.setattr(
+            ovr_svc,
+            "shutdown",
+            lambda **_kw: shutdown_count.__setitem__("n", shutdown_count["n"] + 1),
+        )
+        ovr_svc.set_cli_overrides(host="127.0.0.1", port=19101)
+        assert ovr_svc.apply_config(enabled=False, host="127.0.0.1", port=8765) is False
+        assert shutdown_count["n"] == 1
+        assert recorded_starts == []
+
+        assert ovr_svc.apply_config(enabled=True, host="127.0.0.1", port=8765) is True
+        assert recorded_starts[-1] == ("127.0.0.1", 19101)
 
         # Explicit user port edit (`override_port=True`) replaces CLI port override
-        explicit_port = _pick_free_tcp_port()
-        assert svc.apply_config(enabled=True, host="127.0.0.1", port=explicit_port, override_port=True) is True
-        assert svc.bound_port == explicit_port
+        assert ovr_svc.apply_config(enabled=True, host="127.0.0.1", port=19202, override_port=True) is True
+        assert recorded_starts[-1] == ("127.0.0.1", 19202)
+
+        # R2-F02 & R2-F08: MTUI_MCP_ENABLED / MTUI_MCP_HOST / MTUI_MCP_PORT env overrides survive unrelated config_changed reloads
+        env_root = tmp_path / "env_reload_root"
+        (env_root / "config").mkdir(parents=True)
+        shutil.copy2(ROOT / "config" / "config-example.json", env_root / "config" / "config-example.json")
+        env_cfg_svc = ConfigService(str(env_root))
+        env_svc = McpService(str(ROOT), session_name=f"{session_name}-env")
+        env_starts: list[tuple[str, int]] = []
+        monkeypatch.setattr(
+            env_svc,
+            "start",
+            lambda host="127.0.0.1", port=8765, **_kw: env_starts.append((host, int(port))) or True,
+        )
+        monkeypatch.setattr(env_svc, "shutdown", lambda **_kw: None)
+        with monkeypatch.context() as mp_env:
+            mp_env.setenv("MTUI_MCP_FORCE_AUTOSTART", "1")
+            mp_env.setenv("MTUI_MCP_ENABLED", "false")
+            mp_env.setenv("MTUI_MCP_HOST", "127.0.0.2")
+            mp_env.setenv("MTUI_MCP_PORT", "19345")
+            mp_env.setattr("services.get_config_service", lambda: env_cfg_svc)
+            mp_env.setattr("app_logic.get_config_service", lambda: env_cfg_svc)
+            mp_env.setattr(
+                "app_logic.get_state_manager",
+                lambda: types.SimpleNamespace(set_translating=lambda *_: None),
+            )
+            mp_env.setattr("services.get_mcp_service", lambda: env_svc)
+            env_logic = MainAppLogic()
+            try:
+                assert env_svc.start_from_config(env_cfg_svc.get_config()) is False
+                assert env_starts == []
+
+                # Unrelated config update (e.g. opening file updates last_open_dir -> emits config_changed) must NOT start MCP
+                cfg_copy = env_cfg_svc.get_config()
+                cfg_copy.app.last_open_dir = str(tmp_path)
+                env_cfg_svc.set_config(cfg_copy)
+                env_cfg_svc.reload_config()
+                assert env_starts == []
+
+                # Explicit user toggle on (`app.mcp_server_enabled=True`) overrides MTUI_MCP_ENABLED=false while preserving MTUI_MCP_HOST/PORT!
+                env_logic.update_single_config("app.mcp_server_enabled", True)
+                assert env_starts[-1] == ("127.0.0.2", 19345)
+
+                # Subsequent unrelated config_changed still preserves MTUI_MCP_HOST and MTUI_MCP_PORT
+                env_cfg_svc.reload_config()
+                assert env_starts[-1] == ("127.0.0.2", 19345)
+
+                # Explicit user port edit (`app.mcp_server_port=19456`) overrides MTUI_MCP_PORT while still preserving MTUI_MCP_HOST!
+                env_logic.update_single_config("app.mcp_server_port", 19456)
+                assert env_starts[-1] == ("127.0.0.2", 19456)
+            finally:
+                env_logic.shutdown()
+                env_cfg_svc.shutdown()
 
         # F39: External config reload (`ConfigService.reload_config`) syncs running McpService without double-calling on update_single_config
         reload_root = tmp_path / "reload_root"
@@ -957,7 +1369,7 @@ def test_mcp_service_config_defaults_locales_cli_args_and_live_toggle(
         logic = MainAppLogic()
         try:
             apply_calls.clear()
-            logic.update_single_config("app.mcp_server_port", explicit_port)
+            logic.update_single_config("app.mcp_server_port", live_bound_port)
             assert len(apply_calls) == 1  # No duplicate apply_config from set_config signal!
             assert reload_cfg_svc.flush_pending_writes() is True
 
@@ -987,19 +1399,35 @@ def test_service_manager_failure_does_not_cache_broken_container(
     monkeypatch.setattr(ServiceManager, "_container", None)
     try:
         attempts = {"n": 0}
+        shutdown_calls: list[int] = []
 
         def _flaky_init(self_container: ServiceContainer, root_widget: Any = None) -> bool:
             attempts["n"] += 1
-            if attempts["n"] == 1:
+            attempt_no = attempts["n"]
+            self_container.register_service(
+                "async",
+                types.SimpleNamespace(shutdown=lambda: shutdown_calls.append(attempt_no)),
+            )
+            if attempt_no == 1:
                 return False
+            if attempt_no == 2:
+                raise RuntimeError("simulated heavyweight service init failure")
             self_container.initialized = True
             return True
 
         monkeypatch.setattr(ServiceContainer, "initialize_services", _flaky_init)
         assert ServiceManager.initialize(str(tmp_path)) is False
         assert ServiceManager._container is None
+        assert shutdown_calls == [1]
+
+        with pytest.raises(RuntimeError, match="simulated heavyweight"):
+            ServiceManager.initialize(str(tmp_path))
+        assert ServiceManager._container is None
+        assert shutdown_calls == [1, 2]
+
         assert ServiceManager.initialize(str(tmp_path)) is True
         assert ServiceManager._container is not None and ServiceManager._container.initialized is True
+        assert shutdown_calls == [1, 2]
     finally:
         ServiceManager._container = saved_container
 
@@ -1046,6 +1474,36 @@ def test_python_symlink_preservation_and_frozen_bundle_discovery(
     assert frozen_root == frozen_dir.resolve()
     frozen_py = _discover_mtui_python(frozen_root)
     assert frozen_py == Path(os.path.abspath(str(fake_exe)))
+
+    # R2-F59: Frozen PyInstaller bundle launched via directory junction / symlink resolves install root cleanly
+    link_dir = tmp_path / "frozen_junction"
+    link_created = False
+    if sys.platform == "win32":
+        mklink_res = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(link_dir), str(frozen_dir)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        link_created = mklink_res.returncode == 0
+    else:
+        try:
+            os.symlink(frozen_dir, link_dir, target_is_directory=True)
+            link_created = True
+        except OSError:
+            link_created = False
+
+    if link_created:
+        try:
+            monkeypatch.setattr(sys, "executable", str(link_dir / fake_exe.name))
+            assert _discover_mtui_root(explicit=None) == frozen_dir.resolve()
+            assert _discover_mtui_root(explicit=link_dir) == frozen_dir.resolve()
+        finally:
+            monkeypatch.setattr(sys, "executable", str(fake_exe))
+            if sys.platform == "win32":
+                subprocess.run(["cmd", "/c", "rmdir", str(link_dir)], capture_output=True, check=False)
+            else:
+                link_dir.unlink(missing_ok=True)
 
     # 3. F15: dispatch_internal_subcommand handles --mtui-engine-worker, -u .../engine_worker.py, and --mtui-cli-local
     dispatched: list[tuple[str, list[str]]] = []

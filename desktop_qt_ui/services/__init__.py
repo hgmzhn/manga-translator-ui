@@ -179,13 +179,31 @@ class ServiceManager:
     def initialize(cls, root_dir: str, root_widget=None) -> bool:
         """初始化服务管理器"""
         if cls._container is None or not cls._container.initialized:
+            if cls._container is not None:
+                try:
+                    cls._container.shutdown_services()
+                except Exception:
+                    pass
+                cls._container = None
             container = ServiceContainer(root_dir)
             cls._container = container
             try:
                 if not container.initialize_services(root_widget):
+                    try:
+                        container.shutdown_services()
+                    except Exception as shutdown_err:
+                        container.logger.error(
+                            f"Error cleaning up failed service initialization: {shutdown_err}"
+                        )
                     cls._container = None
                     return False
             except Exception:
+                try:
+                    container.shutdown_services()
+                except Exception as shutdown_err:
+                     container.logger.error(
+                         f"Error cleaning up failed service initialization: {shutdown_err}"
+                     )
                 cls._container = None
                 raise
             return True

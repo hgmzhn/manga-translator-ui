@@ -1746,6 +1746,30 @@ _CORE_VERIFIED_KAISHO_KEYS: tuple[str, ...] = (
     "gfkaisho",
     "太行書体",
 )
+_FALLBACK_ANTIQUE_AMBIGUOUS_SUBSTRS: tuple[str, ...] = (
+    "tsukuardgothic",
+    "tsukubrdgothic",
+    "dfenkai",
+    "uddigikyokasho",
+    "dftegakisumi",
+    "dfcomic",
+    "rodinhimawari",
+    "koburina",
+    "こぶりな",
+    "hot-fkaisho",
+    "dfsokaisho",
+)
+_FALLBACK_TEXTBOOK_KYOKASHO_SUBSTRS: tuple[str, ...] = (
+    "kyokaica",
+    "hitujyun",
+    "hitujyo",
+    "hitu2jyo",
+    "kyokasho",
+    "教科",
+    "klee",
+)
+_YM_LOCK_MIN_CONF: float = 0.90
+_YM_LOCK_MIN_TOP1_PROB: float = 0.68
 
 
 def _call_recommend_fn_compat(recommend_fn, ym_pred: dict, **extra_kwargs):
@@ -1807,18 +1831,25 @@ def _format_verify_crop_ym_line(
     )
     cur_fam = classify_fn(ff if ff != "default" else "FZHei-B01")
 
+    antique_ambig_substrs = _FALLBACK_ANTIQUE_AMBIGUOUS_SUBSTRS
+    textbook_kyokasho_substrs = _FALLBACK_TEXTBOOK_KYOKASHO_SUBSTRS
     narrow_kana_stretch = False
-    if bbox_wh and source_text:
+    try:
         _ensure_repo_src_on_path()
-        from mtui_mcp.font_detector import is_narrow_kana_stretch_suspect
+        import mtui_mcp.font_detector as _fd_mod
 
-        narrow_kana_stretch = is_narrow_kana_stretch_suspect(
-            ym_pred,
-            bbox_wh=bbox_wh,
-            source_text=source_text,
-            raw_stem_hw=(stem_hw if (stem_hw is not None and stem_hw > 0.0) else None),
-            page_wh=page_wh,
-        )
+        antique_ambig_substrs = _fd_mod._ANTIQUE_AMBIGUOUS_SUBSTRS
+        textbook_kyokasho_substrs = _fd_mod._TEXTBOOK_KYOKASHO_SUBSTRS
+        if bbox_wh and source_text:
+            narrow_kana_stretch = _fd_mod.is_narrow_kana_stretch_suspect(
+                ym_pred,
+                bbox_wh=bbox_wh,
+                source_text=source_text,
+                raw_stem_hw=(stem_hw if (stem_hw is not None and stem_hw > 0.0) else None),
+                page_wh=page_wh,
+            )
+    except Exception:
+        narrow_kana_stretch = False
 
     thin_stem_downgraded = False
     if not narrow_kana_stretch and ym_fam == "MINCHO" and rec_ff != "FZCuSong-B09":
@@ -1834,7 +1865,24 @@ def _format_verify_crop_ym_line(
     )
     t1_lower = t1_name.lower()
     kaisho_lock_allowed = ym_fam != "KAISHO_BRUSH" or any(k in t1_lower for k in _CORE_VERIFIED_KAISHO_KEYS)
+    antique_ambig_top1 = (not has_prop) and any(k in t1_lower for k in antique_ambig_substrs)
+    kyokasho_ambig_top3 = False
+    if not has_prop and (ym_fam == "KYOKASHO_PEN" or any(k in t1_lower for k in textbook_kyokasho_substrs)):
+        has_ambig_t3 = any(
+            float(tf.get("prob") or 0.0) >= 0.08
+            and any(amb in str(tf.get("font") or "").lower() for amb in antique_ambig_substrs)
+            for tf in t_fonts[:3]
+        )
+        textbook_prob_sum = sum(
+            float(tf.get("prob") or 0.0)
+            for tf in t_fonts
+            if any(k in str(tf.get("font") or "").lower() for k in textbook_kyokasho_substrs)
+            and not any(amb in str(tf.get("font") or "").lower() for amb in antique_ambig_substrs)
+        )
+        kyokasho_ambig_top3 = bool(has_ambig_t3 and textbook_prob_sum < 0.70)
 
+    # Apply ALL Step-1 handbook pre-exceptions (`style_and_pitfalls.md §1.2` / `SKILL.md:87`)
+    # BEFORE emitting `[LOCKED>=0.90]` or `[⚠ HIGH-CONF YM MISMATCH!]`:
     has_ym_hi_mismatch = False
     ym_col = (180, 190, 205)
     lock_tag = ""
@@ -1843,19 +1891,28 @@ def _format_verify_crop_ym_line(
         ym_col = (255, 200, 120)
     elif thin_stem_downgraded:
         stem_disp = 2.0 * stem_hw if (stem_hw is not None and stem_hw > 0.0) else 2.0 * shw
-        if ym_conf >= 0.90 and not is_low_conf_or_short and cur_fam not in acc_fams:
-            has_ym_hi_mismatch = True
-            lock_tag = f" [THIN-STEM: raw_stem={stem_disp:.1f}px, no CuSong lock] [⚠ HIGH-CONF YM MISMATCH!]"
-            ym_col = (255, 110, 110)
-        else:
-            lock_tag = f" [THIN-STEM: raw_stem={stem_disp:.1f}px, no CuSong lock]"
+        lock_tag = f" [THIN-STEM: raw_stem={stem_disp:.1f}px, no CuSong lock]"
+        ym_col = (255, 200, 120)
+    elif is_low_conf_or_short:
+        pass
+    elif not kaisho_lock_allowed:
+        if ym_conf >= _YM_LOCK_MIN_CONF:
+            lock_tag = " [NON-CORE-KAISHO: verify 1:1 raw strokes]"
             ym_col = (255, 200, 120)
-    elif ym_conf >= 0.90 and not is_low_conf_or_short:
+    elif antique_ambig_top1 or kyokasho_ambig_top3:
+        if ym_conf >= _YM_LOCK_MIN_CONF:
+            lock_tag = " [ANTIQUE-AMBIG: verify 1:1 raw strokes]"
+            ym_col = (255, 200, 120)
+    elif t1_prob < _YM_LOCK_MIN_TOP1_PROB:
+        if ym_conf >= _YM_LOCK_MIN_CONF:
+            lock_tag = " [TOP1<0.68: verify 1:1 raw strokes]"
+            ym_col = (255, 200, 120)
+    elif ym_conf >= _YM_LOCK_MIN_CONF:
         if cur_fam not in acc_fams:
             has_ym_hi_mismatch = True
             lock_tag = " [⚠ HIGH-CONF YM MISMATCH!]"
             ym_col = (255, 110, 110)
-        elif kaisho_lock_allowed:
+        else:
             lock_tag = " [LOCKED>=0.90]"
             ym_col = (155, 225, 255)
 
@@ -1968,12 +2025,32 @@ def cmd_verify_crops(
             continue
         selected_pages.append(p.source_path.name)
         missing_parts: list[str] = []
+        img_data: dict = {}
+        regs: list[dict] = []
+        has_visible_regs = False
+        has_mask_raw = False
         if not p.json_exists:
             missing_parts.append("missing_json")
+        else:
+            try:
+                _, img_data = load_page_json(p)
+                regs = img_data.get("regions") or []
+                has_visible_regs = any(visible_text_of_region(r).strip() for r in regs)
+                raw_m = img_data.get("mask_raw")
+                if isinstance(raw_m, str) and raw_m.strip():
+                    dec_probe = decode_mask_base64(raw_m, None)
+                    has_mask_raw = bool(dec_probe is not None and np.any(dec_probe > 0))
+                elif isinstance(raw_m, list) and raw_m:
+                    has_mask_raw = bool(np.any(np.asarray(raw_m) > 0))
+            except Exception:
+                missing_parts.append("corrupt_json")
         if not p.display_base_path.is_file():
             missing_parts.append("missing_display_base")
         if not p.rendered_output_exists:
             missing_parts.append("missing_rendered_output")
+        needs_inpainted = bool(has_visible_regs or has_mask_raw)
+        if needs_inpainted and not (p.inpainted_exists and p.inpainted_path.is_file()):
+            missing_parts.append("missing_inpainted")
         if missing_parts:
             skip_rec = {
                 "page": p.source_path.name,
@@ -1988,9 +2065,6 @@ def cmd_verify_crops(
             ym_caches_by_work[p.work_dir] = load_font_detection_cache(p.work_dir)
         page_ym_cache = ((ym_caches_by_work[p.work_dir].get("pages") or {}).get(p.source_path.stem))
 
-        _, img_data = load_page_json(p)
-        regs = img_data.get("regions") or []
-
         raw_im = Image.open(p.display_base_path).convert("RGB")
         ren_im = Image.open(p.rendered_output_path).convert("RGB")
         if ren_im.size != raw_im.size:
@@ -2002,17 +2076,30 @@ def cmd_verify_crops(
 
         inp_im: Image.Image | None = None
         inp_gray: np.ndarray | None = None
-        if p.inpainted_exists:
-            inp_rgb = open_rgb_image(p.inpainted_path)
-            inp_im = Image.fromarray(inp_rgb)
-            if inp_im.size != raw_im.size:
-                inp_im = inp_im.resize(raw_im.size, Image.Resampling.LANCZOS)
-                inp_rgb = np.asarray(inp_im)
-            inp_gray = cv2.cvtColor(inp_rgb, cv2.COLOR_RGB2GRAY)
+        if p.inpainted_exists and p.inpainted_path.is_file():
+            try:
+                inp_rgb = open_rgb_image(p.inpainted_path)
+                inp_im = Image.fromarray(inp_rgb)
+                if inp_im.size != raw_im.size:
+                    inp_im = inp_im.resize(raw_im.size, Image.Resampling.LANCZOS)
+                    inp_rgb = np.asarray(inp_im)
+                inp_gray = cv2.cvtColor(inp_rgb, cv2.COLOR_RGB2GRAY)
+            except Exception:
+                if needs_inpainted:
+                    skip_rec = {
+                        "page": p.source_path.name,
+                        "page_number": p_no,
+                        "reason": "missing_inpainted",
+                    }
+                    skipped_pages.append(skip_rec)
+                    missing_artifact_pages.append(skip_rec)
+                    continue
 
         mask_u8 = decode_mask_base64(img_data.get("mask_raw"), (ih, iw))
-        in_bubbles = _classify_page_regions_in_bubble(inp_gray, regs) if regs else []
-        reg_stroke_hw, reg_stem_hw, regular_ref_hw = measure_page_stroke_metrics(base_gray, inp_gray, regs) if regs else ({}, {}, 2.20)
+        in_bubbles = _classify_page_regions_in_bubble(inp_gray, regs) if (regs and inp_gray is not None) else []
+        reg_stroke_hw, reg_stem_hw, regular_ref_hw = (
+            measure_page_stroke_metrics(base_gray, inp_gray, regs) if regs else ({}, {}, 2.20)
+        )
 
         # Sort regions in manga reading order (top-to-bottom bands, right-to-left within band)
         ordered: list[tuple[int, dict, float, float]] = []
@@ -2322,7 +2409,7 @@ def cmd_compare(
     after_dir: Path | None,
     out_dir: Path,
     prefix: str = "cmp_",
-) -> None:
+) -> dict:
     """Generate 3-panel (Raw | Before | After) comparison PNGs (falls back to 2-panel if raw_dir omitted).
     When `after_dir` is omitted (`None`) or lacks a matching file, automatically resolves each page's rendered output
     (`last_output_path` / `last_export_dir` / `-translated` / `manga_translator_work/result`) via `resolve_page_paths`."""
@@ -2333,7 +2420,31 @@ def cmd_compare(
         (p for p in before_dir.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTS),
         key=_natural_sort_key,
     )
+    before_stems_cf = {bp.stem.casefold() for bp in before_files}
+    missing_before_pages: list[str] = []
+    expected_pages: list[str] = []
+    if raw_dir is not None and raw_dir.is_dir():
+        raw_pages = sorted(
+            (
+                p
+                for p in raw_dir.iterdir()
+                if p.is_file()
+                and p.suffix.lower() in IMAGE_EXTS
+                and not p.stem.lower().endswith("-translated")
+            ),
+            key=_natural_sort_key,
+        )
+        expected_pages = [rp.name for rp in raw_pages]
+        for rp in raw_pages:
+            if rp.stem.casefold() not in before_stems_cf:
+                missing_before_pages.append(rp.name)
+    else:
+        expected_pages = [bp.name for bp in before_files]
+
     count = 0
+    compared_count = 0
+    identical_count = 0
+    missing_after_pages: list[str] = []
     for idx, bp in enumerate(before_files, 1):
         rp: Path | None = None
         if raw_dir is not None and raw_dir.is_dir():
@@ -2356,10 +2467,13 @@ def cmd_compare(
                     _, ap = _resolve_page_rendered_status(src_cand)
 
         if ap is None or not ap.is_file():
+            missing_after_pages.append(rp.name if rp is not None else bp.name)
             continue
         ib = Image.open(bp).convert("RGB")
         ia = Image.open(ap).convert("RGB")
+        compared_count += 1
         if np.array_equal(np.asarray(ib), np.asarray(ia)):
+            identical_count += 1
             continue
         w, h = ib.size
         if ia.size != (w, h):
@@ -2392,7 +2506,27 @@ def cmd_compare(
         out_p = out_dir / f"{prefix}p{idx:02d}_{bp.stem}.png"
         canvas.save(out_p, compress_level=3)
         count += 1
-    print(f"Generated {count} comparison sheets in {out_dir}")
+    complete_coverage = bool(
+        expected_pages
+        and not missing_before_pages
+        and not missing_after_pages
+        and compared_count == len(expected_pages)
+    )
+    print(
+        f"Generated {count} comparison sheets in {out_dir} "
+        f"(compared={compared_count}/{len(expected_pages)}, identical={identical_count}, "
+        f"missing_before={len(missing_before_pages)}, missing_after={len(missing_after_pages)}, "
+        f"complete_coverage={complete_coverage})"
+    )
+    return {
+        "sheets_generated": count,
+        "expected_page_count": len(expected_pages),
+        "compared_page_count": compared_count,
+        "identical_page_count": identical_count,
+        "missing_before_pages": missing_before_pages,
+        "missing_after_pages": missing_after_pages,
+        "complete_coverage": complete_coverage,
+    }
 
 
 def main() -> None:

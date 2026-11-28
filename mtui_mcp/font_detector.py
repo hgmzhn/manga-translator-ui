@@ -631,6 +631,23 @@ def save_font_detection_cache_atomic(work_dir: Path, payload: dict[str, Any]) ->
     return cp
 
 
+def _parse_nonneg_int(val: Any) -> Optional[int]:
+    if isinstance(val, bool) or val is None:
+        return None
+    if isinstance(val, int):
+        return val if val >= 0 else None
+    if isinstance(val, str):
+        s = val.strip()
+        if not s:
+            return None
+        try:
+            parsed = int(s)
+        except ValueError:
+            return None
+        return parsed if parsed >= 0 else None
+    return None
+
+
 def lookup_cached_region_prediction(
     page_cache: Optional[dict[str, Any]],
     reg: dict[str, Any],
@@ -640,6 +657,10 @@ def lookup_cached_region_prediction(
 ) -> Optional[dict[str, Any]]:
     if not page_cache or not isinstance(page_cache, dict):
         return None
+    if total_regions is not None:
+        total_regions = _parse_nonneg_int(total_regions)
+        if total_regions is None:
+            return None
     bbox = region_bbox_xyxy(reg)
     sig = region_bbox_signature(bbox)
     reg_uid = str(reg.get("region_uid") or "").strip()
@@ -668,15 +689,33 @@ def lookup_cached_region_prediction(
 
     # 2. Cached bbox_sig / center identity verification (present on all real engine_worker cache entries)
     cand_sig = str(cand.get("bbox_sig") or "").strip()
-    cand_center = cand.get("center")
-    has_cand_center = isinstance(cand_center, (list, tuple)) and len(cand_center) >= 2
     if cand_sig and cand_sig == sig:
         return cand
 
-    # Reject stale index reuse whenever page region count changed or cached indices exceed current region list
-    cached_count = page_cache.get("region_count")
-    if cached_count is not None and total_regions is not None and int(cached_count) != total_regions:
-        return None
+    cand_center = cand.get("center")
+    cand_cx = 0.0
+    cand_cy = 0.0
+    has_cand_center = False
+    if (
+        isinstance(cand_center, (list, tuple))
+        and len(cand_center) >= 2
+        and not isinstance(cand_center[0], bool)
+        and not isinstance(cand_center[1], bool)
+    ):
+        try:
+            cand_cx = float(cand_center[0])
+            cand_cy = float(cand_center[1])
+            has_cand_center = math.isfinite(cand_cx) and math.isfinite(cand_cy)
+        except (TypeError, ValueError):
+            has_cand_center = False
+
+    # Reject invalid or stale region_count, or cached indices exceeding current region list
+    if "region_count" in page_cache and page_cache.get("region_count") is not None:
+        cached_count = _parse_nonneg_int(page_cache.get("region_count"))
+        if cached_count is None:
+            return None
+        if total_regions is not None and cached_count != total_regions:
+            return None
     if total_regions is not None:
         if any(int(k) >= total_regions for k in by_idx if str(k).isdigit()):
             return None
@@ -685,17 +724,11 @@ def lookup_cached_region_prediction(
 
     if has_cand_center:
         cx, cy = region_center(reg)
-        if math.hypot(cx - float(cand_center[0]), cy - float(cand_center[1])) > 24.0:
+        if math.hypot(cx - cand_cx, cy - cand_cy) > 24.0:
             return None
         if total_regions is not None and len(by_idx) != total_regions:
             return None
         return cand
 
-    if cand_sig or by_sig:
-        # Cached entry had a different bbox_sig (or by_bbox_sig missed) and no matching center/UID
-        return None
-
-    # Bare by_ridx-only cache without bbox_sig/center/UID: reject multi-region unverified index lookups
-    if total_regions is None and len(by_idx) > 1:
-        return None
-    return cand
+    # Never accept unverified bare by_ridx hits lacking region_uid, bbox_sig, and center
+    return None

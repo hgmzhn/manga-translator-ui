@@ -286,16 +286,25 @@ def encode_mask_base64(mask: np.ndarray) -> str:
     return base64.b64encode(encoded).decode("ascii")
 
 
-def compute_page_revision(paths: PagePaths, *, json_bytes: Optional[bytes] = None) -> str:
+_UNSET_JSON_BYTES = object()
+
+
+def compute_page_revision(paths: PagePaths, *, json_bytes: Any = _UNSET_JSON_BYTES) -> str:
     """Compute a deterministic optimistic-concurrency token (`rev_<16hex>`) over JSON + inpainted sidecar."""
     h = hashlib.sha256()
-    if json_bytes is not None:
+    if json_bytes is _UNSET_JSON_BYTES:
+        if paths.json_exists and paths.json_path.is_file():
+            try:
+                h.update(paths.json_path.read_bytes())
+            except OSError:
+                pass
+    elif isinstance(json_bytes, (bytes, bytearray, memoryview)):
         h.update(json_bytes)
-    elif paths.json_exists and paths.json_path.is_file():
-        try:
-            h.update(paths.json_path.read_bytes())
-        except OSError:
-            pass
+    elif json_bytes is None:
+        # Explicitly absent JSON bytes: hash empty JSON content rather than re-reading a newer file on disk
+        pass
+    else:
+        raise TypeError(f"Unsupported json_bytes type: {type(json_bytes).__name__}")
     if paths.inpainted_exists and paths.inpainted_path.is_file():
         try:
             st = paths.inpainted_path.stat()
@@ -363,9 +372,56 @@ def resolve_region_target_index(
     return idx
 
 
+def _normalize_legacy_richtext_nulls(doc: Any) -> None:
+    """Normalize legacy `null` list/text fields inside `richtext.v1` dicts in-place so load/save never raises `TypeError`."""
+    if not isinstance(doc, dict) or doc.get("format") != "richtext.v1":
+        return
+    if doc.get("blocks") is None:
+        doc["blocks"] = []
+    blocks = doc.get("blocks")
+    if not isinstance(blocks, list):
+        return
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        if block.get("inlines") is None:
+            block["inlines"] = []
+        inlines = block.get("inlines")
+        if not isinstance(inlines, list):
+            continue
+        for inline in inlines:
+            if not isinstance(inline, dict):
+                continue
+            itype = inline.get("type", "text")
+            if itype == "ruby":
+                if inline.get("base") is None:
+                    inline["base"] = []
+                if inline.get("text") is None:
+                    inline["text"] = []
+                for sub_key in ("base", "text"):
+                    runs = inline.get(sub_key)
+                    if isinstance(runs, list):
+                        for r in runs:
+                            if isinstance(r, dict) and r.get("text") is None:
+                                r["text"] = ""
+            elif itype == "tcy":
+                if inline.get("content") is None:
+                    inline["content"] = []
+                runs = inline.get("content")
+                if isinstance(runs, list):
+                    for r in runs:
+                        if isinstance(r, dict) and r.get("text") is None:
+                            r["text"] = ""
+            elif itype == "text" and inline.get("text") is None:
+                inline["text"] = ""
+
+
 def _with_ensured_uids(data: dict[str, Any]) -> dict[str, Any]:
     regs = data.get("regions")
     if isinstance(regs, list):
+        for reg in regs:
+            if isinstance(reg, dict) and "translation_rich" in reg:
+                _normalize_legacy_richtext_nulls(reg.get("translation_rich"))
         ensure_region_uids(regs)
     return data
 
@@ -624,6 +680,8 @@ def save_page_json_atomic(
         if not isinstance(reg, dict):
             continue
         rc = copy.deepcopy(reg)
+        if "translation_rich" in rc:
+            _normalize_legacy_richtext_nulls(rc.get("translation_rich"))
         # Ensure `translation_raw` exists for Desktop UI editor compatibility
         if "translation" not in rc:
             rc["translation"] = plain_to_storage_br(str(rc.get("text", "") or ""))
@@ -784,13 +842,45 @@ def _copy_file_atomic(src: Path, dst: Path) -> None:
                 pass
 
 
-def _is_complete_snapshot_dir(snap_dir: Path) -> bool:
+def _is_complete_snapshot_dir(snap_dir: Path, *, require_nonempty: bool = False) -> bool:
     mf = snap_dir / "manifest.json"
-    if not mf.is_file():
+    if mf.is_symlink() or not mf.is_file():
         return False
     try:
+        snap_root = snap_dir.resolve()
         data = json.loads(mf.read_text(encoding="utf-8"))
-        return isinstance(data, dict)
+        if not isinstance(data, dict):
+            return False
+        page_val = data.get("page")
+        files_map = data.get("files")
+        if not isinstance(page_val, str) or not page_val.strip() or not isinstance(files_map, dict):
+            return False
+        if require_nonempty and not files_map:
+            return False
+        for kind, info in files_map.items():
+            if kind not in ("json", "inpainted", "rendered") or not isinstance(info, dict):
+                return False
+            backup_rel = info.get("backup")
+            orig_raw = info.get("original")
+            if (
+                not isinstance(backup_rel, str)
+                or not backup_rel.strip()
+                or not isinstance(orig_raw, str)
+                or not orig_raw.strip()
+            ):
+                return False
+            raw_b = snap_dir / backup_rel
+            if raw_b.is_symlink():
+                return False
+            b_res = raw_b.resolve()
+            if (
+                not b_res.is_relative_to(snap_root)
+                or b_res == snap_root
+                or os.path.normcase(b_res.name) == "manifest.json"
+                or not b_res.is_file()
+            ):
+                return False
+        return True
     except Exception:
         return False
 
@@ -882,7 +972,7 @@ def ensure_initial_snapshot(paths: PagePaths) -> Optional[dict[str, Any]]:
             if (
                 entry.name.startswith(prefix)
                 and re.search(r"__initial_before_mcp(?:_\d+)?$", entry.name) is not None
-                and _is_complete_snapshot_dir(entry)
+                and _is_complete_snapshot_dir(entry, require_nonempty=True)
             ):
                 return None
     return create_snapshot(paths, label="initial_before_mcp")
@@ -932,6 +1022,32 @@ def list_snapshots(target_path: str | Path) -> list[dict[str, Any]]:
     return out
 
 
+def _assert_safe_restore_target(
+    dst: Path,
+    allowed_real_root: Path,
+    src_real: Path,
+    *,
+    exact_parent: bool = False,
+) -> None:
+    """Verify ``dst`` is not a symlink and its resolved real parent stays inside ``allowed_real_root``."""
+    if dst.is_symlink():
+        raise ValueError(f"Snapshot restore target {dst} must not be a symlink")
+    dst_parent_real = dst.parent.resolve()
+    dst_real = dst_parent_real / dst.name
+    if os.path.normcase(str(dst_real)) == os.path.normcase(str(src_real)):
+        raise ValueError(f"Snapshot restore target {dst} collides with source image {src_real}")
+    if exact_parent:
+        if os.path.normcase(str(dst_parent_real)) != os.path.normcase(str(allowed_real_root)):
+            raise ValueError(
+                f"Snapshot restore target {dst} resolves outside allowed directory {allowed_real_root}"
+            )
+    else:
+        if not dst_real.is_relative_to(allowed_real_root) or dst_real == allowed_real_root:
+            raise ValueError(
+                f"Snapshot restore target {dst} escapes allowed root {allowed_real_root}"
+            )
+
+
 def _validate_and_plan_snapshot_restore(
     paths: PagePaths,
     snap_dir: Path,
@@ -953,12 +1069,18 @@ def _validate_and_plan_snapshot_restore(
         raise ValueError(f"Invalid 'files' table in snapshot {resolved_id!r}")
 
     snap_root = snap_dir.resolve()
+    src_real = paths.source_path.resolve()
+    src_dir_real = paths.source_path.parent.resolve()
+    expected_sib_real = src_dir_real.parent / f"{src_dir_real.name}-translated"
     canon_json = paths.work_dir / "json" / f"{paths.source_path.stem}_translations.json"
     legacy_json = paths.source_path.parent / f"{paths.source_path.stem}_translations.json"
-    inpainted_dir_norm = _norm_abs_path_str(paths.work_dir / "inpainted")
+    inpainted_dir = paths.work_dir / "inpainted"
+    inpainted_dir_norm = _norm_abs_path_str(inpainted_dir)
     expected_inp_stem = os.path.normcase(f"{paths.source_path.stem}_inpainted")
     src_stem_norm = os.path.normcase(paths.source_path.stem)
     src_norm = _norm_abs_path_str(paths.source_path)
+    sib_dir = paths.source_path.parent.parent / f"{paths.source_path.parent.name}-translated"
+    res_dir = paths.work_dir / "result"
 
     copies: list[tuple[Path, Path, str, Optional[Path]]] = []
     for kind, info in files_map.items():
@@ -969,13 +1091,27 @@ def _validate_and_plan_snapshot_restore(
         backup_rel = info.get("backup")
         if not isinstance(backup_rel, str) or not backup_rel.strip():
             raise ValueError(f"Snapshot manifest entry {kind!r} has an invalid backup filename")
-        src = (snap_dir / backup_rel).resolve()
+        raw_src = snap_dir / backup_rel
+        if raw_src.is_symlink():
+            raise ValueError(f"Snapshot backup path {backup_rel!r} escapes {snap_root}")
+        src = raw_src.resolve()
         if (
             not src.is_relative_to(snap_root)
             or src == snap_root
             or os.path.normcase(src.name) == "manifest.json"
         ):
             raise ValueError(f"Snapshot backup path {backup_rel!r} escapes {snap_root}")
+        if not src.is_file():
+            raise FileNotFoundError(
+                f"Snapshot {resolved_id!r} is incomplete: missing backup file {backup_rel!r} for {kind!r}"
+            )
+        try:
+            with open(src, "rb") as _probe:
+                _probe.read(1)
+        except OSError as exc:
+            raise ValueError(
+                f"Snapshot {resolved_id!r} backup file {backup_rel!r} for {kind!r} is unreadable: {exc}"
+            ) from exc
 
         orig_raw = info.get("original")
         if not isinstance(orig_raw, str) or not orig_raw.strip():
@@ -1002,6 +1138,9 @@ def _validate_and_plan_snapshot_restore(
             else:
                 dst = canon_json
                 extra_sync = None
+            _assert_safe_restore_target(dst, src_dir_real, src_real)
+            if extra_sync is not None:
+                _assert_safe_restore_target(extra_sync, src_dir_real, src_real)
             copies.append((src, dst, kind, extra_sync))
         elif kind == "inpainted":
             valid_inp = orig_norm == _norm_abs_path_str(paths.inpainted_path) or (
@@ -1013,32 +1152,66 @@ def _validate_and_plan_snapshot_restore(
                 raise ValueError(
                     f"Snapshot manifest entry 'inpainted' ({orig_raw!r}) does not belong to page {paths.source_path.name}"
                 )
-            dst = paths.inpainted_path if orig_p.suffix.lower() == paths.inpainted_path.suffix.lower() else orig_p
+            dst = (
+                paths.inpainted_path
+                if orig_p.suffix.lower() == paths.inpainted_path.suffix.lower()
+                else (inpainted_dir / f"{paths.source_path.stem}_inpainted{orig_p.suffix}")
+            )
+            _assert_safe_restore_target(dst, src_dir_real, src_real)
             copies.append((src, dst, kind, None))
         elif kind == "rendered":
-            sib_dir = paths.source_path.parent.parent / f"{paths.source_path.parent.name}-translated"
-            res_dir = paths.work_dir / "result"
+            is_inline_translated = (
+                _norm_abs_path_str(orig_p.parent) == _norm_abs_path_str(paths.source_path.parent)
+                and os.path.normcase(orig_p.stem) == os.path.normcase(f"{paths.source_path.stem}-translated")
+            )
+            is_external_page_stem = (
+                _norm_abs_path_str(orig_p.parent) != _norm_abs_path_str(paths.source_path.parent)
+                and os.path.normcase(orig_p.stem) == src_stem_norm
+            )
             valid_ren = (
                 orig_norm != src_norm
                 and orig_p.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
-                and (
-                    orig_norm == _norm_abs_path_str(paths.rendered_output_path)
-                    or (
-                        _norm_abs_path_str(orig_p.parent)
-                        in (_norm_abs_path_str(sib_dir), _norm_abs_path_str(res_dir))
-                        and os.path.normcase(orig_p.stem) == src_stem_norm
-                    )
-                    or (
-                        _norm_abs_path_str(orig_p.parent) == _norm_abs_path_str(paths.source_path.parent)
-                        and os.path.normcase(orig_p.stem) == os.path.normcase(f"{paths.source_path.stem}-translated")
-                    )
-                )
+                and (is_inline_translated or is_external_page_stem)
             )
             if not valid_ren:
                 raise ValueError(
                     f"Snapshot manifest entry 'rendered' ({orig_raw!r}) does not belong to page {paths.source_path.name}"
                 )
-            dst = paths.rendered_output_path if orig_norm == _norm_abs_path_str(paths.rendered_output_path) else orig_p
+
+            # Never let manifest.json self-authorize an arbitrary external path:
+            # restore standard project locations directly (after real-parent check), and map any custom
+            # output_dir snapshot (including prior output_dir A -> current output_dir B) onto the validated
+            # current `paths.rendered_output_path` location.
+            orig_parent_norm = _norm_abs_path_str(orig_p.parent)
+            if orig_parent_norm == _norm_abs_path_str(res_dir):
+                dst = res_dir / orig_p.name
+                _assert_safe_restore_target(dst, src_dir_real, src_real)
+            elif orig_parent_norm == _norm_abs_path_str(sib_dir):
+                dst = sib_dir / orig_p.name
+                _assert_safe_restore_target(dst, expected_sib_real, src_real, exact_parent=True)
+            elif is_inline_translated:
+                dst = paths.source_path.parent / orig_p.name
+                _assert_safe_restore_target(dst, src_dir_real, src_real, exact_parent=True)
+            else:
+                cur_ren = paths.rendered_output_path
+                cur_parent_norm = _norm_abs_path_str(cur_ren.parent)
+                if cur_parent_norm == _norm_abs_path_str(res_dir):
+                    dst = cur_ren.with_suffix(orig_p.suffix)
+                    _assert_safe_restore_target(dst, src_dir_real, src_real)
+                elif cur_parent_norm == _norm_abs_path_str(sib_dir):
+                    dst = cur_ren.with_suffix(orig_p.suffix)
+                    _assert_safe_restore_target(dst, expected_sib_real, src_real, exact_parent=True)
+                elif cur_parent_norm == _norm_abs_path_str(paths.source_path.parent):
+                    dst = paths.source_path.parent / f"{paths.source_path.stem}-translated{orig_p.suffix}"
+                    _assert_safe_restore_target(dst, src_dir_real, src_real, exact_parent=True)
+                else:
+                    if cur_ren.parent.is_symlink():
+                        raise ValueError(
+                            f"Current rendered output directory {cur_ren.parent} must not be a symlink"
+                        )
+                    trusted_custom_real = cur_ren.parent.resolve()
+                    dst = cur_ren.with_suffix(orig_p.suffix)
+                    _assert_safe_restore_target(dst, trusted_custom_real, src_real, exact_parent=True)
             copies.append((src, dst, kind, None))
 
     return copies
@@ -1131,11 +1304,10 @@ def restore_snapshot(
         copies = _validate_and_plan_snapshot_restore(paths, snap_dir, resolved_id, manifest)
         restored: list[str] = []
         for src, dst, kind, extra_sync in copies:
-            if src.is_file():
-                _copy_file_atomic(src, dst)
-                if extra_sync is not None and _norm_abs_path_str(extra_sync) != _norm_abs_path_str(dst):
-                    _copy_file_atomic(src, extra_sync)
-                restored.append(f"{kind}:{dst}")
+            _copy_file_atomic(src, dst)
+            if extra_sync is not None and _norm_abs_path_str(extra_sync) != _norm_abs_path_str(dst):
+                _copy_file_atomic(src, extra_sync)
+            restored.append(f"{kind}:{dst}")
         return {
             "page": paths.source_path.name,
             "snapshot_id": resolved_id,
@@ -1528,44 +1700,44 @@ def _inpainted_stat_sig(paths: PagePaths) -> Optional[tuple[int, int]]:
 
 
 def get_page_details_dict(page_path: str | Path, include_polygons: bool = False) -> dict[str, Any]:
-    paths = resolve_page_paths(page_path)
-    lock_path = _resolve_page_lock_path(paths)
-    norm_key = os.path.normcase(os.path.normpath(os.path.abspath(str(lock_path))))
-    with _PAGE_LOCKS_GUARD:
-        existing_state = _PAGE_LOCKS.get(norm_key)
-
-    @contextmanager
-    def _maybe_inproc_lock() -> Iterator[None]:
-        if existing_state is not None:
-            with existing_state.rlock:
-                yield
-        else:
-            yield
-
-    with _maybe_inproc_lock():
+    with page_edit_lock(page_path):
+        paths = resolve_page_paths(page_path)
         image_data: dict[str, Any] = {"regions": []}
         revision = ""
-        for attempt in range(3):
+        verified = False
+        for _attempt in range(5):
             paths = resolve_page_paths(page_path)
             inp_before = _inpainted_stat_sig(paths)
-            _, image_data, raw_bytes = _load_page_json_with_bytes(paths)
+            if paths.json_exists:
+                try:
+                    raw_bytes = paths.json_path.read_bytes()
+                except FileNotFoundError:
+                    continue
+                canonical_key = os.path.abspath(str(paths.source_path))
+                raw_parsed = json.loads(raw_bytes.decode("utf-8"))
+                _, image_data = _parse_loaded_page_json(raw_parsed, canonical_key)
+            else:
+                image_data = {"regions": []}
+                raw_bytes = None
             revision = compute_page_revision(paths, json_bytes=raw_bytes)
             paths_after = resolve_page_paths(page_path)
             inp_after = _inpainted_stat_sig(paths_after)
             if (
-                attempt == 2
-                or (
-                    _norm_abs_path_str(paths_after.json_path) == _norm_abs_path_str(paths.json_path)
-                    and paths_after.json_exists == paths.json_exists
-                    and inp_before == inp_after
-                )
+                _norm_abs_path_str(paths_after.json_path) == _norm_abs_path_str(paths.json_path)
+                and paths_after.json_exists == paths.json_exists
+                and inp_before == inp_after
             ):
+                verified = True
                 break
+        if not verified:
+            raise RuntimeError(
+                f"Concurrent modification prevented reading a consistent page snapshot for {paths.source_path.name}"
+            )
 
-    img_w, img_h = 0, 0
-    if paths.display_base_path.is_file():
-        with Image.open(paths.display_base_path) as im:
-            img_w, img_h = im.size
+        img_w, img_h = 0, 0
+        if paths.display_base_path.is_file():
+            with Image.open(paths.display_base_path) as im:
+                img_w, img_h = im.size
 
     regions = image_data.get("regions", [])
     ensure_region_uids(regions)
@@ -1959,7 +2131,7 @@ def align_regions_on_page(
         regions = image_data.get("regions", [])
         ensure_region_uids(regions)
 
-        valid_indices = [int(i) for i in region_indices if 0 <= int(i) < len(regions)]
+        valid_indices = list(dict.fromkeys(int(i) for i in region_indices if 0 <= int(i) < len(regions)))
         if len(valid_indices) < (1 if reference == "canvas" else 2):
             raise ValueError("Not enough valid region_indices for alignment/distribution")
 

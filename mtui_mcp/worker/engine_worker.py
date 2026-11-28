@@ -31,8 +31,8 @@ from typing import Any, Optional
 
 _WINDOWS_TRANSIENT_REPLACE_WINERRORS = frozenset({5, 32})
 _ATOMIC_REPLACE_RETRY_DELAYS = (0.02, 0.05, 0.1, 0.15, 0.2, 0.3)
-_ORIG_SUBPROCESS_RUN = subprocess.run
 _SHUTDOWN_DRAIN_TIMEOUT_SEC = 10.0
+_TRANSLATION_MAP_LOCK = threading.Lock()
 
 
 @contextlib.contextmanager
@@ -63,6 +63,30 @@ def _regions_list_from_entry(val: Any) -> Optional[list[dict[str, Any]]]:
     return None
 
 
+def _json_belongs_to_source_page(abs_src: str, json_path: Optional[str | Path]) -> bool:
+    """Return True iff `json_path` is the dedicated per-page `*_translations.json` for `abs_src`."""
+    if not json_path:
+        return False
+    jp_abs = os.path.abspath(str(json_path))
+    src_stem = os.path.splitext(os.path.basename(abs_src))[0]
+    if os.path.normcase(os.path.basename(jp_abs)) != os.path.normcase(f"{src_stem}_translations.json"):
+        return False
+    src_dir = os.path.dirname(abs_src)
+    try:
+        jp_dir_real = Path(os.path.realpath(os.path.dirname(jp_abs)))
+        src_dir_real = Path(os.path.realpath(src_dir))
+        trans_dir_real = Path(os.path.realpath(f"{src_dir}-translated"))
+    except OSError:
+        return False
+    for allowed_root in (src_dir_real, trans_dir_real):
+        try:
+            if jp_dir_real == allowed_root or jp_dir_real.is_relative_to(allowed_root):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 def _select_page_entry_from_raw_json(
     raw_json: Any,
     source_path: str | Path,
@@ -79,7 +103,24 @@ def _select_page_entry_from_raw_json(
         if regs is not None:
             return abs_src, regs
 
-    norm_target = os.path.normcase(abs_src)
+    norm_target = os.path.normcase(os.path.normpath(abs_src))
+    norm_real = os.path.normcase(os.path.realpath(abs_src))
+
+    rel_bases: list[str] = []
+    if json_path is not None:
+        jp_abs = os.path.abspath(str(json_path))
+        jp_dir = os.path.dirname(jp_abs)
+        rel_bases.append(jp_dir)
+        if (
+            os.path.normcase(os.path.basename(jp_dir)) == "json"
+            and os.path.normcase(os.path.basename(os.path.dirname(jp_dir))) == "manga_translator_work"
+        ):
+            proj_dir = os.path.dirname(os.path.dirname(jp_dir))
+            rel_bases.append(proj_dir)
+            if proj_dir.lower().endswith("-translated"):
+                rel_bases.append(proj_dir[: -len("-translated")])
+
+    # 1. Canonical path match (exact absolute path or relative key resolved against json_path's root)
     for k, v in raw_json.items():
         if not isinstance(k, str):
             continue
@@ -87,31 +128,72 @@ def _select_page_entry_from_raw_json(
         if regs is None:
             continue
         try:
-            if os.path.normcase(os.path.abspath(k)) == norm_target:
-                return k, regs
+            if os.path.isabs(k):
+                if (
+                    os.path.normcase(os.path.normpath(k)) == norm_target
+                    or os.path.normcase(os.path.realpath(k)) == norm_real
+                ):
+                    return k, regs
+            else:
+                for base_dir in rel_bases:
+                    cand_abs = os.path.abspath(os.path.join(base_dir, k))
+                    if (
+                        os.path.normcase(os.path.normpath(cand_abs)) == norm_target
+                        or os.path.normcase(os.path.realpath(cand_abs)) == norm_real
+                    ):
+                        return k, regs
         except Exception:
             continue
 
+    # 2. Migrated / relative key fallback — ONLY when page ownership is verifiable and key does not belong to another page
+    is_dedicated_page_json = _json_belongs_to_source_page(abs_src, json_path)
+    if not is_dedicated_page_json:
+        return None, []
+
     target_base = os.path.normcase(os.path.basename(abs_src))
+    src_stem = os.path.normcase(os.path.splitext(os.path.basename(abs_src))[0])
+    src_parent_name = os.path.normcase(os.path.basename(os.path.dirname(abs_src)))
+
+    def _is_safe_migrated_or_relative_key(key_str: str, *, require_exact_basename: bool) -> bool:
+        key_base = os.path.normcase(os.path.basename(key_str))
+        key_stem = os.path.normcase(os.path.splitext(key_base)[0])
+        if require_exact_basename and key_base != target_base:
+            return False
+        if not require_exact_basename and key_stem != src_stem:
+            return False
+        if os.path.isabs(key_str):
+            # Never match an absolute path that still resolves to a different existing page on disk
+            try:
+                if os.path.exists(key_str) and os.path.normcase(os.path.realpath(key_str)) != norm_real:
+                    return False
+            except OSError:
+                return False
+            return True
+        key_dir = os.path.dirname(key_str)
+        if not key_dir or key_dir in (".",):
+            return True
+        return os.path.normcase(os.path.basename(key_dir)) == src_parent_name
+
     base_matches = [
         k
         for k, v in raw_json.items()
         if isinstance(k, str)
         and _regions_list_from_entry(v) is not None
-        and os.path.normcase(os.path.basename(k)) == target_base
+        and _is_safe_migrated_or_relative_key(k, require_exact_basename=True)
     ]
     if len(base_matches) == 1:
         matched_k = base_matches[0]
         return matched_k, _regions_list_from_entry(raw_json[matched_k]) or []
 
-    if len(raw_json) == 1 and json_path is not None:
-        jp_name = os.path.basename(str(json_path))
-        src_stem = os.path.splitext(os.path.basename(abs_src))[0]
-        if os.path.normcase(jp_name) == os.path.normcase(f"{src_stem}_translations.json"):
-            only_k = next(iter(raw_json.keys()))
-            only_regs = _regions_list_from_entry(raw_json[only_k])
-            if isinstance(only_k, str) and only_regs is not None:
-                return only_k, only_regs
+    if len(raw_json) == 1:
+        only_k = next(iter(raw_json.keys()))
+        only_regs = _regions_list_from_entry(raw_json[only_k])
+        if (
+            isinstance(only_k, str)
+            and only_regs is not None
+            and _is_safe_migrated_or_relative_key(only_k, require_exact_basename=False)
+        ):
+            return only_k, only_regs
 
     return None, []
 
@@ -123,8 +205,12 @@ def _run_subprocess_bounded_tails(
     env: dict[str, str],
     timeout_sec: int,
     max_chars: int = 4000,
+    runtime: Optional["EngineRuntime"] = None,
 ) -> tuple[int, str, str]:
     """Run subprocess while streaming stdout/stderr into bounded tail ring buffers."""
+    if runtime is not None and getattr(runtime, "shutting_down", False):
+        raise RuntimeError("MTUI Worker is shutting down")
+
     creationflags = 0
     if sys.platform == "win32":
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -141,6 +227,8 @@ def _run_subprocess_bounded_tails(
         errors="replace",
         creationflags=creationflags,
     )
+    if runtime is not None:
+        runtime.register_subprocess(proc)
 
     def _make_tail_reader(pipe: Any, sink: dict[str, str], key: str) -> threading.Thread:
         def _reader() -> None:
@@ -182,6 +270,11 @@ def _run_subprocess_bounded_tails(
         t_err.join(timeout=2.0)
         raise
     finally:
+        if proc.poll() is None:
+            with contextlib.suppress(Exception):
+                proc.kill()
+            with contextlib.suppress(Exception):
+                proc.wait(timeout=2.0)
         t_out.join(timeout=5.0)
         t_err.join(timeout=5.0)
         for p in (proc.stdout, proc.stderr):
@@ -190,6 +283,8 @@ def _run_subprocess_bounded_tails(
                     p.close()
                 except Exception:
                     pass
+        if runtime is not None:
+            runtime.unregister_subprocess(proc)
 
     return int(proc.returncode or 0), tails["stdout"], tails["stderr"]
 
@@ -242,10 +337,73 @@ class EngineRuntime:
         self._state_cond = threading.Condition(threading.Lock())
         self.shutting_down = False
         self._in_flight_requests = 0
+        self._subproc_lock = threading.Lock()
+        self._active_subprocesses: set[Any] = set()
         self.last_used = time.time()
         self._initialized = False
         self._export_service = None
         self._bubble_mask_cache: dict[tuple[str, int], Any] = {}
+
+    def _get_subproc_registry(self) -> tuple[threading.Lock, set[Any]]:
+        lck = getattr(self, "_subproc_lock", None)
+        if lck is None:
+            lck = threading.Lock()
+            self._subproc_lock = lck
+        procs = getattr(self, "_active_subprocesses", None)
+        if procs is None:
+            procs = set()
+            self._active_subprocesses = procs
+        return lck, procs
+
+    def register_subprocess(self, proc: Any) -> None:
+        lck, procs = self._get_subproc_registry()
+        with lck:
+            procs.add(proc)
+            already_stopping = bool(getattr(self, "shutting_down", False))
+        if already_stopping and proc.poll() is None:
+            terminate_fn = getattr(proc, "terminate", None) or getattr(proc, "kill", None)
+            if callable(terminate_fn):
+                with contextlib.suppress(Exception):
+                    terminate_fn()
+
+    def unregister_subprocess(self, proc: Any) -> None:
+        lck, procs = self._get_subproc_registry()
+        with lck:
+            procs.discard(proc)
+
+    def terminate_active_subprocesses(self, grace_sec: float = 1.0) -> int:
+        lck, procs = self._get_subproc_registry()
+        with lck:
+            active = list(procs)
+        if not active:
+            return 0
+        reaped = 0
+        for proc in active:
+            if proc.poll() is None:
+                terminate_fn = getattr(proc, "terminate", None) or getattr(proc, "kill", None)
+                if callable(terminate_fn):
+                    with contextlib.suppress(Exception):
+                        terminate_fn()
+        deadline = time.monotonic() + max(0.0, float(grace_sec))
+        for proc in active:
+            if proc.poll() is None:
+                rem = max(0.0, deadline - time.monotonic())
+                with contextlib.suppress(Exception):
+                    proc.wait(timeout=rem)
+            if proc.poll() is None:
+                kill_fn = getattr(proc, "kill", None)
+                if callable(kill_fn):
+                    with contextlib.suppress(Exception):
+                        kill_fn()
+                with contextlib.suppress(Exception):
+                    proc.wait(timeout=1.5)
+            if proc.poll() is not None:
+                reaped += 1
+        with lck:
+            for proc in active:
+                if proc.poll() is not None:
+                    procs.discard(proc)
+        return reaped
 
     def _runtime_lock(self) -> threading.RLock:
         lck = getattr(self, "lock", None)
@@ -376,28 +534,29 @@ class EngineRuntime:
         out_dir = os.path.dirname(os.path.abspath(output_path))
         os.makedirs(out_dir, exist_ok=True)
         map_file = os.path.join(out_dir, "translation_map.json")
-        mapping: dict[str, str] = {}
-        if os.path.isfile(map_file):
-            try:
-                with open(map_file, "r", encoding="utf-8") as f:
-                    loaded = json.load(f)
-                if isinstance(loaded, dict):
-                    mapping = loaded
-            except Exception:
-                mapping = {}
-        mapping[os.path.normpath(output_path)] = os.path.normpath(source_path)
-        fd, tmp = tempfile.mkstemp(prefix=".translation_map.", suffix=".tmp", dir=out_dir)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(mapping, f, ensure_ascii=False, indent=2)
-            _atomic_replace_file(tmp, map_file)
-            tmp = ""
-        finally:
-            if tmp and os.path.exists(tmp):
+        with _TRANSLATION_MAP_LOCK:
+            mapping: dict[str, str] = {}
+            if os.path.isfile(map_file):
                 try:
-                    os.remove(tmp)
-                except OSError:
-                    pass
+                    with open(map_file, "r", encoding="utf-8") as f:
+                        loaded = json.load(f)
+                    if isinstance(loaded, dict):
+                        mapping = loaded
+                except Exception:
+                    mapping = {}
+            mapping[os.path.normpath(output_path)] = os.path.normpath(source_path)
+            fd, tmp = tempfile.mkstemp(prefix=".translation_map.", suffix=".tmp", dir=out_dir)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(mapping, f, ensure_ascii=False, indent=2)
+                _atomic_replace_file(tmp, map_file)
+                tmp = ""
+            finally:
+                if tmp and os.path.exists(tmp):
+                    try:
+                        os.remove(tmp)
+                    except OSError:
+                        pass
 
     @staticmethod
     def _persist_last_export_dir(
@@ -405,19 +564,19 @@ class EngineRuntime:
         export_dir: str,
         output_path: Optional[str] = None,
         source_path: Optional[str] = None,
-    ) -> None:
+    ) -> bool:
         if not json_path or not os.path.isfile(json_path):
-            return
+            return False
         lock_target = source_path or json_path
         with _acquire_page_edit_lock(lock_target):
             if not os.path.isfile(json_path):
-                return
+                return False
             tmp = ""
             try:
                 with open(json_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 if not isinstance(data, dict) or not data:
-                    return
+                    return False
 
                 target_keys: list[str] = []
                 if source_path:
@@ -426,38 +585,48 @@ class EngineRuntime:
                         source_path,
                         json_path=json_path,
                     )
-                    if matched_k is not None and isinstance(data.get(matched_k), dict):
+                    if matched_k is not None and isinstance(data.get(matched_k), (dict, list)):
                         target_keys = [matched_k]
                 else:
-                    dict_keys = [k for k, v in data.items() if isinstance(k, str) and isinstance(v, dict)]
-                    if len(dict_keys) == 1:
-                        target_keys = dict_keys
+                    entry_keys = [
+                        k for k, v in data.items() if isinstance(k, str) and isinstance(v, (dict, list))
+                    ]
+                    if len(entry_keys) == 1:
+                        target_keys = entry_keys
                     elif output_path:
                         out_stem = os.path.normcase(os.path.splitext(os.path.basename(output_path))[0])
                         stem_matches = [
                             k
-                            for k in dict_keys
+                            for k in entry_keys
                             if os.path.normcase(os.path.splitext(os.path.basename(k))[0]) == out_stem
                         ]
                         if len(stem_matches) == 1:
                             target_keys = stem_matches
 
                 if not target_keys:
-                    return
+                    return False
 
                 changed = False
+                wrote_any = False
                 norm_dir = os.path.normpath(export_dir)
                 norm_out = os.path.normpath(output_path) if output_path else None
                 for k in target_keys:
                     val = data.get(k)
-                    if not isinstance(val, dict):
+                    if isinstance(val, list):
+                        val = {"regions": val}
+                        data[k] = val
+                        changed = True
+                    elif not isinstance(val, dict):
                         continue
+                    wrote_any = True
                     if val.get("last_export_dir") != norm_dir:
                         val["last_export_dir"] = norm_dir
                         changed = True
                     if norm_out and val.get("last_output_path") != norm_out:
                         val["last_output_path"] = norm_out
                         changed = True
+                if not wrote_any:
+                    return False
                 if changed:
                     fd, tmp = tempfile.mkstemp(
                         prefix=f".{os.path.basename(json_path)}.",
@@ -470,6 +639,7 @@ class EngineRuntime:
                         os.fsync(f.fileno())
                     _atomic_replace_file(tmp, json_path)
                     tmp = ""
+                return True
             finally:
                 if tmp and os.path.exists(tmp):
                     try:
@@ -621,40 +791,48 @@ class EngineRuntime:
             if res.error:
                 raise RuntimeError(res.error)
 
-            metadata_saved = True
-            metadata_error: Optional[str] = None
-            if not bool(params.get("proof_only", False)):
-                meta_errors: list[str] = []
-                try:
-                    self._update_translation_map(output_path, source_path)
-                except Exception as exc:
-                    meta_errors.append(f"translation_map: {exc}")
-                try:
-                    self._persist_last_export_dir(
-                        json_path,
-                        os.path.dirname(output_path),
-                        output_path=output_path,
-                        source_path=source_path,
-                    )
-                except Exception as exc:
-                    meta_errors.append(f"page_json: {exc}")
-                if meta_errors:
-                    metadata_saved = False
-                    metadata_error = "; ".join(meta_errors)
+            export_base_kind = export_base.kind
+            enhanced_region_count = len(enhanced_regions)
+            psd_script_only_cfg = bool(config.get("cli", {}).get("psd_script_only", False))
 
-            out_payload: dict[str, Any] = {
-                "status": "ok" if metadata_saved else "partial",
-                "output_path": output_path,
-                "export_base_kind": export_base.kind,
-                "region_count": len(enhanced_regions),
-                "export_psd": bool(export_psd or psd_script_only),
-                "psd_script_only": bool(config.get("cli", {}).get("psd_script_only", False)),
-                "metadata_saved": metadata_saved,
-                "elapsed_sec": round(time.perf_counter() - t0, 3),
-            }
-            if metadata_error is not None:
-                out_payload["metadata_error"] = metadata_error
-            return out_payload
+        # Release `_runtime_lock` BEFORE acquiring `page_edit_lock` in `_persist_last_export_dir`
+        # so global lock hierarchy stays strictly `page_edit_lock -> _runtime_lock` (R2-F01).
+        metadata_saved = True
+        metadata_error: Optional[str] = None
+        if not bool(params.get("proof_only", False)):
+            meta_errors: list[str] = []
+            try:
+                self._update_translation_map(output_path, source_path)
+            except Exception as exc:
+                meta_errors.append(f"translation_map: {exc}")
+            try:
+                persisted = self._persist_last_export_dir(
+                    json_path,
+                    os.path.dirname(output_path),
+                    output_path=output_path,
+                    source_path=source_path,
+                )
+                if not persisted:
+                    meta_errors.append(f"page_json: no matching writable page entry in {json_path}")
+            except Exception as exc:
+                meta_errors.append(f"page_json: {exc}")
+            if meta_errors:
+                metadata_saved = False
+                metadata_error = "; ".join(meta_errors)
+
+        out_payload: dict[str, Any] = {
+            "status": "ok" if metadata_saved else "partial",
+            "output_path": output_path,
+            "export_base_kind": export_base_kind,
+            "region_count": enhanced_region_count,
+            "export_psd": bool(export_psd or psd_script_only),
+            "psd_script_only": psd_script_only_cfg,
+            "metadata_saved": metadata_saved,
+            "elapsed_sec": round(time.perf_counter() - t0, 3),
+        }
+        if metadata_error is not None:
+            out_payload["metadata_error"] = metadata_error
+        return out_payload
 
     def incremental_neural_inpaint(self, params: dict[str, Any]) -> dict[str, Any]:
         """Run incremental crop-box neural inpainting (`lama_large` / `lama_mpe`) matching `EditorControllerInpaintService`."""
@@ -679,7 +857,7 @@ class EngineRuntime:
             inpainted_path = os.path.abspath(params["inpainted_path"])
             padding = max(16, int(params.get("padding", 50)))
             full_reinpaint = bool(params.get("full_reinpaint", False))
-            prev_mask_synced = bool(params.get("prev_mask_synced", True))
+            prev_mask_synced = bool(params.get("prev_mask_synced", False))
 
             with Image.open(display_base_path) as im:
                 base_rgb = np.array(im.convert("RGB"), dtype=np.uint8, copy=True)
@@ -886,6 +1064,21 @@ class EngineRuntime:
                     json_path=json_path,
                 )
 
+            def _geom_identity_key(r_obj: dict[str, Any]) -> str:
+                return json.dumps(
+                    [
+                        r_obj.get("lines"),
+                        r_obj.get("center"),
+                        round(float(r_obj.get("angle", 0.0) or 0.0), 4),
+                    ],
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+
+            geom_key_counts: collections.Counter[str] = collections.Counter(
+                _geom_identity_key(r_obj) for r_obj in regions_list if isinstance(r_obj, dict)
+            )
+
             items_to_process: list[dict[str, Any]] = []
             for r_idx in region_indices:
                 idx = int(r_idx)
@@ -934,11 +1127,21 @@ class EngineRuntime:
                         dtype=np.float32,
                     )
                     existing_prob = reg.get("prob")
+                    g_key = _geom_identity_key(reg)
                     items_to_process.append(
                         {
                             "region_index": idx,
                             "region_uid": str(reg.get("region_uid") or "").strip() or None,
                             "orig_lines": copy.deepcopy(lines),
+                            "orig_center": copy.deepcopy(reg.get("center")),
+                            "orig_angle": ang,
+                            "orig_geom_key": g_key,
+                            "orig_geom_unique": geom_key_counts[g_key] == 1,
+                            "orig_text": str(reg.get("text", "")),
+                            "orig_texts": copy.deepcopy(reg.get("texts")),
+                            "orig_translation": reg.get("translation"),
+                            "orig_translation_raw": reg.get("translation_raw"),
+                            "orig_translation_rich": copy.deepcopy(reg.get("translation_rich")),
                             "pts": box_pts,
                             "text": str(reg.get("text", "")),
                             "prob": 1.0 if existing_prob is None else float(existing_prob),
@@ -1075,27 +1278,29 @@ class EngineRuntime:
                 except Exception:
                     pass
 
-            out_records: list[dict[str, Any]] = []
-            for it in items_to_process:
-                rec: dict[str, Any] = {
-                    "region_index": it["region_index"],
-                    "source_text": it.get("text", ""),
-                    "ocr_prob": round(float(it.get("prob", 1.0)), 3),
-                    "translation": it.get("translation"),
-                }
-                if run_translate:
-                    rec["translated"] = bool(it.get("translated", False))
-                out_records.append(rec)
-
-            changed_json = False
-            has_region_commits = any(
-                it["region_index"] is not None
-                and ((run_ocr and bool(it.get("text"))) or (run_translate and it.get("translation") is not None))
-                for it in items_to_process
-            )
-            if commit and has_region_commits and json_path and matched_page_key is not None:
+        # Release `_runtime_lock` BEFORE acquiring `page_edit_lock` (`page_edit_lock -> _runtime_lock`, R2-F01).
+        changed_json = False
+        has_region_commits = any(
+            it["region_index"] is not None
+            and ((run_ocr and bool(it.get("text"))) or (run_translate and it.get("translation") is not None))
+            for it in items_to_process
+        )
+        if commit and has_region_commits:
+            if not json_path or matched_page_key is None:
+                for it in items_to_process:
+                    if it["region_index"] is not None:
+                        it["committed"] = False
+                        it["conflict"] = True
+                        it["conflict_reason"] = "page_entry_missing"
+            else:
                 with _acquire_page_edit_lock(source_ref_path or json_path):
-                    if os.path.isfile(json_path):
+                    if not os.path.isfile(json_path):
+                        for it in items_to_process:
+                            if it["region_index"] is not None:
+                                it["committed"] = False
+                                it["conflict"] = True
+                                it["conflict_reason"] = "json_file_missing"
+                    else:
                         with open(json_path, "r", encoding="utf-8") as f:
                             latest_json = json.load(f)
                         latest_key, latest_regions = _select_page_entry_from_raw_json(
@@ -1103,43 +1308,95 @@ class EngineRuntime:
                             source_ref_path,
                             json_path=json_path,
                         )
-                        if latest_key is not None:
+                        if latest_key is None:
+                            for it in items_to_process:
+                                if it["region_index"] is not None:
+                                    it["committed"] = False
+                                    it["conflict"] = True
+                                    it["conflict_reason"] = "page_entry_missing"
+                        else:
                             for it in items_to_process:
                                 r_idx = it["region_index"]
                                 if r_idx is None:
                                     continue
+                                wants_ocr = bool(run_ocr and it.get("text"))
+                                wants_tr = bool(run_translate and it.get("translation") is not None)
+                                if not (wants_ocr or wants_tr):
+                                    it["committed"] = False
+                                    continue
+
+                                # R2-F16: Strict UID matching when `region_uid` existed; unique geometry verification when UID-less
                                 target_reg: Optional[dict[str, Any]] = None
                                 r_uid = it.get("region_uid")
                                 if r_uid:
                                     for cand_reg in latest_regions:
-                                        if isinstance(cand_reg, dict) and str(cand_reg.get("region_uid") or "") == r_uid:
+                                        if (
+                                            isinstance(cand_reg, dict)
+                                            and str(cand_reg.get("region_uid") or "").strip() == r_uid
+                                        ):
                                             target_reg = cand_reg
                                             break
-                                if target_reg is None and 0 <= r_idx < len(latest_regions):
-                                    cand_at_idx = latest_regions[r_idx]
-                                    if isinstance(cand_at_idx, dict) and (
-                                        cand_at_idx.get("lines") == it.get("orig_lines")
-                                        or not r_uid
-                                    ):
-                                        target_reg = cand_at_idx
-                                if target_reg is None and it.get("orig_lines") is not None:
-                                    for cand_reg in latest_regions:
-                                        if isinstance(cand_reg, dict) and cand_reg.get("lines") == it.get("orig_lines"):
-                                            target_reg = cand_reg
-                                            break
+                                elif it.get("orig_lines") is not None and it.get("orig_geom_unique"):
+                                    geom_cands = [
+                                        cand_reg
+                                        for cand_reg in latest_regions
+                                        if isinstance(cand_reg, dict)
+                                        and _geom_identity_key(cand_reg) == it.get("orig_geom_key")
+                                    ]
+                                    if len(geom_cands) == 1:
+                                        target_reg = geom_cands[0]
+
                                 if target_reg is None:
+                                    it["committed"] = False
+                                    it["conflict"] = True
+                                    it["conflict_reason"] = "region_deleted_or_ambiguous"
                                     continue
 
-                                if run_ocr and it.get("text"):
+                                # R2-F15: Verify fields read for inference and fields to be overwritten have not changed concurrently
+                                cur_src_matches = (
+                                    str(target_reg.get("text", "")) == it.get("orig_text", "")
+                                    and target_reg.get("texts") == it.get("orig_texts")
+                                )
+                                if wants_ocr:
+                                    cur_geom_matches = _geom_identity_key(target_reg) == it.get("orig_geom_key")
+                                    if not (cur_src_matches and cur_geom_matches):
+                                        it["committed"] = False
+                                        it["conflict"] = True
+                                        it["conflict_reason"] = "source_or_geometry_modified_during_ocr"
+                                        continue
+
+                                if wants_tr:
+                                    cur_tr_matches = (
+                                        target_reg.get("translation") == it.get("orig_translation")
+                                        and target_reg.get("translation_rich") == it.get("orig_translation_rich")
+                                    )
+                                    if (
+                                        it.get("orig_translation") is None
+                                        and it.get("orig_translation_raw") is not None
+                                    ):
+                                        cur_tr_matches = cur_tr_matches and (
+                                            target_reg.get("translation_raw") == it.get("orig_translation_raw")
+                                        )
+                                    if not (cur_src_matches and cur_tr_matches):
+                                        it["committed"] = False
+                                        it["conflict"] = True
+                                        it["conflict_reason"] = "source_or_translation_modified_during_translate"
+                                        continue
+
+                                reg_updated = False
+                                if wants_ocr:
                                     target_reg["text"] = it["text"]
                                     target_reg["texts"] = [it["text"]]
                                     target_reg["prob"] = float(it.get("prob", 1.0))
-                                    changed_json = True
-                                if run_translate and it.get("translation") is not None:
+                                    reg_updated = True
+                                if wants_tr:
                                     br_t = str(it["translation"]).replace("\n", "[BR]")
                                     target_reg["translation"] = br_t
                                     target_reg["translation_raw"] = br_t
                                     target_reg.pop("translation_rich", None)
+                                    reg_updated = True
+                                it["committed"] = reg_updated
+                                if reg_updated:
                                     changed_json = True
 
                             if changed_json:
@@ -1162,12 +1419,34 @@ class EngineRuntime:
                                         except OSError:
                                             pass
 
-            return {
-                "status": "ok",
-                "committed": commit and changed_json,
-                "results": out_records,
-                "elapsed_sec": round(time.perf_counter() - t0, 3),
+        out_records: list[dict[str, Any]] = []
+        conflict_count = 0
+        for it in items_to_process:
+            rec: dict[str, Any] = {
+                "region_index": it["region_index"],
+                "source_text": it.get("text", ""),
+                "ocr_prob": round(float(it.get("prob", 1.0)), 3),
+                "translation": it.get("translation"),
             }
+            if run_translate:
+                rec["translated"] = bool(it.get("translated", False))
+            if commit and it["region_index"] is not None:
+                rec["committed"] = bool(it.get("committed", False))
+            if it.get("conflict"):
+                conflict_count += 1
+                rec["conflict"] = True
+                rec["conflict_reason"] = it.get("conflict_reason", "conflict")
+            out_records.append(rec)
+
+        resp_payload: dict[str, Any] = {
+            "status": "partial" if conflict_count > 0 else "ok",
+            "committed": bool(commit and changed_json),
+            "results": out_records,
+            "elapsed_sec": round(time.perf_counter() - t0, 3),
+        }
+        if conflict_count > 0:
+            resp_payload["conflict_count"] = conflict_count
+        return resp_payload
 
     def release_vram(self) -> dict[str, Any]:
         """Unload cached neural inpainter / OCR models inside the warm worker and empty PyTorch CUDA cache."""
@@ -1266,22 +1545,21 @@ class EngineRuntime:
         with self._runtime_lock():
             self.last_used = time.time()
             t0 = time.perf_counter()
-            # Flush warm worker GPU models first so the child batch process never collides on 8GB VRAM
-            try:
-                self.release_vram()
-            except Exception:
-                pass
 
+            # R2-F53: Validate inputs and all CLI arguments BEFORE unloading warm GPU models!
             inputs = params.get("inputs") or []
             if isinstance(inputs, str):
                 inputs = [inputs]
-            if not inputs:
+            if not isinstance(inputs, (list, tuple)):
+                raise ValueError("inputs must be a list of paths")
+            cleaned_inputs = [str(x).strip() for x in inputs if str(x).strip()]
+            if not cleaned_inputs:
                 raise ValueError("inputs list is required")
 
             if getattr(sys, "frozen", False):
-                cmd = [sys.executable, "--mtui-cli-local", "local", "-i", *[str(x) for x in inputs]]
+                cmd = [sys.executable, "--mtui-cli-local", "local", "-i", *cleaned_inputs]
             else:
-                cmd = [sys.executable, "-m", "manga_translator", "local", "-i", *[str(x) for x in inputs]]
+                cmd = [sys.executable, "-m", "manga_translator", "local", "-i", *cleaned_inputs]
             if params.get("output_dir"):
                 cmd.extend(["-o", str(params["output_dir"])])
             if params.get("config_path"):
@@ -1295,45 +1573,55 @@ class EngineRuntime:
             if params.get("output_format"):
                 cmd.extend(["--format", str(params["output_format"])])
             if params.get("batch_size") is not None:
-                cmd.extend(["--batch-size", str(int(params["batch_size"]))])
+                batch_sz = int(params["batch_size"])
+                if batch_sz <= 0:
+                    raise ValueError(f"batch_size must be positive, got {batch_sz}")
+                cmd.extend(["--batch-size", str(batch_sz)])
             if params.get("attempts") is not None:
-                cmd.extend(["--attempts", str(int(params["attempts"]))])
+                attempts_val = int(params["attempts"])
+                if attempts_val < -1:
+                    raise ValueError(f"attempts must be >= -1, got {attempts_val}")
+                cmd.extend(["--attempts", str(attempts_val)])
             if bool(params.get("subprocess") or params.get("use_subprocess")):
                 cmd.append("--subprocess")
             if params.get("memory_limit") is not None:
-                cmd.extend(["--memory-limit", str(int(params["memory_limit"]))])
+                mem_lim = int(params["memory_limit"])
+                if mem_lim <= 0:
+                    raise ValueError(f"memory_limit must be positive, got {mem_lim}")
+                cmd.extend(["--memory-limit", str(mem_lim)])
             if params.get("memory_percent") is not None:
-                cmd.extend(["--memory-percent", str(int(round(float(params["memory_percent"]))))])
+                mem_pct = float(params["memory_percent"])
+                if not math.isfinite(mem_pct) or not (0.0 < mem_pct <= 100.0):
+                    raise ValueError(f"memory_percent must be in (0, 100], got {params['memory_percent']!r}")
+                cmd.extend(["--memory-percent", str(int(round(mem_pct)))])
             if params.get("batch_per_restart") is not None:
-                cmd.extend(["--batch-per-restart", str(int(params["batch_per_restart"]))])
+                bpr = int(params["batch_per_restart"])
+                if bpr < 0:
+                    raise ValueError(f"batch_per_restart must be >= 0, got {bpr}")
+                cmd.extend(["--batch-per-restart", str(bpr)])
+
+            timeout_sec = int(params.get("timeout_sec", 1800))
+            if timeout_sec <= 0:
+                raise ValueError(f"timeout_sec must be positive, got {timeout_sec}")
 
             env = os.environ.copy()
             env["PYTHONIOENCODING"] = "utf-8"
             env["TQDM_DISABLE"] = "1"
-            timeout_sec = int(params.get("timeout_sec", 1800))
 
-            if subprocess.run is not _ORIG_SUBPROCESS_RUN:
-                proc = subprocess.run(
-                    cmd,
-                    cwd=self.mtui_root,
-                    env=env,
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    timeout=timeout_sec,
-                )
-                returncode = int(proc.returncode or 0)
-                tail_out = (proc.stdout or "")[-4000:]
-                tail_err = (proc.stderr or "")[-4000:]
-            else:
-                returncode, tail_out, tail_err = _run_subprocess_bounded_tails(
-                    cmd,
-                    cwd=self.mtui_root,
-                    env=env,
-                    timeout_sec=timeout_sec,
-                    max_chars=4000,
-                )
+            # Flush warm worker GPU models only after validation succeeds so invalid calls never evict warm models
+            try:
+                self.release_vram()
+            except Exception:
+                pass
+
+            returncode, tail_out, tail_err = _run_subprocess_bounded_tails(
+                cmd,
+                cwd=self.mtui_root,
+                env=env,
+                timeout_sec=timeout_sec,
+                max_chars=4000,
+                runtime=self,
+            )
 
             if returncode != 0:
                 raise RuntimeError(
@@ -1419,6 +1707,74 @@ class EngineRuntime:
             pages_needing_gpu: list[tuple[Any, list[int]]] = []
             cached_hits = 0
 
+            def _build_page_regions_font_sig(regs_in: list[Any]) -> list[Any]:
+                sig_items: list[Any] = []
+                for ridx_i, r_i in enumerate(regs_in):
+                    if not isinstance(r_i, dict):
+                        sig_items.append([ridx_i, "invalid"])
+                        continue
+                    bb = region_bbox_xyxy(r_i)
+                    if bb[2] - bb[0] < 4 or bb[3] - bb[1] < 4:
+                        sig_items.append([ridx_i, "tiny"])
+                        continue
+                    stxt = str(r_i.get("text") or "").strip()
+                    sclean = CLEAN_STRIP_RE.sub("", stxt)
+                    cx_i, cy_i = region_center(r_i)
+                    sig_items.append(
+                        [
+                            ridx_i,
+                            region_bbox_signature(bb),
+                            round(bb[2] - bb[0], 1),
+                            round(bb[3] - bb[1], 1),
+                            stxt,
+                            len(sclean),
+                            [round(cx_i, 1), round(cy_i, 1)],
+                            str(r_i.get("region_uid") or ""),
+                        ]
+                    )
+                return sig_items
+
+            def _finalize_page_font_recommendations(
+                page_recs: list[dict[str, Any]],
+                meta_by_ridx: dict[int, tuple[list[float], str]],
+                page_wh_cur: tuple[int, int],
+            ) -> None:
+                # Same-panel short-box neighbor propagation (`<=2` clean chars & low top1_prob `<0.35` within `195px`)
+                for rec in page_recs:
+                    rec.pop("neighbor_propagated_family", None)
+                    rec.pop("neighbor_source_ridx", None)
+                    rec.pop("neighbor_dist", None)
+                    t1_p = float(rec["top_fonts"][0]["prob"]) if rec["top_fonts"] else 0.0
+                    if rec["n_clean_chars"] <= 2 and rec["pred_conf"] < 0.48 and t1_p < 0.35:
+                        cx, cy = rec["center"]
+                        best_nb = None
+                        best_dist = 195.0
+                        for other in page_recs:
+                            if other["ridx"] == rec["ridx"]:
+                                continue
+                            ot1 = float(other["top_fonts"][0]["prob"]) if other["top_fonts"] else 0.0
+                            if other["n_clean_chars"] >= 3 and other["pred_conf"] >= 0.80 and ot1 >= 0.35:
+                                d = math.hypot(cx - other["center"][0], cy - other["center"][1])
+                                if d < best_dist:
+                                    best_dist = d
+                                    best_nb = other
+                        if best_nb is not None and best_nb["pred_family"] != rec["pred_family"]:
+                            rec["neighbor_propagated_family"] = best_nb["pred_family"]
+                            rec["neighbor_source_ridx"] = best_nb["ridx"]
+                            rec["neighbor_dist"] = round(best_dist, 1)
+
+                    rec_bbox, rec_src_txt = meta_by_ridx[rec["ridx"]]
+                    rec_ff, rec_b, _ = recommend_mtui_font_for_prediction(
+                        rec,
+                        bbox_wh=(max(1.0, rec_bbox[2] - rec_bbox[0]), max(1.0, rec_bbox[3] - rec_bbox[1])),
+                        source_text=rec_src_txt,
+                        page_wh=page_wh_cur,
+                    )
+                    rec["recommended_font_family"] = rec_ff
+                    rec["recommended_bold"] = rec_b
+
+            raw_cnn_keys = ("pred_family", "pred_conf", "family_probs", "bold_prob", "heavy_prob", "top_fonts")
+
             for pp in pages:
                 if not pp.json_exists or not pp.display_base_path.is_file():
                     continue
@@ -1463,17 +1819,69 @@ class EngineRuntime:
                     p_cache.get("base_image_sig") == base_sig
                     and p_cache.get("display_base_name") == pp.display_base_path.name
                 )
-                if (
-                    not force_refresh
-                    and base_matches
-                    and all(
-                        (region_bbox_xyxy(r)[2] - region_bbox_xyxy(r)[0] < 4)
-                        or (region_bbox_xyxy(r)[3] - region_bbox_xyxy(r)[1] < 4)
-                        or (region_bbox_signature(region_bbox_xyxy(r)) in by_sig)
-                        for r in regs
+                cur_regions_sig = _build_page_regions_font_sig(regs)
+                all_bboxes_cached = base_matches and all(
+                    (not isinstance(r, dict))
+                    or (region_bbox_xyxy(r)[2] - region_bbox_xyxy(r)[0] < 4)
+                    or (region_bbox_xyxy(r)[3] - region_bbox_xyxy(r)[1] < 4)
+                    or (
+                        isinstance(by_sig.get(region_bbox_signature(region_bbox_xyxy(r))), dict)
+                        and all(
+                            rk in by_sig[region_bbox_signature(region_bbox_xyxy(r))]
+                            for rk in raw_cnn_keys
+                        )
                     )
-                ):
-                    cached_hits += len(regs)
+                    for r in regs
+                )
+                if not force_refresh and all_bboxes_cached:
+                    if p_cache.get("regions_state_sig") == cur_regions_sig:
+                        cached_hits += len(regs)
+                    else:
+                        # R2-F13: OCR text or region layout/neighbor eligibility changed while image & bbox crops stayed identical:
+                        # recompute neighbor propagation + font recommendations directly from cached raw CNN predictions!
+                        with Image.open(pp.display_base_path) as hdr_im:
+                            page_wh_cached = (int(hdr_im.width), int(hdr_im.height))
+                        rebuilt_recs: list[dict[str, Any]] = []
+                        rebuilt_meta: dict[int, tuple[list[float], str]] = {}
+                        for ridx_c, reg_c in enumerate(regs):
+                            if not isinstance(reg_c, dict):
+                                continue
+                            bb_c = region_bbox_xyxy(reg_c)
+                            if bb_c[2] - bb_c[0] < 4 or bb_c[3] - bb_c[1] < 4:
+                                continue
+                            bsig_c = region_bbox_signature(bb_c)
+                            raw_hit = by_sig[bsig_c]
+                            src_txt_c = str(reg_c.get("text") or "").strip()
+                            src_clean_c = CLEAN_STRIP_RE.sub("", src_txt_c)
+                            cent_c = region_center(reg_c)
+                            rebuilt_meta[ridx_c] = (bb_c, src_txt_c)
+                            rec_c: dict[str, Any] = {
+                                "ridx": ridx_c,
+                                "bbox_sig": bsig_c,
+                                "n_clean_chars": len(src_clean_c),
+                                "center": [round(cent_c[0], 1), round(cent_c[1], 1)],
+                                "pred_family": raw_hit["pred_family"],
+                                "pred_conf": raw_hit["pred_conf"],
+                                "family_probs": copy.deepcopy(raw_hit["family_probs"]),
+                                "bold_prob": raw_hit["bold_prob"],
+                                "heavy_prob": raw_hit["heavy_prob"],
+                                "top_fonts": copy.deepcopy(raw_hit["top_fonts"]),
+                            }
+                            if reg_c.get("region_uid"):
+                                rec_c["region_uid"] = str(reg_c["region_uid"])
+                            rebuilt_recs.append(rec_c)
+                        _finalize_page_font_recommendations(rebuilt_recs, rebuilt_meta, page_wh_cached)
+                        caches_by_work[pp.work_dir]["pages"][pp.source_path.stem] = {
+                            "base_image_sig": base_sig,
+                            "display_base_name": pp.display_base_path.name,
+                            "total_regions": len(regs),
+                            "region_count": len(regs),
+                            "regions_state_sig": cur_regions_sig,
+                            "by_bbox_sig": {r["bbox_sig"]: r for r in rebuilt_recs},
+                            "by_ridx": {str(r["ridx"]): r for r in rebuilt_recs},
+                        }
+                        dirty_work_dirs.add(pp.work_dir)
+                        cached_hits += len(regs)
                 else:
                     pages_needing_gpu.append((pp, base_sig))
 
@@ -1569,6 +1977,8 @@ class EngineRuntime:
                                 "base_image_sig": base_sig,
                                 "display_base_name": pp.display_base_path.name,
                                 "total_regions": len(regs),
+                                "region_count": len(regs),
+                                "regions_state_sig": _build_page_regions_font_sig(regs),
                                 "by_bbox_sig": {},
                                 "by_ridx": {},
                             }
@@ -1623,37 +2033,8 @@ class EngineRuntime:
                                 rec_item["region_uid"] = str(reg["region_uid"])
                             page_recs.append(rec_item)
 
-                        # Same-panel short-box neighbor propagation (`<=2` clean chars & low top1_prob `<0.35` within `195px`)
                         page_wh_cur = (int(rgb.shape[1]), int(rgb.shape[0]))
-                        for rec in page_recs:
-                            t1_p = float(rec["top_fonts"][0]["prob"]) if rec["top_fonts"] else 0.0
-                            if rec["n_clean_chars"] <= 2 and rec["pred_conf"] < 0.48 and t1_p < 0.35:
-                                cx, cy = rec["center"]
-                                best_nb = None
-                                best_dist = 195.0
-                                for other in page_recs:
-                                    if other["ridx"] == rec["ridx"]:
-                                        continue
-                                    ot1 = float(other["top_fonts"][0]["prob"]) if other["top_fonts"] else 0.0
-                                    if other["n_clean_chars"] >= 3 and other["pred_conf"] >= 0.80 and ot1 >= 0.35:
-                                        d = math.hypot(cx - other["center"][0], cy - other["center"][1])
-                                        if d < best_dist:
-                                            best_dist = d
-                                            best_nb = other
-                                if best_nb is not None and best_nb["pred_family"] != rec["pred_family"]:
-                                    rec["neighbor_propagated_family"] = best_nb["pred_family"]
-                                    rec["neighbor_source_ridx"] = best_nb["ridx"]
-                                    rec["neighbor_dist"] = round(best_dist, 1)
-
-                            rec_bbox, rec_src_txt = meta_by_ridx[rec["ridx"]]
-                            rec_ff, rec_b, _ = recommend_mtui_font_for_prediction(
-                                rec,
-                                bbox_wh=(max(1.0, rec_bbox[2] - rec_bbox[0]), max(1.0, rec_bbox[3] - rec_bbox[1])),
-                                source_text=rec_src_txt,
-                                page_wh=page_wh_cur,
-                            )
-                            rec["recommended_font_family"] = rec_ff
-                            rec["recommended_bold"] = rec_b
+                        _finalize_page_font_recommendations(page_recs, meta_by_ridx, page_wh_cur)
 
                         by_sig_out = {r["bbox_sig"]: r for r in page_recs}
                         by_ridx_out = {str(r["ridx"]): r for r in page_recs}
@@ -1661,6 +2042,8 @@ class EngineRuntime:
                             "base_image_sig": base_sig,
                             "display_base_name": pp.display_base_path.name,
                             "total_regions": len(regs),
+                            "region_count": len(regs),
+                            "regions_state_sig": _build_page_regions_font_sig(regs),
                             "by_bbox_sig": by_sig_out,
                             "by_ridx": by_ridx_out,
                         }
@@ -1732,7 +2115,9 @@ def main() -> None:
                     self._send_json(200, {"ok": True, "data": {"status": "shutting_down"}})
 
                     def _drain_and_shutdown() -> None:
-                        runtime.wait_for_inflight_drain(timeout_sec=_SHUTDOWN_DRAIN_TIMEOUT_SEC)
+                        drained = runtime.wait_for_inflight_drain(timeout_sec=_SHUTDOWN_DRAIN_TIMEOUT_SEC)
+                        if not drained:
+                            runtime.terminate_active_subprocesses()
                         self.server.shutdown()
 
                     threading.Thread(target=_drain_and_shutdown, daemon=True).start()
@@ -1777,6 +2162,7 @@ def main() -> None:
     try:
         server.serve_forever()
     finally:
+        runtime.terminate_active_subprocesses()
         server.server_close()
 
 

@@ -556,6 +556,23 @@ def _extract_page_exclusive_inks(
     return excl_inks
 
 
+def _is_rendered_output_fresh(paths: PagePaths) -> bool:
+    """Return True iff ``rendered_output_path`` exists and is at least as fresh as ``json_path`` and ``inpainted_path``."""
+    if not (paths.rendered_output_exists and paths.rendered_output_path and paths.rendered_output_path.is_file()):
+        return False
+    try:
+        ren_mtime = paths.rendered_output_path.stat().st_mtime_ns
+        if paths.json_exists and paths.json_path.is_file():
+            if ren_mtime < paths.json_path.stat().st_mtime_ns:
+                return False
+        if paths.inpainted_exists and paths.inpainted_path.is_file():
+            if ren_mtime < paths.inpainted_path.stat().st_mtime_ns:
+                return False
+        return True
+    except OSError:
+        return False
+
+
 def compute_chapter_optical_centers(target_path: str | Path) -> dict[str, list[dict[str, Any]]]:
     """Compute optical centers without mutating JSON or re-rendering."""
     pages = [p for p in list_manga_pages_in_path(target_path) if p.json_exists and p.inpainted_exists]
@@ -564,7 +581,7 @@ def compute_chapter_optical_centers(target_path: str | Path) -> dict[str, list[d
         with Image.open(p.inpainted_path) as im:
             inp_g = np.array(im.convert("L"))
         res_g: Optional[np.ndarray] = None
-        if p.rendered_output_exists and p.rendered_output_path and p.rendered_output_path.is_file():
+        if _is_rendered_output_fresh(p):
             with Image.open(p.rendered_output_path) as rim:
                 res_g = np.array(rim.convert("L"))
         _, img_data = load_page_json(p)
@@ -602,6 +619,41 @@ def _rendered_artifact_fingerprint(paths: PagePaths) -> Optional[tuple[int, int,
         return None
 
 
+def _regions_partition_signature(regs: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
+    """Capture every region geometry/layout input consumed by ``partition_page_white_bubbles``."""
+    sig: list[tuple[Any, ...]] = []
+    for r in regs:
+        if not isinstance(r, dict):
+            continue
+        c = r.get("center")
+        c_tup = (
+            (round(float(c[0]), 2), round(float(c[1]), 2))
+            if isinstance(c, (list, tuple)) and len(c) >= 2
+            else None
+        )
+        dir_norm = str(r.get("direction") or "auto").strip().lower()
+        ang = round(float(r.get("angle", 0.0) or 0.0), 2)
+        has_quad = region_has_perspective_quad(r)
+        wf_rect = r.get("white_frame_rect_local")
+        wf_tup = (
+            tuple(round(float(v), 2) for v in wf_rect[:4])
+            if isinstance(wf_rect, (list, tuple)) and len(wf_rect) >= 4
+            else None
+        )
+        sig.append((str(r.get("region_uid") or ""), dir_norm, c_tup, ang, has_quad, wf_tup))
+    return sig
+
+
+def _normalize_render_result(render_res: Any) -> tuple[str, dict[str, Any]]:
+    if isinstance(render_res, dict):
+        raw_st = render_res.get("status")
+        norm_st = str(raw_st) if raw_st is not None else "ok"
+        res_dict = dict(render_res)
+        res_dict.setdefault("status", norm_st)
+        return norm_st, res_dict
+    return "ok", {"status": "ok", "result": render_res}
+
+
 def _partition_lobes_by_uid(
     inp_g: np.ndarray,
     regs: list[dict[str, Any]],
@@ -622,6 +674,7 @@ def run_closed_loop_bubble_centering(
     *,
     passes: int = 2,
     render_page_fn: Optional[Callable[[PagePaths], Any]] = None,
+    render_results_out: Optional[dict[str, Any]] = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Run closed-loop optical centering + re-rendering page-by-page (freeing per-page masks immediately)."""
     pages = [p for p in list_manga_pages_in_path(target_path) if p.json_exists and p.inpainted_exists]
@@ -629,6 +682,7 @@ def run_closed_loop_bubble_centering(
     report: dict[str, list[dict[str, Any]]] = {}
 
     for p in pages:
+        page_name = p.source_path.name
         p_init = resolve_page_paths(p.source_path)
         if not (p_init.json_exists and p_init.inpainted_exists and p_init.inpainted_path.is_file()):
             continue
@@ -643,7 +697,11 @@ def run_closed_loop_bubble_centering(
         lobes_by_uid = _partition_lobes_by_uid(inp_g, init_regs)
         if not lobes_by_uid:
             continue
-        cached_uids = [str(r.get("region_uid") or "") for r in init_regs if isinstance(r, dict)]
+        cached_part_sig = _regions_partition_signature(init_regs)
+
+        last_render_status = "not_requested" if render_page_fn is None else "unchanged"
+        verified_fresh_fp: Optional[tuple[int, int, str]] = None
+        verified_for_rev: Optional[str] = None
 
         for pass_idx in range(eff_passes):
             p_fresh = resolve_page_paths(p.source_path)
@@ -655,23 +713,50 @@ def run_closed_loop_bubble_centering(
             if not regs:
                 break
             ensure_region_uids(regs)
-            cur_uids = [str(r.get("region_uid") or "") for r in regs if isinstance(r, dict)]
+            cur_part_sig = _regions_partition_signature(regs)
             cur_inp_stat = (p_fresh.inpainted_path.stat().st_size, p_fresh.inpainted_path.stat().st_mtime_ns)
             if cur_inp_stat != inp_stat:
                 inp_stat = cur_inp_stat
                 with Image.open(p_fresh.inpainted_path) as im:
                     inp_g = np.array(im.convert("L"))
                 lobes_by_uid = _partition_lobes_by_uid(inp_g, regs)
-                cached_uids = cur_uids
-            elif cur_uids != cached_uids:
+                cached_part_sig = cur_part_sig
+            elif cur_part_sig != cached_part_sig:
                 lobes_by_uid = _partition_lobes_by_uid(inp_g, regs)
-                cached_uids = cur_uids
+                cached_part_sig = cur_part_sig
 
             if not lobes_by_uid:
                 break
 
+            cur_fp = _rendered_artifact_fingerprint(p_fresh)
+            rendered_is_fresh = (
+                verified_fresh_fp is not None
+                and cur_fp == verified_fresh_fp
+                and page_rev == verified_for_rev
+            ) or _is_rendered_output_fresh(p_fresh)
+
+            if not rendered_is_fresh and pass_idx == 0 and render_page_fn is not None:
+                prev_fp_0 = cur_fp
+                pre_res = render_page_fn(p_fresh)
+                last_render_status, pre_res_dict = _normalize_render_result(pre_res)
+                if render_results_out is not None:
+                    render_results_out[page_name] = pre_res_dict
+                p_fresh = resolve_page_paths(p.source_path)
+                if not (p_fresh.json_exists and p_fresh.inpainted_exists and p_fresh.inpainted_path.is_file()):
+                    break
+                post_fp_0 = _rendered_artifact_fingerprint(p_fresh)
+                page_rev = compute_page_revision(p_fresh)
+                if (
+                    post_fp_0 is not None
+                    and last_render_status in ("ok", "partial", "success")
+                    and (prev_fp_0 is None or post_fp_0[0] != prev_fp_0[0] or post_fp_0[2] != prev_fp_0[2])
+                ):
+                    verified_fresh_fp = post_fp_0
+                    verified_for_rev = page_rev
+                    rendered_is_fresh = True
+
             res_g: Optional[np.ndarray] = None
-            if p_fresh.rendered_output_exists and p_fresh.rendered_output_path and p_fresh.rendered_output_path.is_file():
+            if rendered_is_fresh and p_fresh.rendered_output_exists and p_fresh.rendered_output_path and p_fresh.rendered_output_path.is_file():
                 with Image.open(p_fresh.rendered_output_path) as rim:
                     res_g = np.array(rim.convert("L"))
 
@@ -701,7 +786,13 @@ def run_closed_loop_bubble_centering(
                 if res_pt is not None:
                     nx, ny = res_pt
                     page_items.append(
-                        {"index": ri, "region_uid": uid, "old_center": [cx, cy], "optical_center": [nx, ny]}
+                        {
+                            "index": ri,
+                            "region_uid": uid,
+                            "old_center": [cx, cy],
+                            "optical_center": [nx, ny],
+                            "render_status": last_render_status,
+                        }
                     )
                     dx = nx - cx
                     dy = ny - cy
@@ -710,7 +801,7 @@ def run_closed_loop_bubble_centering(
                         upds.append({**target_key, "move_dx": dx, "move_dy": dy})
 
             if page_items:
-                report[p.source_path.name] = page_items
+                report[page_name] = page_items
             if not upds:
                 break
 
@@ -721,9 +812,15 @@ def run_closed_loop_bubble_centering(
             pre_render_paths = resolve_page_paths(p.source_path)
             prev_fp = _rendered_artifact_fingerprint(pre_render_paths)
             render_res = render_page_fn(pre_render_paths)
+            last_render_status, last_render_dict = _normalize_render_result(render_res)
+            if render_results_out is not None:
+                render_results_out[page_name] = last_render_dict
+            for item in report.get(page_name, []):
+                item["render_status"] = last_render_status
+
             if pass_idx + 1 >= eff_passes:
                 break
-            if isinstance(render_res, dict) and render_res.get("status") not in (None, "ok", "success"):
+            if last_render_status not in ("ok", "success"):
                 break
             post_render_paths = resolve_page_paths(p.source_path)
             post_fp = _rendered_artifact_fingerprint(post_render_paths)
@@ -732,5 +829,7 @@ def run_closed_loop_bubble_centering(
             if prev_fp is not None and post_fp[0] == prev_fp[0] and post_fp[2] == prev_fp[2]:
                 # Rendered image on disk was not updated; stop so stale ink is never measured twice
                 break
+            verified_fresh_fp = post_fp
+            verified_for_rev = compute_page_revision(post_render_paths)
 
     return report

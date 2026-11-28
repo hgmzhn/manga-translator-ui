@@ -47,12 +47,14 @@ def _is_valid_mtui_root(path: Path) -> bool:
         try:
             if not path.is_dir():
                 return False
-            cand_norm = os.path.normcase(os.path.abspath(str(path)))
-            exe_dir_norm = os.path.normcase(os.path.dirname(os.path.abspath(sys.executable)))
+            cand_norm = os.path.normcase(os.path.realpath(str(path)))
+            exe_dir_norm = os.path.normcase(
+                os.path.realpath(os.path.dirname(os.path.abspath(sys.executable)))
+            )
             if cand_norm == exe_dir_norm:
                 return True
             meipass = getattr(sys, "_MEIPASS", None)
-            if meipass and cand_norm == os.path.normcase(os.path.abspath(str(meipass))):
+            if meipass and cand_norm == os.path.normcase(os.path.realpath(str(meipass))):
                 return True
         except OSError:
             return False

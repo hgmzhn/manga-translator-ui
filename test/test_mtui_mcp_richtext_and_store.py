@@ -3,22 +3,29 @@
 import _bootstrap  # noqa: F401, I001
 
 import json
+import os
+import queue
 import shutil
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
+import cv2
 import numpy as np
 import pytest
 from PIL import Image
 
+import mtui_mcp.glossary_manager as glossary_manager
+import mtui_mcp.local_inpaint as local_inpaint
 import mtui_mcp.project_store as project_store
 from mtui_mcp.bubble_centering import partition_page_white_bubbles, run_closed_loop_bubble_centering
 from mtui_mcp.glossary_manager import batch_edit_chapter_pages, manage_glossary_entries
 from mtui_mcp.local_inpaint import (
     add_region_to_page,
     auto_detect_ink_mask_in_rect,
+    build_region_polygon_mask,
     delete_regions_from_page,
     manage_page_paste_overlays,
     merge_regions_on_page,
@@ -32,6 +39,7 @@ from mtui_mcp.project_store import (
     align_regions_on_page,
     apply_region_updates_to_page,
     cleanup_snapshots_for_target,
+    compute_page_revision,
     create_snapshot,
     decode_mask_base64,
     encode_mask_base64,
@@ -51,6 +59,8 @@ from mtui_mcp.richtext_builder import (
     is_rich_text_document,
     region_is_bold,
     sync_region_text_update,
+    validate_and_normalize_style,
+    validate_richtext_document,
     visible_text_of_region,
 )
 
@@ -407,18 +417,48 @@ def test_page_edit_lock_reentrant_cross_thread_and_cross_process(tmp_path: Path)
         stderr=subprocess.PIPE,
         text=True,
     )
+    ready_q: queue.Queue[str] = queue.Queue(maxsize=2)
+
+    def _read_ready_line() -> None:
+        try:
+            ready_q.put(proc.stdout.readline() if proc.stdout is not None else "")
+        except Exception:
+            ready_q.put("")
+
+    threading.Thread(target=_read_ready_line, daemon=True).start()
     try:
-        assert proc.stdout is not None
-        line = proc.stdout.readline().strip()
-        assert line == "LOCKED"
+        try:
+            raw_line = ready_q.get(timeout=5.0)
+        except queue.Empty:
+            proc.kill()
+            _out_diag, err_diag = proc.communicate(timeout=3.0)
+            pytest.fail(f"Timed out waiting for child LOCKED signal; stderr={err_diag!r}")
+        line = raw_line.strip()
+        if line != "LOCKED":
+            proc.kill()
+            _out_diag, err_diag = proc.communicate(timeout=3.0)
+            assert line == "LOCKED", f"Unexpected child output {line!r}; stderr={err_diag!r}"
         with pytest.raises(TimeoutError):
             with page_edit_lock(page, timeout_sec=0.08):
                 pass
     finally:
-        if proc.stdin is not None:
-            proc.stdin.write("\n")
-            proc.stdin.flush()
-        proc.wait(timeout=5.0)
+        if proc.poll() is None and proc.stdin is not None:
+            try:
+                proc.stdin.write("\n")
+                proc.stdin.flush()
+            except OSError:
+                pass
+        try:
+            proc.wait(timeout=5.0)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate(timeout=3.0)
+        for pipe in (proc.stdin, proc.stdout, proc.stderr):
+            if pipe is not None:
+                try:
+                    pipe.close()
+                except OSError:
+                    pass
 
     # Once child exits, lock is immediately acquirable again
     with page_edit_lock(page, timeout_sec=2.0):
@@ -669,6 +709,11 @@ def test_path_resolver_inpaint_centering_alignment_and_glossary_fixes(tmp_path: 
     assert np.array_equal(open_rgb_image(resolve_page_paths(p_inpaint).inpainted_path), orig_inp)
     snaps_rb = list_snapshots(p_inpaint)
     assert len(snaps_rb) == 1 and snaps_rb[0]["label"] == "initial_before_mcp"
+    rb_snap_dir = resolve_page_paths(p_inpaint).snapshots_dir / snaps_rb[0]["snapshot_id"]
+    rb_manifest = json.loads((rb_snap_dir / "manifest.json").read_text(encoding="utf-8"))
+    rb_inp_backup = rb_snap_dir / rb_manifest["files"]["inpainted"]["backup"]
+    assert rb_inp_backup.is_file()
+    assert np.array_equal(open_rgb_image(rb_inp_backup), orig_inp)
 
     # F43 & F96: Shared mask component preserved for surviving region; missing sidecar reports artwork_restored=False
     p_shared = _create_sample_manga_page(tmp_path / "shared_mask", "001.png")
@@ -800,3 +845,563 @@ def test_path_resolver_inpaint_centering_alignment_and_glossary_fixes(tmp_path: 
     nop_pages, nop_rep = batch_edit_chapter_pages(ch, set_fields={"font_size": 24}, filter_criteria={"region_indices": [0]})
     assert nop_pages == []
     assert nop_rep["matched_regions"] == 0
+
+
+def _create_dir_link_or_junction(target_dir: Path, link_dir: Path) -> None:
+    try:
+        os.symlink(str(target_dir), str(link_dir), target_is_directory=True)
+        return
+    except OSError:
+        if os.name == "nt":
+            subprocess.run(
+                ["cmd", "/c", "mklink", "/J", str(link_dir), str(target_dir)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            return
+        raise
+
+
+def test_r2_snapshot_output_dir_change_symlink_and_completeness_guards(tmp_path: Path) -> None:
+    # R2-F03 & R2-F21: Snapshot created under custom output_dir A restores cleanly after switching to output_dir B
+    ch = tmp_path / "r2_snap_ch"
+    p1 = _create_sample_manga_page(ch, "001.png")
+    dir_a = tmp_path / "custom_out_a"
+    dir_b = tmp_path / "custom_out_b"
+    dir_a.mkdir(parents=True)
+    dir_b.mkdir(parents=True)
+
+    ren_v1 = np.full((800, 600, 3), 111, dtype=np.uint8)
+    ren_v2 = np.full((800, 600, 3), 222, dtype=np.uint8)
+    save_rgb_image_atomic(ren_v1, dir_a / "001.png")
+
+    paths_a = resolve_page_paths(p1)
+    ik, d_a = load_page_json(paths_a)
+    d_a["last_output_path"] = str((dir_a / "001.png").resolve())
+    d_a["last_export_dir"] = str(dir_a.resolve())
+    d_a["regions"][0]["translation"] = "目录A旧版台词"
+    save_page_json_atomic(paths_a, ik, d_a, auto_initial_snapshot=False)
+
+    snap_a = create_snapshot(resolve_page_paths(p1), label="before_dir_b")
+    assert "rendered" in snap_a["saved_artifacts"]
+
+    # Now switch export target to custom output_dir B and edit text
+    save_rgb_image_atomic(ren_v2, dir_b / "001.png")
+    paths_b = resolve_page_paths(p1)
+    ik_b, d_b = load_page_json(paths_b)
+    d_b["last_output_path"] = str((dir_b / "001.png").resolve())
+    d_b["last_export_dir"] = str(dir_b.resolve())
+    d_b["regions"][0]["translation"] = "目录B新版台词"
+    save_page_json_atomic(paths_b, ik_b, d_b, auto_initial_snapshot=False)
+    assert resolve_page_paths(p1).rendered_output_path == (dir_b / "001.png").resolve()
+
+    restored_res = restore_snapshot(p1, snap_a["snapshot_id"])
+    assert any(item.startswith("rendered:") for item in restored_res["restored"])
+    _, d_after = load_page_json(resolve_page_paths(p1))
+    assert d_after["regions"][0]["translation"] == "目录A旧版台词"
+    assert np.array_equal(open_rgb_image(dir_b / "001.png"), ren_v1)
+
+    # R2-F19: Manifest cannot self-authorize an arbitrary external directory, and symlinked project subdirs are rejected
+    untrusted_dir = tmp_path / "untrusted_target"
+    mf_a = Path(snap_a["snapshot_dir"]) / "manifest.json"
+    mf_obj = json.loads(mf_a.read_text(encoding="utf-8"))
+    mf_obj["files"]["rendered"]["original"] = str(untrusted_dir / "001.png")
+    mf_a.write_text(json.dumps(mf_obj), encoding="utf-8")
+    restore_snapshot(p1, snap_a["snapshot_id"])
+    assert not (untrusted_dir / "001.png").exists()
+
+    p_sym = _create_sample_manga_page(ch, "002.png")
+    snap_sym = create_snapshot(resolve_page_paths(p_sym), label="sym_check")
+    outside_inp = tmp_path / "outside_inpainted"
+    outside_inp.mkdir(parents=True)
+    inp_dir = resolve_page_paths(p_sym).work_dir / "inpainted"
+    shutil.rmtree(inp_dir)
+    _create_dir_link_or_junction(outside_inp, inp_dir)
+    with pytest.raises(ValueError, match="escapes allowed root|must not be a symlink"):
+        restore_snapshot(p_sym, snap_sym["snapshot_id"])
+    assert list(outside_inp.iterdir()) == []
+
+    # R2-F22: Missing declared backup file in snapshot aborts BEFORE copying earlier JSON entry
+    p_miss = _create_sample_manga_page(ch, "003.png")
+    snap_miss = create_snapshot(resolve_page_paths(p_miss), label="miss_bak")
+    apply_region_updates_to_page(p_miss, [{"region_index": 0, "translation": "保持不回退"}])
+    (Path(snap_miss["snapshot_dir"]) / "inpainted.png").unlink()
+    with pytest.raises(FileNotFoundError, match="missing backup file"):
+        restore_snapshot(p_miss, snap_miss["snapshot_id"])
+    _, d_still = load_page_json(resolve_page_paths(p_miss))
+    assert d_still["regions"][0]["translation"] == "保持不回退"
+
+    # R2-F23: Incomplete initial_before_mcp (manifest exists, backup missing) does NOT block ensure_initial_snapshot
+    p_inc = _create_sample_manga_page(ch, "004.png")
+    inc_paths = resolve_page_paths(p_inc)
+    bad_init = inc_paths.snapshots_dir / "004__20260101_000000__initial_before_mcp"
+    bad_init.mkdir(parents=True)
+    (bad_init / "manifest.json").write_text(
+        json.dumps(
+            {
+                "snapshot_id": bad_init.name,
+                "page": "004.png",
+                "files": {"json": {"original": str(inc_paths.json_path), "backup": "translations.json"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    apply_region_updates_to_page(p_inc, [{"region_index": 0, "translation": "编辑后"}])
+    snaps_inc = [s for s in list_snapshots(p_inc) if s.get("label") == "initial_before_mcp"]
+    assert len(snaps_inc) == 1
+    valid_init_dir = inc_paths.snapshots_dir / snaps_inc[0]["snapshot_id"]
+    assert (valid_init_dir / "translations.json").is_file()
+
+
+def test_r2_revision_unset_page_lock_consistency_and_distribute_dedup(tmp_path: Path) -> None:
+    # R2-F20: compute_page_revision(paths, json_bytes=None) hashes empty JSON rather than re-reading a newer file
+    ch = tmp_path / "r2_rev_ch"
+    ch.mkdir(parents=True)
+    raw_img = ch / "001.png"
+    Image.fromarray(np.full((120, 120, 3), 240, dtype=np.uint8)).save(raw_img)
+    paths_absent = resolve_page_paths(raw_img)
+    assert paths_absent.json_exists is False
+
+    # Create JSON on disk AFTER paths_absent was resolved, then pass json_bytes=None
+    _create_sample_manga_page(ch, "001.png")
+    paths_present = resolve_page_paths(raw_img)
+    rev_explicit_none = compute_page_revision(paths_present, json_bytes=None)
+    rev_actual_disk = compute_page_revision(paths_present)
+    assert rev_explicit_none != rev_actual_disk
+
+    # R2-F33: get_page_details_dict waits on page_edit_lock instead of reading half-committed (new_inpainted, old_json)
+    writer_entered = threading.Event()
+    allow_commit = threading.Event()
+    old_inp = open_rgb_image(paths_present.inpainted_path)
+    new_inp = np.full_like(old_inp, 123)
+
+    def _slow_writer() -> None:
+        with page_edit_lock(raw_img, timeout_sec=5.0):
+            save_rgb_image_atomic(new_inp, paths_present.inpainted_path)
+            writer_entered.set()
+            allow_commit.wait(timeout=5.0)
+            ik, data = load_page_json(resolve_page_paths(raw_img))
+            data["regions"][0]["translation"] = "新版本已提交"
+            save_page_json_atomic(resolve_page_paths(raw_img), ik, data, auto_initial_snapshot=False)
+
+    wt = threading.Thread(target=_slow_writer, daemon=True)
+    wt.start()
+    assert writer_entered.wait(timeout=3.0)
+    read_box: dict[str, object] = {}
+
+    def _reader() -> None:
+        read_box["details"] = get_page_details_dict(raw_img)
+
+    rt = threading.Thread(target=_reader, daemon=True)
+    rt.start()
+    time.sleep(0.06)
+    # Reader must still be blocked while writer holds page_edit_lock mid-transaction
+    assert rt.is_alive()
+    allow_commit.set()
+    wt.join(timeout=3.0)
+    rt.join(timeout=3.0)
+    details = read_box["details"]
+    assert isinstance(details, dict)
+    assert details["regions"][0]["translation"] == "新版本已提交"
+    assert details["revision"] == compute_page_revision(resolve_page_paths(raw_img))
+
+    # R2-F56: Duplicate indices [0, 0, 1] rejected for distribute_horizontal without moving endpoint 0
+    before_c0 = get_page_details_dict(raw_img)["regions"][0]["center"]
+    with pytest.raises(ValueError, match="at least 3 regions"):
+        align_regions_on_page(raw_img, [0, 0, 1], mode="distribute_horizontal")
+    assert get_page_details_dict(raw_img)["regions"][0]["center"] == before_c0
+
+
+def test_r2_richtext_nonfinite_rejection_ruby_inherit_bold_and_null_inlines(tmp_path: Path) -> None:
+    # R2-F28: Reject NaN / inf / -inf across all numeric style fields
+    bad_styles = [
+        {"kerning": "nan"},
+        {"preKerning": float("inf")},
+        {"lineKerning": float("-inf")},
+        {"nextKerning": float("nan")},
+        {"scale": float("nan")},
+        {"fontSize": "inf"},
+        {"italic": float("nan")},
+        {"stroke": {"width": float("inf")}},
+        {"outerStroke": {"width": "nan"}},
+        {"glow": {"blur": float("nan")}},
+        {"transform": {"offsetX": float("nan")}},
+        {"transform": {"offsetY": float("inf")}},
+        {"transform": {"rotation": "-inf"}},
+        {"color": [float("nan"), 0, 0]},
+    ]
+    for bs in bad_styles:
+        with pytest.raises(ValueError):
+            validate_and_normalize_style(bs)
+
+    with pytest.raises(ValueError, match=r"translation_rich\.blocks\[0\]\.inlines\[0\]\.style"):
+        validate_richtext_document(
+            {
+                "format": "richtext.v1",
+                "blocks": [
+                    {
+                        "type": "paragraph",
+                        "inlines": [{"type": "text", "text": "测试", "style": {"kerning": "nan"}}],
+                    }
+                ],
+            }
+        )
+    assert validate_and_normalize_style({"kerning": 0.15}) == {"kerning": 0.15}
+
+    # R2-F61: ruby_style on non-ruby plain text must NOT infer rubyInherit=False or create empty rich text
+    reg_plain = {"translation": "甲"}
+    apply_span_styles_to_region(reg_plain, spans=[{"match": "甲", "ruby_style": {"color": "#112233"}}])
+    assert "translation_rich" not in reg_plain
+
+    # R2-F62: Unmatched span must NOT strip existing whole-region bold
+    reg_bold = {"translation": "甲乙", "bold": True}
+    apply_span_styles_to_region(reg_bold, spans=[{"match": "丙", "color": "#ff0000"}])
+    assert reg_bold.get("bold") is True
+    assert region_is_bold(reg_bold) is True
+
+    # R2-F63: Empty region with reset_existing=True and explicit whole_style={"bold": True} preserves bold=True
+    reg_empty = {"translation": ""}
+    apply_span_styles_to_region(reg_empty, whole_style={"bold": True}, reset_existing=True)
+    assert reg_empty.get("bold") is True
+
+    # R2-F64: Legacy translation_rich with inlines: None saves cleanly without TypeError
+    page = _create_sample_manga_page(tmp_path / "r2_null_inl", "001.png")
+    paths = resolve_page_paths(page)
+    ik, data = load_page_json(paths)
+    data["regions"][0]["translation_rich"] = {
+        "format": "richtext.v1",
+        "blocks": [
+            {"type": "paragraph", "inlines": [{"type": "text", "text": "第一行", "style": {"bold": True}}]},
+            {"type": "paragraph", "inlines": None},
+        ],
+    }
+    save_page_json_atomic(paths, ik, data, auto_initial_snapshot=False)
+    _, reloaded = load_page_json(resolve_page_paths(page))
+    assert reloaded["regions"][0]["translation_rich"]["blocks"][1]["inlines"] == []
+
+
+def test_r2_path_resolver_inpaint_rotated_mask_rollback_and_centering(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # R2-F26: Ambiguous multi-extension reverse lookup from result/<stem>.webp is refused; unique & same-ext succeed
+    amb_ch = tmp_path / "amb_ch"
+    _create_sample_manga_page(amb_ch, "001.png")
+    Image.fromarray(np.full((100, 100, 3), 200, dtype=np.uint8)).save(amb_ch / "001.jpg")
+    _create_sample_manga_page(amb_ch, "002.png")
+    res_dir = amb_ch / "manga_translator_work" / "result"
+    res_dir.mkdir(parents=True, exist_ok=True)
+    for fn in ("001.webp", "001.jpg", "002.webp"):
+        Image.fromarray(np.full((100, 100, 3), 210, dtype=np.uint8)).save(res_dir / fn)
+    assert resolve_source_image_path(res_dir / "001.webp") == (res_dir / "001.webp").resolve()
+    assert resolve_source_image_path(res_dir / "001.jpg") == (amb_ch / "001.jpg").resolve()
+    assert resolve_source_image_path(res_dir / "002.webp") == (amb_ch / "002.png").resolve()
+
+    # R2-F55: Recursive page listing orders by canonical source path even when 00-proof maps 002.png earlier
+    vol = tmp_path / "r2_vol"
+    ch01 = vol / "ch01"
+    p_01 = _create_sample_manga_page(ch01, "001.png")
+    p_02 = _create_sample_manga_page(ch01, "002.png")
+    proof_dir = vol / "00-proof"
+    proof_dir.mkdir(parents=True)
+    proof_img = proof_dir / "002_proof.png"
+    shutil.copy2(p_02, proof_img)
+    (proof_dir / "translation_map.json").write_text(
+        json.dumps({str(proof_img.resolve()): str(p_02.resolve())}),
+        encoding="utf-8",
+    )
+    listed = list_manga_pages_in_path(vol, recursive=True)
+    assert [p.source_path for p in listed] == [p_01.resolve(), p_02.resolve()]
+
+    # R2-F31: Rollback failure preserves backup_tmp_path on disk and includes recovery path in error
+    p_rb = _create_sample_manga_page(tmp_path / "r2_rb_fail", "001.png")
+    rb_orig_inp = open_rgb_image(resolve_page_paths(p_rb).inpainted_path).copy()
+    monkeypatch.setattr(local_inpaint, "save_page_json_atomic", lambda *a, **kw: (_ for _ in ()).throw(OSError("json boom")))
+    monkeypatch.setattr(
+        local_inpaint,
+        "_atomic_replace_with_retry",
+        lambda *a, **kw: (_ for _ in ()).throw(PermissionError("locked")),
+    )
+    with pytest.raises(OSError, match=r"\.rollback_") as exc_info:
+        add_region_to_page(p_rb, bbox_xyxy=[115, 295, 225, 365], source_text="a", translation="b")
+    inp_parent = resolve_page_paths(p_rb).inpainted_path.parent
+    preserved = list(inp_parent.glob(".rollback_*"))
+    assert len(preserved) == 1
+    assert str(preserved[0]) in str(exc_info.value)
+    assert np.array_equal(open_rgb_image(preserved[0]), rb_orig_inp)
+    monkeypatch.undo()
+
+    # R2-F32: Rotated angle=90.0 region polygon mask aligns with vertical world coordinates during delete
+    rot_reg_90 = {
+        "lines": [[[100.0, 180.0], [300.0, 180.0], [300.0, 220.0], [100.0, 220.0]]],
+        "center": [200.0, 200.0],
+        "angle": 90.0,
+    }
+    rot_reg_0 = {**rot_reg_90, "angle": 0.0}
+    m_90 = build_region_polygon_mask(rot_reg_90, (400, 400))
+    m_0 = build_region_polygon_mask(rot_reg_0, (400, 400))
+    assert m_90[120, 200] == 255 and m_90[200, 120] == 0
+    assert m_0[200, 120] == 255 and m_0[120, 200] == 0
+
+    rot_dir = tmp_path / "r2_rot_del"
+    rot_dir.mkdir(parents=True)
+    rot_img = rot_dir / "001.png"
+    raw_rot = np.full((400, 400, 3), 240, dtype=np.uint8)
+    raw_rot[110:290, 185:215] = 25
+    Image.fromarray(raw_rot).save(rot_img)
+    rp = resolve_page_paths(rot_img)
+    inp_rot = np.full((400, 400, 3), 240, dtype=np.uint8)
+    save_rgb_image_atomic(inp_rot, rp.inpainted_path)
+    vert_mask = np.zeros((400, 400), dtype=np.uint8)
+    vert_mask[110:290, 185:215] = 255
+    save_page_json_atomic(
+        rp,
+        str(rot_img.resolve()),
+        {
+            "mask_raw": encode_mask_base64(vert_mask),
+            "regions": [
+                {
+                    **rot_reg_90,
+                    "text": "縦",
+                    "translation": "竖",
+                    "direction": "v",
+                }
+            ],
+        },
+        auto_initial_snapshot=False,
+    )
+    ref_rot, del_rot_info = delete_regions_from_page(rot_img, [0], restore_artwork=True)
+    assert del_rot_info["artwork_restored"] is True
+    assert np.array_equal(open_rgb_image(ref_rot.inpainted_path)[110:290, 185:215], raw_rot[110:290, 185:215])
+
+    # R2-F60: Diagonal regions inside a single unsplit white rectangle merge without false multi-lobe rejection
+    diag_dir = tmp_path / "r2_diag_rect"
+    diag_dir.mkdir(parents=True)
+    diag_img = diag_dir / "001.png"
+    diag_canvas = np.full((600, 600, 3), 160, dtype=np.uint8)
+    cv2.rectangle(diag_canvas, (100, 100), (420, 460), (255, 255, 255), -1)
+    cv2.rectangle(diag_canvas, (100, 100), (420, 460), (10, 10, 10), 4)
+    Image.fromarray(diag_canvas).save(diag_img)
+    dp = resolve_page_paths(diag_img)
+    save_rgb_image_atomic(diag_canvas, dp.inpainted_path)
+    save_page_json_atomic(
+        dp,
+        str(diag_img.resolve()),
+        {
+            "regions": [
+                {
+                    "lines": [[[130.0, 130.0], [210.0, 130.0], [210.0, 230.0], [130.0, 230.0]]],
+                    "text": "上",
+                    "translation": "甲",
+                    "direction": "v",
+                },
+                {
+                    "lines": [[[300.0, 310.0], [380.0, 310.0], [380.0, 420.0], [300.0, 420.0]]],
+                    "text": "下",
+                    "translation": "乙",
+                    "direction": "v",
+                },
+            ]
+        },
+        auto_initial_snapshot=False,
+    )
+    _, merged_rect = merge_regions_on_page(diag_img, [0, 1])
+    assert "甲" in merged_rect["translation"] and "乙" in merged_rect["translation"]
+
+    # R2-F24, R2-F25, R2-F58: Stale ink ignored on pass 0, direction change invalidates lobe cache, and render_status surfaced
+    bc_dir = tmp_path / "r2_bc"
+    bc_dir.mkdir(parents=True)
+    bc_img = bc_dir / "001.png"
+    bc_canvas = np.full((500, 500, 3), 180, dtype=np.uint8)
+    cv2.rectangle(bc_canvas, (100, 100), (300, 340), (255, 255, 255), -1)
+    cv2.rectangle(bc_canvas, (100, 100), (300, 340), (0, 0, 0), 4)
+    Image.fromarray(bc_canvas).save(bc_img)
+    bcp = resolve_page_paths(bc_img)
+    save_rgb_image_atomic(bc_canvas, bcp.inpainted_path)
+    # Stale rendered output has old ink shifted far left (x=140..170), written BEFORE region center moved to x=200
+    stale_ren = bc_canvas.copy()
+    stale_ren[170:270, 140:170] = 10
+    bc_res_path = bc_dir / "manga_translator_work" / "result" / "001.png"
+    save_rgb_image_atomic(stale_ren, bc_res_path)
+    old_t = time.time() - 10.0
+    os.utime(bc_res_path, (old_t, old_t))
+    save_page_json_atomic(
+        bcp,
+        str(bc_img.resolve()),
+        {
+            "last_output_path": str(bc_res_path),
+            "regions": [
+                {
+                    "lines": [[[170.0, 160.0], [230.0, 160.0], [230.0, 280.0], [170.0, 280.0]]],
+                    "center": [200.0, 220.0],
+                    "translation": "已居中",
+                    "font_size": 26,
+                    "direction": "v",
+                }
+            ],
+        },
+        auto_initial_snapshot=False,
+    )
+    # Without render_page_fn, stale ink at x=140..170 must NOT push center=200 rightward to ~245!
+    rep_stale = run_closed_loop_bubble_centering(bc_dir, passes=1, render_page_fn=None)
+    assert rep_stale["001.png"][0]["render_status"] == "not_requested"
+    _, d_no_shift = load_page_json(resolve_page_paths(bc_img))
+    assert abs(d_no_shift["regions"][0]["center"][0] - 200.0) <= 5.0
+
+    # Now set off-center x=245, flip direction to horizontal inside render_page_fn, and return status="partial"
+    apply_region_updates_to_page(bc_img, [{"region_index": 0, "center": [245.0, 220.0]}])
+    os.utime(bc_res_path, (old_t, old_t))
+    render_out: dict[str, object] = {}
+    call_idx = {"n": 0}
+
+    def _mock_render(pp):
+        call_idx["n"] += 1
+        fresh_ren = bc_canvas.copy()
+        _, cur_d = load_page_json(pp)
+        cx_cur = int(round(cur_d["regions"][0]["center"][0]))
+        fresh_ren[170:270, max(0, cx_cur - 15) : min(500, cx_cur + 15)] = 10
+        save_rgb_image_atomic(fresh_ren, bc_res_path)
+        nt = time.time() + call_idx["n"]
+        os.utime(bc_res_path, (nt, nt))
+        if call_idx["n"] == 2:
+            # External direction change to horizontal before pass 2 must invalidate cached vertical lobe!
+            apply_region_updates_to_page(bc_img, [{"region_index": 0, "direction": "h"}])
+            os.utime(bc_res_path, (nt + 2.0, nt + 2.0))
+            return {"status": "partial", "metadata_saved": False, "output_path": str(bc_res_path)}
+        return {"status": "ok", "metadata_saved": True, "output_path": str(bc_res_path)}
+
+    rep_loop = run_closed_loop_bubble_centering(
+        bc_dir,
+        passes=3,
+        render_page_fn=_mock_render,
+        render_results_out=render_out,
+    )
+    assert call_idx["n"] == 2  # Pass 0 pre-render + Pass 0 post-update; Pass 1 stops because direction=="h" & partial!
+    assert rep_loop["001.png"][0]["render_status"] == "partial"
+    assert isinstance(render_out.get("001.png"), dict)
+    assert render_out["001.png"]["status"] == "partial"  # type: ignore[index]
+
+
+def test_r2_glossary_partial_bold_txt_tabs_locking_fsync_and_batch_staging(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # R2-F04 / R2-F67: Partial inline bold cleared by batch set_fields={"bold": False}; already-unbold is a no-op
+    ch_b = tmp_path / "r2_batch_bold"
+    pb1 = _create_sample_manga_page(ch_b, "001.png")
+    p_paths = resolve_page_paths(pb1)
+    ik, d = load_page_json(p_paths)
+    apply_span_styles_to_region(d["regions"][0], spans=[{"match": "真白", "bold": True}])
+    save_page_json_atomic(p_paths, ik, d, auto_initial_snapshot=False)
+    _, d_check = load_page_json(resolve_page_paths(pb1))
+    assert region_is_bold(d_check["regions"][0]) is False
+    assert is_rich_text_document(d_check["regions"][0].get("translation_rich"))
+
+    mod_b, rep_b = batch_edit_chapter_pages(ch_b, set_fields={"bold": False})
+    assert len(mod_b) == 1
+    assert rep_b["matched_regions"] == 1
+    _, d_cleared = load_page_json(resolve_page_paths(pb1))
+    assert "bold" not in d_cleared["regions"][0]
+    assert "translation_rich" not in d_cleared["regions"][0]
+
+    # Second run on already-unbold page must be a no-op
+    mod_b2, rep_b2 = batch_edit_chapter_pages(ch_b, set_fields={"bold": False})
+    assert mod_b2 == []
+    assert rep_b2["matched_regions"] == 0
+
+    # R2-F66: Multi-word TXT glossary entry "New York\t纽约" round-trips through upsert, list, update, delete
+    txt_g = tmp_path / "places.txt"
+    manage_glossary_entries(
+        "upsert",
+        glossary_file=str(txt_g),
+        entries=[{"original": "New York", "translation": "纽约"}],
+    )
+    listed_ny = manage_glossary_entries("list", glossary_file=str(txt_g))
+    assert listed_ny["entries"] == [{"original": "New York", "translation": "纽约"}]
+    manage_glossary_entries(
+        "upsert",
+        glossary_file=str(txt_g),
+        entries=[{"original": "New York", "translation": "新约克"}],
+    )
+    listed_ny2 = manage_glossary_entries("list", glossary_file=str(txt_g))
+    assert listed_ny2["count"] == 1
+    assert listed_ny2["entries"] == [{"original": "New York", "translation": "新约克"}]
+    del_ny = manage_glossary_entries("delete", glossary_file=str(txt_g), entries=[{"original": "New York"}])
+    assert del_ny["deleted"] == 1 and del_ny["count"] == 0
+
+    # R2-F29: Concurrent TXT glossary upserts serialize cleanly without lost updates
+    conc_txt = tmp_path / "concurrent.txt"
+    errs: list[Exception] = []
+
+    def _upsert_worker(tid: int) -> None:
+        try:
+            manage_glossary_entries(
+                "upsert",
+                glossary_file=str(conc_txt),
+                entries=[{"original": f"Term {tid}", "translation": f"词条{tid}"}],
+            )
+        except Exception as exc:
+            errs.append(exc)
+
+    threads = [threading.Thread(target=_upsert_worker, args=(i,)) for i in range(12)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=5.0)
+    assert errs == []
+    final_list = manage_glossary_entries("list", glossary_file=str(conc_txt))
+    assert final_list["count"] == 12
+
+    # R2-F65: Parent directory fsync invoked after atomic YAML & TXT saves
+    fsynced_dirs: list[str] = []
+    monkeypatch.setattr(glossary_manager, "_fsync_parent_dir_best_effort", lambda p: fsynced_dirs.append(str(p.parent)))
+    manage_glossary_entries("upsert", glossary_file=str(txt_g), entries=[{"original": "A", "translation": "甲"}])
+    manage_glossary_entries(
+        "upsert",
+        glossary_file=str(tmp_path / "sync.yaml"),
+        category="Person",
+        entries=[{"original": "B", "translation": "乙"}],
+    )
+    assert len(fsynced_dirs) == 2
+    monkeypatch.undo()
+
+    # R2-F30: Pre-validate spans across ALL target pages before writing any page to disk
+    ch_stage = tmp_path / "r2_stage_ch"
+    ps1 = _create_sample_manga_page(ch_stage, "001.png")
+    ps2 = _create_sample_manga_page(ch_stage, "002.png")
+    p2_paths = resolve_page_paths(ps2)
+    ik2, d2 = load_page_json(p2_paths)
+    d2["regions"][0]["translation"] = "前往东京塔"
+    apply_span_styles_to_region(
+        d2["regions"][0],
+        spans=[{"match": "东京", "ruby": "とうきょう", "ruby_style": {"color": "#112233"}}],
+    )
+    save_page_json_atomic(p2_paths, ik2, d2, auto_initial_snapshot=False)
+
+    with pytest.raises(ValueError, match="partially covers ruby node"):
+        batch_edit_chapter_pages(
+            ch_stage,
+            set_fields={"font_size_delta": 4},
+            rich_spans=[{"match": "东", "ruby_style": {"color": "#ff0000"}}],
+        )
+    # Page 1 must NOT have had font_size_delta=+4 saved!
+    _, d1_untouched = load_page_json(resolve_page_paths(ps1))
+    assert d1_untouched["regions"][0]["font_size"] == 24
+    assert list_snapshots(ps1) == []
+
+    # Mid-commit OS failure reports committed_pages and failed_page so callers never double-apply font_size_delta
+    real_save = glossary_manager.save_page_json_atomic
+    save_calls = {"n": 0}
+
+    def _fail_second_page(*args, **kwargs):
+        save_calls["n"] += 1
+        if save_calls["n"] == 2:
+            raise OSError("disk full on page 2")
+        return real_save(*args, **kwargs)
+
+    monkeypatch.setattr(glossary_manager, "save_page_json_atomic", _fail_second_page)
+    with pytest.raises(RuntimeError, match=r"committed_pages=\['001\.png'\].*failed_page='002\.png'") as mid_err:
+        batch_edit_chapter_pages(ch_stage, set_fields={"font_size_delta": 4})
+    assert getattr(mid_err.value, "committed_pages", None) == ["001.png"]
+    assert getattr(mid_err.value, "failed_page", None) == "002.png"

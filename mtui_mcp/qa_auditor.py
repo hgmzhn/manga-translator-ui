@@ -276,6 +276,27 @@ def _detect_residual_ink_around_regions(
     _enrich_issue_identities(findings, regions)
     return findings
 
+def _parse_ym_cache_version(cache_data: Optional[dict[str, Any]]) -> int:
+    """Parse ``cache_data['version']`` safely, returning ``0`` (cache miss) on missing or invalid values."""
+    if not isinstance(cache_data, dict) or "version" not in cache_data:
+        return 0
+    raw_ver = cache_data.get("version")
+    if isinstance(raw_ver, bool) or raw_ver is None:
+        return 0
+    if isinstance(raw_ver, int):
+        return raw_ver if raw_ver > 0 else 0
+    if isinstance(raw_ver, str):
+        s = raw_ver.strip()
+        if not s:
+            return 0
+        try:
+            parsed = int(s)
+        except ValueError:
+            return 0
+        return parsed if parsed > 0 else 0
+    return 0
+
+
 _CREDIT_RE = re.compile(r"(原作\s*[:：]|漫画\s*[:：]|キャラクター原案|角色原案|SBクリエイティブ|SB\s*Creative)", re.IGNORECASE)
 
 
@@ -2925,7 +2946,8 @@ def _audit_single_page_with_context(
         issues.extend(cv_findings)
         if yuzumarker_page_cache is None:
             w_cache = load_font_detection_cache(paths.work_dir)
-            yuzumarker_page_cache = (w_cache.get("pages") or {}).get(paths.source_path.stem)
+            if _parse_ym_cache_version(w_cache) >= CACHE_VERSION:
+                yuzumarker_page_cache = (w_cache.get("pages") or {}).get(paths.source_path.stem)
         struct_findings = _detect_structural_and_border_cv_issues(
             base_rgb,
             inpainted_rgb,
@@ -3003,7 +3025,7 @@ def run_qa_audit(
         needs_scan = any(
             p.json_exists
             and (
-                int(ym_caches_by_work[p.work_dir].get("version") or 1) < CACHE_VERSION
+                _parse_ym_cache_version(ym_caches_by_work[p.work_dir]) < CACHE_VERSION
                 or p.source_path.stem not in (ym_caches_by_work[p.work_dir].get("pages") or {})
             )
             for p in pages
@@ -3015,9 +3037,8 @@ def run_qa_audit(
                 get_worker_client().detect_fonts(target_path, force_refresh=force_yuzumarker)
                 ym_caches_by_work = {w: load_font_detection_cache(w) for w in ym_caches_by_work}
             except Exception as exc:
-                if force_yuzumarker:
-                    ym_scan_degraded = True
-                    ym_scan_error = str(exc)
+                ym_scan_degraded = True
+                ym_scan_error = str(exc)
     elif force_yuzumarker and pages:
         ym_scan_degraded = True
         ym_scan_error = (
@@ -3032,7 +3053,14 @@ def run_qa_audit(
 
     all_reports: list[tuple[PagePaths, dict[str, Any], list[dict[str, Any]], int]] = []
     for p in pages:
-        p_ym_cache = ((ym_caches_by_work.get(p.work_dir) or {}).get("pages") or {}).get(p.source_path.stem)
+        w_ym_cache = ym_caches_by_work.get(p.work_dir)
+        if w_ym_cache is not None:
+            if _parse_ym_cache_version(w_ym_cache) >= CACHE_VERSION:
+                p_ym_cache = (w_ym_cache.get("pages") or {}).get(p.source_path.stem) or {}
+            else:
+                p_ym_cache = {}
+        else:
+            p_ym_cache = None
         rep, pregs, ph = _audit_single_page_with_context(
             p,
             check_inpaint_cv=check_inpaint_cv,
@@ -3114,6 +3142,7 @@ def run_qa_audit(
 
     out_report: dict[str, Any] = {
         "audited_pages": len(pages),
+        "audited_page_names": [p.source_path.name for p in pages],
         "total_issues": total_issues,
         "error_count": error_count,
         "warning_count": warning_count,
@@ -3233,6 +3262,58 @@ def _same_issue_target_spec(spec_b: tuple[bool, Any], spec_a: tuple[bool, Any], 
     return _same_single_reg_id(val_b, val_a)
 
 
+def _same_report_single_reg_dedup(
+    e: tuple[bool, Optional[str], Optional[str], Optional[str], Optional[int], Optional[tuple[int, ...]]],
+    n: tuple[bool, Optional[str], Optional[str], Optional[str], Optional[int], Optional[tuple[int, ...]]],
+) -> tuple[bool, bool]:
+    """Return ``(is_same_report_duplicate, prefer_new)`` without ever discarding a distinct or newly present UID."""
+    e_page, e_uid, e_sig, e_txt, e_idx, e_box = e
+    n_page, n_uid, n_sig, n_txt, n_idx, n_box = n
+    if e_page or n_page:
+        return (bool(e_page and n_page and e_box == n_box), False)
+    if e_uid is not None and n_uid is not None:
+        return (e_uid == n_uid, False)
+    if (e_uid is not None) != (n_uid is not None):
+        # Never swallow a UID-bearing issue into a UID-less issue from another/unknown region;
+        # only merge when both explicitly carry the exact same region_index, upgrading to the UID-bearing record.
+        if e_idx is None or n_idx is None or e_idx != n_idx:
+            return (False, False)
+        if e_sig is not None and n_sig is not None and (e_sig != n_sig or (e_txt or "") != (n_txt or "")):
+            return (False, False)
+        return (True, n_uid is not None)
+    # Neither has a UID: require matching region_index when both indices are present
+    if e_idx is not None and n_idx is not None and e_idx != n_idx:
+        return (False, False)
+    return (_same_single_reg_id(e, n), False)
+
+
+def _same_report_issue_dedup(
+    spec_existing: tuple[bool, Any],
+    spec_new: tuple[bool, Any],
+) -> tuple[bool, bool]:
+    """Return ``(is_duplicate, prefer_new)`` for intra-report deduplication in ``_collect_errors``."""
+    is_pair_e, val_e = spec_existing
+    is_pair_n, val_n = spec_new
+    if is_pair_e != is_pair_n:
+        return (False, False)
+    if not is_pair_e:
+        return _same_report_single_reg_dedup(val_e, val_n)
+    e0, e1 = val_e
+    n0, n1 = val_n
+    for (pa, pb), (qa, qb) in (((e0, e1), (n0, n1)), ((e0, e1), (n1, n0))):
+        m0, _ = _same_report_single_reg_dedup(pa, qa)
+        m1, _ = _same_report_single_reg_dedup(pb, qb)
+        if m0 and m1:
+            e_uids = int(pa[1] is not None) + int(pb[1] is not None)
+            n_uids = int(qa[1] is not None) + int(qb[1] is not None)
+            if e_uids != n_uids and ((pa[1] is None and qa[1] is not None) and (pb[1] is not None and qb[1] is None)):
+                return (False, False)
+            if e_uids != n_uids and ((pa[1] is not None and qa[1] is None) and (pb[1] is None and qb[1] is not None)):
+                return (False, False)
+            return (True, n_uids > e_uids)
+    return (False, False)
+
+
 def diff_qa_audits(
     before_report: dict[str, Any],
     after_report: dict[str, Any],
@@ -3244,14 +3325,69 @@ def diff_qa_audits(
 
     Blocks any newly introduced `error` (especially newly introduced high-confidence `yuzumarker_font_mismatch`
     or `vertical_alignment_mismatch` regressions caused by visual verifier edits), matching regions by stable
-    identity rather than list index and distinguishing multiple overlap pairs per region.
+    identity rather than list index, distinguishing multiple overlap pairs per region, and verifying that all
+    in-scope baseline pages were actually audited in `after_report`.
     """
+
+    def _page_in_scope(pname: str) -> bool:
+        if not pname:
+            return False
+        if pages is None:
+            return True
+        return pname in pages or Path(pname).stem in pages
+
+    def _extract_audited_names(report: dict[str, Any], *, allow_pages_fallback: bool) -> list[str]:
+        raw_names = report.get("audited_page_names")
+        if isinstance(raw_names, list):
+            seen: dict[str, None] = {}
+            for item in raw_names:
+                s = str(item or "").strip()
+                if s:
+                    seen.setdefault(s, None)
+            return list(seen.keys())
+        if not allow_pages_fallback:
+            return []
+        seen_fb: dict[str, None] = {}
+        for p_rep in report.get("pages") or []:
+            if isinstance(p_rep, dict):
+                s = str(p_rep.get("page_name") or "").strip()
+                if s:
+                    seen_fb.setdefault(s, None)
+        return list(seen_fb.keys())
+
+    after_audited_list = _extract_audited_names(after_report, allow_pages_fallback=True)
+    after_audited_set = set(after_audited_list)
+    after_audited_stems = {Path(n).stem for n in after_audited_set}
+
+    baseline_scope_pages: dict[str, None] = {}
+    for b_name in _extract_audited_names(before_report, allow_pages_fallback=True):
+        if _page_in_scope(b_name):
+            baseline_scope_pages.setdefault(b_name, None)
+    for p_rep in before_report.get("pages") or []:
+        if isinstance(p_rep, dict):
+            b_name = str(p_rep.get("page_name") or "").strip()
+            if _page_in_scope(b_name):
+                baseline_scope_pages.setdefault(b_name, None)
+
+    unaudited_dict: dict[str, None] = {}
+    for b_name in baseline_scope_pages:
+        if b_name not in after_audited_set:
+            unaudited_dict.setdefault(b_name, None)
+    if pages is not None:
+        for req_p in sorted(str(p).strip() for p in pages if str(p).strip()):
+            has_ext = "." in Path(req_p).name
+            covered = (req_p in after_audited_set) if has_ext else (req_p in after_audited_set or req_p in after_audited_stems)
+            if not covered and req_p not in unaudited_dict:
+                # Avoid duplicating stem if `002.png` was already recorded from baseline_scope_pages
+                if not any(Path(existing).stem == Path(req_p).stem for existing in unaudited_dict):
+                    unaudited_dict.setdefault(req_p, None)
+    unaudited_pages = list(unaudited_dict.keys())
 
     def _collect_errors(report: dict[str, Any]) -> list[tuple[tuple[str, str, str], tuple[bool, Any], dict[str, Any]]]:
         collected: list[tuple[tuple[str, str, str], tuple[bool, Any], dict[str, Any]]] = []
         for p_rep in report.get("pages") or []:
             pname = str(p_rep.get("page_name") or "")
-            if pages is not None and pname not in pages and Path(pname).stem not in pages:
+            if not _page_in_scope(pname):
                 continue
             for iss in p_rep.get("issues") or []:
                 if str(iss.get("severity") or "").lower() != "error":
@@ -3260,13 +3396,22 @@ def diff_qa_audits(
                 extra_disc = str(iss.get("font_family") or "") if cat == "missing_font_glyphs" else ""
                 bucket_key = (pname, cat, extra_disc)
                 target_spec = _extract_issue_target_spec(iss)
-                if any(
-                    bk == bucket_key and _same_issue_target_spec(ts, target_spec)
-                    for bk, ts, _ in collected
-                ):
-                    continue
                 entry = dict(iss)
                 entry["page_name"] = pname
+                dup_idx: Optional[int] = None
+                prefer_new = False
+                for c_idx, (bk, ts, _) in enumerate(collected):
+                    if bk != bucket_key:
+                        continue
+                    is_dup, pref_n = _same_report_issue_dedup(ts, target_spec)
+                    if is_dup:
+                        dup_idx = c_idx
+                        prefer_new = pref_n
+                        break
+                if dup_idx is not None:
+                    if prefer_new:
+                        collected[dup_idx] = (bucket_key, target_spec, entry)
+                    continue
                 collected.append((bucket_key, target_spec, entry))
         return collected
 
@@ -3314,7 +3459,11 @@ def diff_qa_audits(
         key=_entry_sort_key,
     )
     resolved_errors = sorted(
-        [before_items[i][2] for i in range(len(before_items)) if i not in matched_before],
+        [
+            before_items[i][2]
+            for i in range(len(before_items))
+            if i not in matched_before and str(before_items[i][2].get("page_name") or "") in after_audited_set
+        ],
         key=_entry_sort_key,
     )
     new_high_conf_ym = [
@@ -3330,7 +3479,9 @@ def diff_qa_audits(
         "resolved_error_count": len(resolved_errors),
         "newly_introduced_error_count": len(new_errors),
         "newly_introduced_high_conf_yuzumarker_count": len(new_high_conf_ym),
-        "passed": len(new_errors) == 0,
+        "unaudited_pages": unaudited_pages,
+        "scope_complete": len(unaudited_pages) == 0,
+        "passed": len(new_errors) == 0 and len(unaudited_pages) == 0,
         "newly_introduced_errors": new_errors,
         "newly_introduced_high_conf_yuzumarker_errors": new_high_conf_ym,
     }

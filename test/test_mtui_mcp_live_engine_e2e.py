@@ -195,16 +195,18 @@ def test_live_mtui_gpu_inpaint_richtext_layout_and_render(
         right_pre = repaired_inp[165:335, 455:565]
         right_post = rendered_rgb[165:335, 455:565]
         assert np.min(right_pre) > 180, "Right interior reference crop must exclude bubble border"
-        right_ink_diff = np.max(np.abs(right_post.astype(np.int16) - right_pre.astype(np.int16)), axis=2)
-        assert int(np.sum(right_ink_diff >= 60)) >= 50 and np.min(right_post) < 150, (
+        right_darkening = np.max(right_pre.astype(np.int16) - right_post.astype(np.int16), axis=2)
+        right_new_dark_px = (right_darkening >= 60) & (np.min(right_post, axis=2) < 150)
+        assert int(np.sum(right_new_dark_px)) >= 50, (
             "Expected newly rendered vertical rich text inside right bubble interior"
         )
 
         left_pre = repaired_inp[520:600, 130:310]
         left_post = rendered_rgb[520:600, 130:310]
         assert np.min(left_pre) > 180, "Left interior reference crop must exclude bubble border"
-        left_ink_diff = np.max(np.abs(left_post.astype(np.int16) - left_pre.astype(np.int16)), axis=2)
-        assert int(np.sum(left_ink_diff >= 60)) >= 50 and np.min(left_post) < 150, (
+        left_darkening = np.max(left_pre.astype(np.int16) - left_post.astype(np.int16), axis=2)
+        left_new_dark_px = (left_darkening >= 60) & (np.min(left_post, axis=2) < 150)
+        assert int(np.sum(left_new_dark_px)) >= 50, (
             "Expected newly rendered horizontal text inside left bubble interior"
         )
 
@@ -218,6 +220,8 @@ def test_live_mtui_gpu_inpaint_richtext_layout_and_render(
 
         batch_res = json.loads(mtui_render_pages(str(chapter_dir), output_dir=str(isolated_result_dir)))
         assert batch_res["rendered_count"] == 1
+        assert batch_res["status"] == "ok"
+        assert batch_res["results"][0]["status"] == "ok"
     finally:
         get_worker_client().shutdown()
 

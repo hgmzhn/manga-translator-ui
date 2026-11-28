@@ -11,10 +11,12 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from mtui_mcp.font_detector import region_bbox_signature
 from mtui_mcp.local_inpaint import apply_mask_operations
 from mtui_mcp.path_resolver import resolve_page_paths
-from mtui_mcp.project_store import encode_mask_base64, save_page_json_atomic, save_rgb_image_atomic
+from mtui_mcp.project_store import encode_mask_base64, open_rgb_image, save_page_json_atomic, save_rgb_image_atomic
 from mtui_mcp.qa_auditor import audit_single_page
+from mtui_mcp.visual_inspector import generate_page_inspection_image, generate_region_loupe_image
 
 
 def test_fig1_white_bg_bubble_border_shield_and_erosion_detector(tmp_path: Path) -> None:
@@ -250,6 +252,8 @@ def test_fig3_fig4_fig5_fig7_font_bold_residual_and_scale(
     ym_cache = {
         "by_ridx": {
             "0": {
+                "bbox_sig": region_bbox_signature([685.0, 145.0, 780.0, 370.0]),
+                "center": [732.5, 257.5],
                 "pred_family": "ROUND_GOTHIC",
                 "pred_conf": 0.99,
                 "bold_prob": 1.0,
@@ -258,6 +262,8 @@ def test_fig3_fig4_fig5_fig7_font_bold_residual_and_scale(
                 "top_fonts": [{"font": "FOT-RodinHappyPro-B.otf", "family": "ROUND_GOTHIC", "prob": 0.92}],
             },
             "1": {
+                "bbox_sig": region_bbox_signature([155.0, 145.0, 250.0, 370.0]),
+                "center": [202.5, 257.5],
                 "pred_family": "ROUND_GOTHIC",
                 "pred_conf": 0.51,
                 "bold_prob": 0.97,
@@ -288,6 +294,8 @@ def test_fig3_fig4_fig5_fig7_font_bold_residual_and_scale(
         "by_ridx": {
             "0": ym_cache["by_ridx"]["0"],
             "1": {
+                "bbox_sig": region_bbox_signature([155.0, 145.0, 250.0, 370.0]),
+                "center": [202.5, 257.5],
                 "pred_family": "POP_CHISEL",
                 "pred_conf": 0.94,
                 "bold_prob": 1.0,
@@ -349,3 +357,75 @@ def test_fig3_fig4_fig5_fig7_font_bold_residual_and_scale(
     assert manifest["frameless_regions_exported"] >= 1
     assert manifest["verify_sheet_count"] == 2
     assert Path(manifest["sheets"][0]).is_file()
+
+
+def test_r2_visual_inspector_inpaint_fallback_label_and_1px_thin_mask_downscale(tmp_path: Path) -> None:
+    import mtui_mcp.visual_inspector as vis_mod
+
+    folder = tmp_path / "vis_r2_ch"
+    folder.mkdir()
+    img_path = folder / "001.png"
+
+    page = np.full((1000, 1000, 3), 255, dtype=np.uint8)
+    Image.fromarray(page).save(img_path)
+    paths = resolve_page_paths(img_path)
+    # Provide rendered output WITHOUT inpainted sidecar (`R2-F85`), plus a 1px vertical mask line at x=501 (`R2-F86`)
+    save_rgb_image_atomic(page, paths.rendered_output_path)
+    thin_mask = np.zeros((1000, 1000), dtype=np.uint8)
+    thin_mask[200:800, 501] = 255
+    save_page_json_atomic(
+        paths,
+        str(img_path.resolve()),
+        {
+            "mask_raw": encode_mask_base64(thin_mask),
+            "regions": [
+                {
+                    "lines": [[[350.0, 180.0], [650.0, 180.0], [650.0, 820.0], [350.0, 820.0]]],
+                    "text": "テスト",
+                    "translation": "测试",
+                    "direction": "v",
+                }
+            ],
+        },
+        auto_initial_snapshot=False,
+    )
+
+    seen_titles: list[str] = []
+    orig_wrap = vis_mod._wrap_panel_with_world_rulers
+
+    def _spy_wrap(crop_rgb, wx0, wy0, title, **kw):
+        seen_titles.append(title)
+        return orig_wrap(crop_rgb, wx0, wy0, title, **kw)
+
+    orig_attr = vis_mod._wrap_panel_with_world_rulers
+    try:
+        vis_mod._wrap_panel_with_world_rulers = _spy_wrap  # type: ignore[assignment]
+        # max_edge=1716 -> 3 * (500 + 72) == 1716 -> exact 1000 -> 500 2x downscale where col 501 is odd!
+        insp_file, insp_meta = generate_page_inspection_image(
+            img_path, mode="inpaint_check", show_grid=False, max_edge=1716
+        )
+        assert insp_meta["inpainted_exists"] is False
+        assert insp_meta["inpainted_panel_source"] == "original_fallback"
+        assert insp_meta["rendered_output_exists"] is True
+        assert any("2. Inpainted + Mask (Red, fallback: original)" in t for t in seen_titles)
+
+        comp = open_rgb_image(insp_file)
+        panel_w = comp.shape[1] // 3
+        p2_slice = comp[60:-20, panel_w + 60 : 2 * panel_w - 20]
+        red_px = (p2_slice[:, :, 0].astype(np.int16) - p2_slice[:, :, 1].astype(np.int16)) >= 40
+        assert int(np.sum(red_px)) >= 200, "1px vertical mask line must survive 2x downscaling!"
+
+        seen_titles.clear()
+        loupe_file, loupe_meta = generate_region_loupe_image(
+            img_path, region_indices=[0], padding_px=50, show_grid=False, max_edge=900
+        )
+        assert loupe_meta["inpainted_exists"] is False
+        assert loupe_meta["inpainted_panel_source"] == "original_fallback"
+        assert any("Inpainted+Mask (fallback: original)" in t for t in seen_titles)
+        loupe_arr = open_rgb_image(loupe_file)
+        lp_w = loupe_arr.shape[1] // 3
+        lp2_slice = loupe_arr[60:-20, lp_w + 60 : 2 * lp_w - 20]
+        loupe_red = (lp2_slice[:, :, 0].astype(np.int16) - lp2_slice[:, :, 1].astype(np.int16)) >= 40
+        assert int(np.sum(loupe_red)) >= 50, "1px vertical mask line must survive loupe crop downscaling!"
+    finally:
+        vis_mod._wrap_panel_with_world_rulers = orig_attr  # type: ignore[assignment]

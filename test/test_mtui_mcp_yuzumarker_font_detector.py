@@ -191,3 +191,46 @@ def test_qa_auditor_yuzumarker_catches_false_songti_and_missed_guyin() -> None:
         base_rgb, inp_rgb, None, [reg0, reg1], yuzumarker_page_cache=ym_cache
     )
     assert [i for i in issues_fixed if i["category"] == "yuzumarker_font_mismatch"] == []
+
+
+def test_lookup_cached_region_prediction_rejects_bare_ridx_and_invalid_region_count() -> None:
+    reg_a = {"lines": [[[20.0, 20.0], [120.0, 20.0], [120.0, 220.0], [20.0, 220.0]]], "text": "あ"}
+    reg_b = {"lines": [[[180.0, 20.0], [280.0, 20.0], [280.0, 220.0], [180.0, 220.0]]], "text": "い"}
+
+    # R2-F36: Bare by_ridx without region_uid / bbox_sig / center MUST return None even when total_regions matches
+    bare_cache = {
+        "region_count": 2,
+        "by_ridx": {
+            "0": {"pred_family": "POP_CHISEL", "pred_conf": 0.99},
+            "1": {"pred_family": "ANTIQUE", "pred_conf": 0.99},
+        },
+    }
+    assert lookup_cached_region_prediction(bare_cache, reg_a, 0) is None
+    assert lookup_cached_region_prediction(bare_cache, reg_a, 0, total_regions=2) is None
+    assert lookup_cached_region_prediction({"by_ridx": {"0": {"pred_family": "POP_CHISEL"}}}, reg_a, 0, total_regions=1) is None
+
+    # Verified center / bbox_sig / region_uid hits succeed on original order and reject swapped order
+    center_cache = {
+        "region_count": 2,
+        "by_ridx": {
+            "0": {"center": [70.0, 120.0], "pred_family": "POP_CHISEL", "pred_conf": 0.99},
+            "1": {"center": [230.0, 120.0], "pred_family": "ANTIQUE", "pred_conf": 0.99},
+        },
+    }
+    assert lookup_cached_region_prediction(center_cache, reg_a, 0, total_regions=2) is not None
+    assert lookup_cached_region_prediction(center_cache, reg_b, 0, total_regions=2) is None
+
+    uid_cache = {
+        "region_count": 1,
+        "by_ridx": {"0": {"region_uid": "uid-1", "pred_family": "MINCHO", "pred_conf": 0.95}},
+    }
+    assert lookup_cached_region_prediction(uid_cache, {**reg_a, "region_uid": "uid-1"}, 0, total_regions=1) is not None
+    assert lookup_cached_region_prediction(uid_cache, {**reg_a, "region_uid": "uid-2"}, 0, total_regions=1) is None
+
+    # R2-F79: Malformed non-int region_count is treated as cache miss without raising ValueError
+    for bad_rc in ("unknown", "", True, -1, []):
+        malformed_rc_cache = {
+            "region_count": bad_rc,
+            "by_ridx": {"0": {"center": [70.0, 120.0], "pred_family": "POP_CHISEL", "pred_conf": 0.99}},
+        }
+        assert lookup_cached_region_prediction(malformed_rc_cache, reg_a, 0, total_regions=1) is None

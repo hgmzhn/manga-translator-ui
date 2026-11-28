@@ -11,8 +11,8 @@
 1. 输入目录本身含有图片页 → 当作**一话**处理。
 2. 输入目录不含图片、但子目录含图片 → 按自然排序（`第2话` 排在 `第10话` 前面）**逐个子目录**当作一话。跳过 `manga_translator_work`、`backups`、`.git`。
 3. 各话**严格按顺序逐话执行 Stage 0~7**；一话内部按第 4 节分片并行。**上一话完全结束（含 Stage 7）前不要提前启动下一话的 Stage 0~1**；进入下一话跑命令行 `aac translate-raw` 前，若常驻 worker 刚跑过 `neural` 修图，先调用一次 `mtui_status(release_vram=True)` 释放常驻显存缓存，杜绝 8GB 显卡双进程抢显存。
-4. 每话结束时（Stage 7 执行 `aac compare` 完毕后），先将 `stage7_compare: ok (sheets=<N>)`（`<N>` 为实际生成的差异对比图张数，精修前后像素完全一致时可为 `0`）连同最终状态写入 `<QA>/run_log.md`；若全话 `STATUS: DONE`，仅清理本次运行创建的快照——调用 `mtui_snapshots(target_path="<CHAPTER>", action="cleanup", label="pre_gate_b")` 与 `mtui_snapshots(target_path="<CHAPTER>", action="cleanup", label="initial_before_mcp")`（或传入本次运行记录的 `snapshot_id`；严禁无 `label` / `snapshot_id` 全量清空，以免误删用户手动创建的检查点；若有 `UNRESOLVED` 页则仅对正常 `<PAGE>` 按标签清理、保留异常页快照），然后进入下一话。
-5. **断点续跑**：如果某话的 `run_log.md` 已经标记 `STATUS: DONE` 且明确记录了 `stage7_compare: ok (sheets=<N>)`——当 `<N> > 0` 且 `comparisons/` 内存在对应对比图，或当明确记录 `stage7_compare: ok (sheets=0)`（精修前后无像素差异、Stage 7 已正常跑完）时，直接跳过该话（除非用户明确要求重做）；若缺少 `stage7_compare: ok` 记录（说明 Stage 7 尚未执行或中断），则不得跳过，需补跑完成。
+4. 每话结束时（Stage 7 执行 `aac compare` 完毕后），**必须先核对本话全部预期页面的 Before（`<QA>/before_result`）与 After（最终成图）均完整覆盖且已全部实际完成比较**（`missing_before == 0` 且 `missing_after == 0`、`compared == 预期总页数`；`aac compare` 若因某页缺失 After 跳过比较也会输出 `Generated 0`，绝不得将其误记为零差异完成——若有缺失必须先补齐出图并重跑 `aac compare`），确认覆盖完整后再将 `stage7_compare: ok (sheets=<N>)`（`<N>` 为实际生成的差异对比图张数；仅当全部预期页面均已实际完成比较且像素完全一致时才允许记录 `sheets=0`）连同最终状态写入 `<QA>/run_log.md`。若全话 `STATUS: DONE`，**仅按本次运行实际创建并记录在 `created_snapshot_ids` 中的 `snapshot_id` 清理临时快照**——逐一核实每个 `snapshot_id` 属于本次运行后，调用 `mtui_snapshots(target_path="<CHAPTER>", action="cleanup", snapshot_id="<RECORDED_ID>")` 删除；**严禁以 `label` 作为清理范围，严禁不传 `snapshot_id` 全量清空，且除非用户明确要求，严禁删除 `initial_before_mcp` 基线快照**；若有 `UNRESOLVED` 页则跳过该异常页对应的 `snapshot_id`，保留异常页快照供用户抽查，然后进入下一话。
+5. **断点续跑**：如果某话的 `run_log.md` 已经标记 `STATUS: DONE` 且明确记录了 `stage7_compare: ok (sheets=<N>)`——**无论 `<N> > 0` 还是 `sheets=0`，跳过前都必须先核对 `<CHAPTER>` 全部预期源页的 Before（`<QA>/before_result`）与 After 最终成图均完整存在并覆盖全部页面**：当 `<N> > 0` 时还须确认 `comparisons/` 内存在对应对比图；当记录为 `stage7_compare: ok (sheets=0)`（或 `cmd_compare` 输出 `Generated 0`）时，**只有核实全部预期页面的 Before 和 After 均完整覆盖且所有页面都已实际完成比较**，才可认定为精修前后零像素差异并跳过该话（除非用户明确要求重做）。若缺少 `stage7_compare: ok` 记录，或 Before / After 覆盖不完整、无法确认全部页面已完成比较，则不得将其视为零差异完成，也不得跳过，需补跑完成。
 
 ---
 
@@ -98,12 +98,12 @@ modified_pages: [3, 7, 13, 21]
 - 逐框处理，零跳框；Gate B 阶段运行
   aac verify-crops --chapter-dir "<CHAPTER>" --out-dir "<QA>/verify_crops/shard_<A>_<B>" --page-start <A> --page-end <B>
   然后逐张 read_file 看完全部 sheet，一张不跳。
-- Gate B 阶段若发现某单页需要修改，**先对该单页执行一次按需存档** `mtui_snapshots(target_path="<PAGE>", action="create", label="pre_gate_b")` 再动刀（严禁对没改动的页批量建快照浪费磁盘）。
+- Gate B 阶段若发现某单页需要修改，**先对该单页执行一次按需存档** `mtui_snapshots(target_path="<PAGE>", action="create", label="pre_gate_b")` 并将返回的 `snapshot_id` 记入 `created_snapshot_ids` 再动刀（严禁对没改动的页批量建快照浪费磁盘）。
 - 发现问题就自己判断最优方案并直接修复、验证，按 unattended_batch_ops.md 第 2 节处理；不要停下来提问，也不要只记录不处理。
 - 需要修改术语表时不要直接改，写进回报里交给主控。
 - 编辑时可先 re_render=False，最后对自己负责的页调用一次 mtui_render_pages。不要运行全局 center-bubbles。
 回报内容（JSON）：{"pages":[A,B], "selected_pages":[...], "skipped_pages":[...], "missing_artifact_pages":[...],
-"modified_pages":[...], "sheets_reviewed":n, "sheets_total":n,
+"modified_pages":[...], "created_snapshot_ids":[...], "sheets_reviewed":n, "sheets_total":n,
 "auto_fixed":[...], "decisions":[...], "glossary_proposals":[...], "unresolved":[...]}
 ```
 

@@ -133,6 +133,60 @@ def _under_100_cn_forms(n: int) -> set[str]:
     return set()
 
 
+_CN_DIGIT_VALUES: dict[str, int] = {
+    "零": 0,
+    "〇": 0,
+    "一": 1,
+    "壹": 1,
+    "二": 2,
+    "两": 2,
+    "兩": 2,
+    "贰": 2,
+    "貳": 2,
+    "三": 3,
+    "叁": 3,
+    "參": 3,
+    "四": 4,
+    "肆": 4,
+    "五": 5,
+    "伍": 5,
+    "六": 6,
+    "陆": 6,
+    "陸": 6,
+    "七": 7,
+    "柒": 7,
+    "八": 8,
+    "捌": 8,
+    "九": 9,
+    "玖": 9,
+}
+_CN_SMALL_MULTIPLIERS: dict[str, int] = {
+    "十": 10,
+    "拾": 10,
+    "百": 100,
+    "佰": 100,
+    "千": 1000,
+    "仟": 1000,
+}
+_CN_SECTION_MULTIPLIERS: dict[str, int] = {
+    "万": 10_000,
+    "萬": 10_000,
+    "亿": 100_000_000,
+    "億": 100_000_000,
+}
+_CN_ALL_MULTIPLIERS: dict[str, int] = {**_CN_SMALL_MULTIPLIERS, **_CN_SECTION_MULTIPLIERS}
+_CN_MULTIPLIER_CHARS = "十拾百佰千仟万萬亿億"
+_DEC_WITH_UNIT_RE = re.compile(
+    rf"(?<!\d\.)(?<![\d{_CN_NUM_BOUNDARY_CHARS}])(\d+\.\d+)\s*([{_CN_MULTIPLIER_CHARS}]+)"
+)
+_DEC_ZERO_FRAC_RE = re.compile(rf"(?<!\d\.)(?<!\d)(\d+)\.0+(?![\d{_CN_MULTIPLIER_CHARS}])")
+_DEC_ANY_RE = re.compile(r"\d+\.\d+")
+_NUM_SPAN_RE = re.compile(rf"[{_CN_NUM_BOUNDARY_CHARS}\d]+")
+_SRC_NUMBER_TOKEN_RE = re.compile(
+    rf"(?<!\d\.)(?<!\d)(?:\d{{1,3}}(?:,\d{{3}})+|\d{{1,6}})(?:\.\d+)?(?:\s*[{_CN_MULTIPLIER_CHARS}]+)?(?!\.\d)(?!\d)"
+)
+
+
 def _int_to_chinese_forms(n: int) -> set[str]:
     forms: set[str] = {str(n), unicodedata.normalize("NFKC", str(n))}
     forms.add("".join(chr(ord("０") + int(d)) for d in str(n)))
@@ -164,7 +218,10 @@ def _int_to_chinese_forms(n: int) -> set[str]:
             if rem == 0:
                 forms.add(f"{kc}千")
             elif rem < 100:
-                for sub_f in _under_100_cn_forms(rem) - _LEXICAL_QUANTITY_WORDS:
+                rem_forms = _under_100_cn_forms(rem) - _LEXICAL_QUANTITY_WORDS
+                if rem == 10:
+                    rem_forms = rem_forms | {"一十", "壹拾"}
+                for sub_f in rem_forms:
                     if len(sub_f) == 1 and rem < 10:
                         forms.add(f"{kc}千零{sub_f}")
                         forms.add(f"{kc}千〇{sub_f}")
@@ -178,14 +235,147 @@ def _int_to_chinese_forms(n: int) -> set[str]:
     return {f for f in forms if f}
 
 
+def _parse_num_span(span: str) -> Optional[int]:
+    if not span:
+        return None
+    if span.isdigit():
+        return int(span)
+    m_arab_unit = re.fullmatch(rf"(\d+)([{_CN_MULTIPLIER_CHARS}]+)", span)
+    if m_arab_unit:
+        val = int(m_arab_unit.group(1))
+        for uch in m_arab_unit.group(2):
+            val *= _CN_ALL_MULTIPLIERS[uch]
+        return val
+    if not any(c in _CN_ALL_MULTIPLIERS for c in span):
+        if len(span) == 1 and span in _CN_DIGIT_VALUES:
+            return _CN_DIGIT_VALUES[span]
+        if span in ("廿", "卅"):
+            return 20 if span == "廿" else 30
+        if len(span) == 2 and span[0] in ("廿", "卅") and span[1] in _CN_DIGIT_VALUES:
+            return (20 if span[0] == "廿" else 30) + _CN_DIGIT_VALUES[span[1]]
+        return None
+
+    total = 0
+    section = 0
+    curr: Optional[int] = None
+    saw_zero = False
+    last_unit = 0
+    i = 0
+    while i < len(span):
+        ch = span[i]
+        if ch.isdigit():
+            j = i
+            while j < len(span) and span[j].isdigit():
+                j += 1
+            if curr is not None:
+                return None
+            curr = int(span[i:j])
+            i = j
+            continue
+        if ch in ("零", "〇"):
+            saw_zero = True
+            i += 1
+            continue
+        if ch in ("廿", "卅"):
+            if curr is not None:
+                return None
+            curr = 20 if ch == "廿" else 30
+            i += 1
+            continue
+        if ch in _CN_DIGIT_VALUES:
+            if curr is not None:
+                return None
+            curr = _CN_DIGIT_VALUES[ch]
+            i += 1
+            continue
+        if ch in _CN_SMALL_MULTIPLIERS:
+            u = _CN_SMALL_MULTIPLIERS[ch]
+            val = 1 if curr is None else curr
+            section += val * u
+            curr = None
+            saw_zero = False
+            last_unit = u
+            i += 1
+            continue
+        if ch in _CN_SECTION_MULTIPLIERS:
+            su = _CN_SECTION_MULTIPLIERS[ch]
+            sec_val = section + (curr if curr is not None else 0)
+            if sec_val == 0:
+                sec_val = 1
+            total += sec_val * su
+            section = 0
+            curr = None
+            saw_zero = False
+            last_unit = su
+            i += 1
+            continue
+        return None
+
+    if curr is not None:
+        if not saw_zero and last_unit >= 100 and 1 <= curr <= 9:
+            section += curr * (last_unit // 10)
+        else:
+            section += curr
+    return total + section
+
+
+def _extract_complete_numbers(text_norm: str) -> set[int]:
+    """Extract complete integer quantities from NFKC-normalized text, honoring multiplier units (e.g. '2万' -> 20000)."""
+    out: set[int] = set()
+    work = re.sub(r"(?<=\d),(?=\d{3}(?!\d))", "", text_norm)
+    work = re.sub(rf"(?<=\d)\s+(?=[{_CN_MULTIPLIER_CHARS}])", "", work)
+
+    def _consume_dec_unit(m: re.Match[str]) -> str:
+        val = float(m.group(1))
+        for uch in m.group(2):
+            val *= _CN_ALL_MULTIPLIERS[uch]
+        rounded = round(val)
+        if abs(val - rounded) < 1e-6:
+            out.add(int(rounded))
+        return " "
+
+    work = _DEC_WITH_UNIT_RE.sub(_consume_dec_unit, work)
+
+    def _consume_dec_zero(m: re.Match[str]) -> str:
+        out.add(int(m.group(1)))
+        return " "
+
+    work = _DEC_ZERO_FRAC_RE.sub(_consume_dec_zero, work)
+    work = _DEC_ANY_RE.sub(" ", work)
+
+    for m in _NUM_SPAN_RE.finditer(work):
+        parsed = _parse_num_span(m.group(0))
+        if parsed is not None:
+            out.add(parsed)
+    return out
+
+
+def _parse_source_number_token(raw_tok: str) -> Optional[int]:
+    tok = re.sub(r"(?<=\d),(?=\d{3}(?!\d))", "", raw_tok)
+    tok = re.sub(r"\s+", "", tok)
+    m_dec_u = re.fullmatch(rf"(\d+\.\d+)([{_CN_MULTIPLIER_CHARS}]+)", tok)
+    if m_dec_u:
+        val = float(m_dec_u.group(1))
+        for uch in m_dec_u.group(2):
+            val *= _CN_ALL_MULTIPLIERS[uch]
+        rounded = round(val)
+        return int(rounded) if abs(val - rounded) < 1e-6 else None
+    m_dec_z = re.fullmatch(r"(\d+)\.0+", tok)
+    if m_dec_z:
+        return int(m_dec_z.group(1))
+    if "." in tok:
+        return None
+    return _parse_num_span(tok)
+
+
 def _translation_contains_number(vis_flat: str, n: int) -> bool:
     """Return True iff ``vis_flat`` contains ``n`` as a complete Arabic or Chinese number."""
     vis_norm = unicodedata.normalize("NFKC", vis_flat)
-    if re.search(rf"(?<!\d){n}(?!\d)", vis_norm):
+    if n in _extract_complete_numbers(vis_norm):
         return True
     for form in _int_to_chinese_forms(n):
         f_norm = unicodedata.normalize("NFKC", form)
-        if f_norm.isdigit():
+        if f_norm.isdigit() or any(ch.isdigit() for ch in f_norm):
             continue
         if f_norm in _LEXICAL_QUANTITY_WORDS:
             if f_norm in vis_norm:
@@ -207,7 +397,7 @@ def _parse_cached_glossary(path_str: str, mtime_ns: int) -> tuple[GlossaryTerm, 
             s = ln.strip()
             if not s or s.startswith(("#", "//")):
                 continue
-            parts = re.split(r"\t+|\s{2,}|\s+", s, maxsplit=1)
+            parts = re.split(r"\t+", s, maxsplit=1) if "\t" in s else re.split(r"\s{2,}|\s+", s, maxsplit=1)
             if len(parts) == 2 and len(parts[0].strip()) >= 2 and parts[1].strip():
                 orig = parts[0].strip()
                 terms.append(
@@ -439,11 +629,11 @@ def audit_region_translation_accuracy(
                 )
                 break
 
-    # 3. Concrete Number / Quantity Drop (`n >= 2`, e.g. `2`, `3`, `21`, `30` dropped completely in translation)
+    # 3. Concrete Number / Quantity Drop (`n >= 2`, e.g. `2`, `3`, `21`, `30`, `2万` dropped or mis-scaled in translation)
     norm_src_nums = unicodedata.normalize("NFKC", src_txt)
-    for nm in re.finditer(r"(?<!\d)\d{1,4}(?!\d)", norm_src_nums):
-        n_val = int(nm.group(0))
-        if n_val < 2:
+    for nm in _SRC_NUMBER_TOKEN_RE.finditer(norm_src_nums):
+        n_val = _parse_source_number_token(nm.group(0))
+        if n_val is None or n_val < 2:
             continue
         if not _translation_contains_number(vis_flat, n_val):
             issues.append(

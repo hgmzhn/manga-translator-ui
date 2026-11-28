@@ -23,10 +23,13 @@ from mtui_mcp.font_detector import (
     classify_vcb_font_entry,
     load_font_detection_cache,
     recommend_mtui_font_for_prediction,
+    region_bbox_signature,
 )
 from mtui_mcp.path_resolver import resolve_page_paths
 from mtui_mcp.project_store import (
     _pick_punctuation_fallback_font,
+    region_bbox_xyxy,
+    region_center,
     save_page_json_atomic,
     save_rgb_image_atomic,
 )
@@ -237,6 +240,8 @@ def test_v19_028_kyokaica_uddigi_contamination_and_noisy_kaisho_anti_fp() -> Non
     ym_cache = {
         "by_ridx": {
             "0": {
+                "bbox_sig": region_bbox_signature(region_bbox_xyxy(reg_v19_028)),
+                "center": list(region_center(reg_v19_028)),
                 "pred_family": "KYOKASHO_PEN",
                 "pred_conf": 0.89,
                 "bold_prob": 0.0,
@@ -249,6 +254,8 @@ def test_v19_028_kyokaica_uddigi_contamination_and_noisy_kaisho_anti_fp() -> Non
                 ],
             },
             "1": {
+                "bbox_sig": region_bbox_signature(region_bbox_xyxy(reg_v19_021)),
+                "center": list(region_center(reg_v19_021)),
                 "pred_family": "KAISHO_BRUSH",
                 "pred_conf": 0.98,
                 "bold_prob": 0.98,
@@ -257,6 +264,8 @@ def test_v19_028_kyokaica_uddigi_contamination_and_noisy_kaisho_anti_fp() -> Non
                 "top_fonts": [{"font": "HOT-FKaishoStd-B.otf", "family": "KAISHO_BRUSH", "prob": 0.98}],
             },
             "2": {
+                "bbox_sig": region_bbox_signature(region_bbox_xyxy(reg_v19_089)),
+                "center": list(region_center(reg_v19_089)),
                 "pred_family": "KAISHO_BRUSH",
                 "pred_conf": 0.85,
                 "bold_prob": 0.85,
@@ -298,6 +307,8 @@ def test_kaisho_brush_unbolded_clean_and_bolded_is_warning_not_error() -> None:
     ym_cache = {
         "by_ridx": {
             "0": {
+                "bbox_sig": region_bbox_signature(region_bbox_xyxy(regs_unbold[0])),
+                "center": list(region_center(regs_unbold[0])),
                 "pred_family": "ANTIQUE",
                 "pred_conf": 0.95,
                 "bold_prob": 0.90,
@@ -306,6 +317,8 @@ def test_kaisho_brush_unbolded_clean_and_bolded_is_warning_not_error() -> None:
                 "top_fonts": [{"font": "FOT-AnticCezannePro-DB.otf", "family": "ANTIQUE", "prob": 0.90}],
             },
             "1": {
+                "bbox_sig": region_bbox_signature(region_bbox_xyxy(regs_unbold[1])),
+                "center": list(region_center(regs_unbold[1])),
                 "pred_family": "KAISHO_BRUSH",
                 "pred_conf": 0.98,
                 "bold_prob": 1.0,
@@ -314,6 +327,8 @@ def test_kaisho_brush_unbolded_clean_and_bolded_is_warning_not_error() -> None:
                 "top_fonts": [{"font": "A-OTF-KaishoMCBK1Pro-DeBold.otf", "family": "KAISHO_BRUSH", "prob": 0.95}],
             },
             "2": {
+                "bbox_sig": region_bbox_signature(region_bbox_xyxy(regs_unbold[2])),
+                "center": list(region_center(regs_unbold[2])),
                 "pred_family": "KAISHO_BRUSH",
                 "pred_conf": 0.8836,
                 "bold_prob": 0.8555,
@@ -392,18 +407,26 @@ def test_unjustified_faux_bold_blocks_tiny_and_zhunyuan_while_sparing_genuine_sh
         {"text": "っ!", "translation": "唔!", "font_family": "FZHei-B01", "bold": True, "font_size": 28, "direction": "v", "lines": l9},
     ]
 
+    ym_cache_raw = {
+        "0": {"n_clean_chars": 6, "pred_family": "ANTIQUE", "pred_conf": 0.96, "bold_prob": 0.92, "heavy_prob": 0.0, "family_probs": {"ANTIQUE": 0.96}, "top_fonts": [{"font": "FOT-AnticCezannePro-DB.otf", "family": "ANTIQUE", "prob": 0.92}]},
+        "1": {"n_clean_chars": 1, "pred_family": "KAISHO_BRUSH", "pred_conf": 0.3586, "bold_prob": 0.5106, "heavy_prob": 0.2105, "family_probs": {"KAISHO_BRUSH": 0.3586, "ANTIQUE": 0.15}, "top_fonts": [{"font": "AP-OTF-Shuei4goBKanaStdN-Hv.otf", "family": "KAKU_GOTHIC", "prob": 0.1129}]},
+        "2": {"n_clean_chars": 2, "pred_family": "KAKU_GOTHIC", "pred_conf": 0.37, "bold_prob": 0.74, "heavy_prob": 0.22, "family_probs": {"KAKU_GOTHIC": 0.37, "ANTIQUE": 0.12}, "top_fonts": [{"font": "FOT-Shuei4goBStd-Hv.otf", "family": "KAKU_GOTHIC", "prob": 0.17}]},
+        "3": {"n_clean_chars": 10, "pred_family": "ANTIQUE", "pred_conf": 0.99, "bold_prob": 0.99, "heavy_prob": 0.0, "family_probs": {"ANTIQUE": 0.99}, "top_fonts": [{"font": "FOT-DNPShueiAntiStd-B.otf", "family": "ANTIQUE", "prob": 0.96}]},
+        "4": {"n_clean_chars": 2, "pred_family": "KAKU_GOTHIC", "pred_conf": 0.95, "bold_prob": 0.65, "heavy_prob": 0.0, "family_probs": {"KAKU_GOTHIC": 0.95}, "top_fonts": [{"font": "A-OTF-KakuminPro-Bold.otf", "family": "KAKU_GOTHIC", "prob": 0.59}]},
+        "5": {"n_clean_chars": 6, "pred_family": "KAKU_GOTHIC", "pred_conf": 0.92, "bold_prob": 0.52, "heavy_prob": 0.0, "family_probs": {"KAKU_GOTHIC": 0.92}, "top_fonts": [{"font": "A-OTF-KakuminPro-Medium.otf", "family": "KAKU_GOTHIC", "prob": 0.48}]},
+        "6": {"n_clean_chars": 4, "pred_family": "ROUND_GOTHIC", "pred_conf": 0.96, "bold_prob": 0.05, "heavy_prob": 0.0, "family_probs": {"ROUND_GOTHIC": 0.96}, "top_fonts": [{"font": "FOT-SeuratPro-M.otf", "family": "ROUND_GOTHIC", "prob": 0.90}]},
+        "7": {"n_clean_chars": 4, "pred_family": "ANTIQUE", "pred_conf": 0.85, "bold_prob": 0.95, "heavy_prob": 0.0, "family_probs": {"ANTIQUE": 0.85}, "top_fonts": [{"font": "FOT-DNPShueiAntiStd-B.otf", "family": "ANTIQUE", "prob": 0.80}]},
+        "8": {"n_clean_chars": 3, "pred_family": "KAKU_GOTHIC", "pred_conf": 0.98, "bold_prob": 0.99, "heavy_prob": 0.37, "family_probs": {"KAKU_GOTHIC": 0.98}, "top_fonts": [{"font": "A-OTF-ShinGoPr6-Bold.otf", "family": "KAKU_GOTHIC", "prob": 0.82}]},
+        "9": {"n_clean_chars": 1, "pred_family": "KAISHO_BRUSH", "pred_conf": 0.35, "bold_prob": 0.50, "heavy_prob": 0.15, "family_probs": {"KAISHO_BRUSH": 0.35}, "top_fonts": [{"font": "AP-OTF-Shuei4goBKanaStdN-Hv.otf", "family": "KAKU_GOTHIC", "prob": 0.11}]},
+    }
     ym_cache = {
         "by_ridx": {
-            "0": {"n_clean_chars": 6, "pred_family": "ANTIQUE", "pred_conf": 0.96, "bold_prob": 0.92, "heavy_prob": 0.0, "family_probs": {"ANTIQUE": 0.96}, "top_fonts": [{"font": "FOT-AnticCezannePro-DB.otf", "family": "ANTIQUE", "prob": 0.92}]},
-            "1": {"n_clean_chars": 1, "pred_family": "KAISHO_BRUSH", "pred_conf": 0.3586, "bold_prob": 0.5106, "heavy_prob": 0.2105, "family_probs": {"KAISHO_BRUSH": 0.3586, "ANTIQUE": 0.15}, "top_fonts": [{"font": "AP-OTF-Shuei4goBKanaStdN-Hv.otf", "family": "KAKU_GOTHIC", "prob": 0.1129}]},
-            "2": {"n_clean_chars": 2, "pred_family": "KAKU_GOTHIC", "pred_conf": 0.37, "bold_prob": 0.74, "heavy_prob": 0.22, "family_probs": {"KAKU_GOTHIC": 0.37, "ANTIQUE": 0.12}, "top_fonts": [{"font": "FOT-Shuei4goBStd-Hv.otf", "family": "KAKU_GOTHIC", "prob": 0.17}]},
-            "3": {"n_clean_chars": 10, "pred_family": "ANTIQUE", "pred_conf": 0.99, "bold_prob": 0.99, "heavy_prob": 0.0, "family_probs": {"ANTIQUE": 0.99}, "top_fonts": [{"font": "FOT-DNPShueiAntiStd-B.otf", "family": "ANTIQUE", "prob": 0.96}]},
-            "4": {"n_clean_chars": 2, "pred_family": "KAKU_GOTHIC", "pred_conf": 0.95, "bold_prob": 0.65, "heavy_prob": 0.0, "family_probs": {"KAKU_GOTHIC": 0.95}, "top_fonts": [{"font": "A-OTF-KakuminPro-Bold.otf", "family": "KAKU_GOTHIC", "prob": 0.59}]},
-            "5": {"n_clean_chars": 6, "pred_family": "KAKU_GOTHIC", "pred_conf": 0.92, "bold_prob": 0.52, "heavy_prob": 0.0, "family_probs": {"KAKU_GOTHIC": 0.92}, "top_fonts": [{"font": "A-OTF-KakuminPro-Medium.otf", "family": "KAKU_GOTHIC", "prob": 0.48}]},
-            "6": {"n_clean_chars": 4, "pred_family": "ROUND_GOTHIC", "pred_conf": 0.96, "bold_prob": 0.05, "heavy_prob": 0.0, "family_probs": {"ROUND_GOTHIC": 0.96}, "top_fonts": [{"font": "FOT-SeuratPro-M.otf", "family": "ROUND_GOTHIC", "prob": 0.90}]},
-            "7": {"n_clean_chars": 4, "pred_family": "ANTIQUE", "pred_conf": 0.85, "bold_prob": 0.95, "heavy_prob": 0.0, "family_probs": {"ANTIQUE": 0.85}, "top_fonts": [{"font": "FOT-DNPShueiAntiStd-B.otf", "family": "ANTIQUE", "prob": 0.80}]},
-            "8": {"n_clean_chars": 3, "pred_family": "KAKU_GOTHIC", "pred_conf": 0.98, "bold_prob": 0.99, "heavy_prob": 0.37, "family_probs": {"KAKU_GOTHIC": 0.98}, "top_fonts": [{"font": "A-OTF-ShinGoPr6-Bold.otf", "family": "KAKU_GOTHIC", "prob": 0.82}]},
-            "9": {"n_clean_chars": 1, "pred_family": "KAISHO_BRUSH", "pred_conf": 0.35, "bold_prob": 0.50, "heavy_prob": 0.15, "family_probs": {"KAISHO_BRUSH": 0.35}, "top_fonts": [{"font": "AP-OTF-Shuei4goBKanaStdN-Hv.otf", "family": "KAKU_GOTHIC", "prob": 0.11}]},
+            k: {
+                **v,
+                "bbox_sig": region_bbox_signature(region_bbox_xyxy(regs[int(k)])),
+                "center": list(region_center(regs[int(k)])),
+            }
+            for k, v in ym_cache_raw.items()
         }
     }
 
@@ -478,12 +501,20 @@ def test_raw_bold_mismatch_and_yuzumarker_bold_mismatch_short_box_guards() -> No
     )
     assert 2.38 <= sw_map[1] < 2.95 and (2.0 * sw_map[1]) / 28.0 >= 0.165 and sw_map[1] < ref_hw * 1.12
 
+    ym_sb_raw = {
+        "0": {"n_clean_chars": 6, "pred_family": "ANTIQUE", "pred_conf": 0.96, "bold_prob": 0.92, "heavy_prob": 0.0, "family_probs": {"ANTIQUE": 0.96}, "top_fonts": [{"font": "FOT-AnticCezannePro-DB.otf", "family": "ANTIQUE", "prob": 0.92}]},
+        "1": {"n_clean_chars": 2, "pred_family": "KAKU_GOTHIC", "pred_conf": 0.80, "bold_prob": 0.92, "heavy_prob": 0.10, "family_probs": {"KAKU_GOTHIC": 0.80, "ANTIQUE": 0.05}, "top_fonts": [{"font": "A-OTF-ShinGoPr6-Bold.otf", "family": "KAKU_GOTHIC", "prob": 0.35}]},
+        "2": {"n_clean_chars": 2, "pred_family": "KAKU_GOTHIC", "pred_conf": 0.85, "bold_prob": 0.95, "heavy_prob": 0.72, "family_probs": {"KAKU_GOTHIC": 0.85, "ANTIQUE": 0.0}, "top_fonts": [{"font": "A-OTF-ShinGoPr6-Heavy.otf", "family": "KAKU_GOTHIC", "prob": 0.42}]},
+        "3": {"n_clean_chars": 3, "pred_family": "KAKU_GOTHIC", "pred_conf": 0.94, "bold_prob": 0.92, "heavy_prob": 0.15, "family_probs": {"KAKU_GOTHIC": 0.94, "ANTIQUE": 0.02}, "top_fonts": [{"font": "A-OTF-ShinGoPr6-Bold.otf", "family": "KAKU_GOTHIC", "prob": 0.62}]},
+    }
     ym_cache = {
         "by_ridx": {
-            "0": {"n_clean_chars": 6, "pred_family": "ANTIQUE", "pred_conf": 0.96, "bold_prob": 0.92, "heavy_prob": 0.0, "family_probs": {"ANTIQUE": 0.96}, "top_fonts": [{"font": "FOT-AnticCezannePro-DB.otf", "family": "ANTIQUE", "prob": 0.92}]},
-            "1": {"n_clean_chars": 2, "pred_family": "KAKU_GOTHIC", "pred_conf": 0.80, "bold_prob": 0.92, "heavy_prob": 0.10, "family_probs": {"KAKU_GOTHIC": 0.80, "ANTIQUE": 0.05}, "top_fonts": [{"font": "A-OTF-ShinGoPr6-Bold.otf", "family": "KAKU_GOTHIC", "prob": 0.35}]},
-            "2": {"n_clean_chars": 2, "pred_family": "KAKU_GOTHIC", "pred_conf": 0.85, "bold_prob": 0.95, "heavy_prob": 0.72, "family_probs": {"KAKU_GOTHIC": 0.85, "ANTIQUE": 0.0}, "top_fonts": [{"font": "A-OTF-ShinGoPr6-Heavy.otf", "family": "KAKU_GOTHIC", "prob": 0.42}]},
-            "3": {"n_clean_chars": 3, "pred_family": "KAKU_GOTHIC", "pred_conf": 0.94, "bold_prob": 0.92, "heavy_prob": 0.15, "family_probs": {"KAKU_GOTHIC": 0.94, "ANTIQUE": 0.02}, "top_fonts": [{"font": "A-OTF-ShinGoPr6-Bold.otf", "family": "KAKU_GOTHIC", "prob": 0.62}]},
+            k: {
+                **v,
+                "bbox_sig": region_bbox_signature(region_bbox_xyxy(regs[int(k)])),
+                "center": list(region_center(regs[int(k)])),
+            }
+            for k, v in ym_sb_raw.items()
         }
     }
     issues = _detect_structural_and_border_cv_issues(page, inp, None, regs, yuzumarker_page_cache=ym_cache)
@@ -581,6 +612,47 @@ def test_wenkai_punctuation_fallback_and_cache_version_refresh(tmp_path: Path, m
     run_qa_audit(folder, check_inpaint_cv=True, check_font_glyphs=False)
     assert len(calls) == 1
 
+    # R2-F06 & R2-F38: Invalid `"version": "unknown"` triggers refresh without ValueError,
+    # and when refresh fails, stale/invalid cache predictions are NOT passed to QA!
+    stale_mismatch_payload = {
+        "pages": {
+            "p01": {
+                "region_count": 1,
+                "by_ridx": {
+                    "0": {
+                        "bbox_sig": region_bbox_signature([60.0, 50.0, 160.0, 220.0]),
+                        "center": [110.0, 135.0],
+                        "pred_family": "POP_CHISEL",
+                        "pred_conf": 0.99,
+                        "bold_prob": 1.0,
+                        "heavy_prob": 0.0,
+                        "family_probs": {"POP_CHISEL": 0.99, "KYOKASHO_PEN": 0.0},
+                        "top_fonts": [{"font": "FOT-ComicReggaeStd-B.otf", "family": "POP_CHISEL", "prob": 0.98}],
+                    }
+                },
+            }
+        }
+    }
+    ym_file.write_text(json.dumps({"version": "unknown", **stale_mismatch_payload}), encoding="utf-8")
+    run_qa_audit(folder, check_inpaint_cv=True, check_font_glyphs=False)
+    assert len(calls) == 2
+
+    class _FailingWorker:
+        def detect_fonts(self, target_path, force_refresh=False):
+            calls.append(bool(force_refresh))
+            raise RuntimeError("worker offline")
+
+    monkeypatch.setattr(worker_client_mod, "get_worker_client", lambda: _FailingWorker())
+    for bad_ver in (1, "unknown"):
+        ym_file.write_text(json.dumps({"version": bad_ver, **stale_mismatch_payload}), encoding="utf-8")
+        rep_deg = run_qa_audit(folder, check_inpaint_cv=True, check_font_glyphs=False, force_yuzumarker=True)
+        assert rep_deg.get("yuzumarker_scan_degraded") is True
+        assert not any(
+            i["category"] == "yuzumarker_font_mismatch"
+            for p_rep in rep_deg["pages"]
+            for i in p_rep["issues"]
+        )
+
 
 def test_verify_crops_ym_header_anti_trap_formatting(monkeypatch: pytest.MonkeyPatch) -> None:
     mod = _load_audit_cli_module(monkeypatch)
@@ -672,8 +744,8 @@ def test_verify_crops_ym_header_anti_trap_formatting(monkeypatch: pytest.MonkeyP
         "bold_prob": 0.0,
         "heavy_prob": 0.0,
         "top_fonts": [
-            {"font": "G-OTF-GKyokaICAPro-Medium.otf", "prob": 0.55},
-            {"font": "A-OTF-KyokaICAPro-Medium.otf", "prob": 0.43},
+            {"font": "G-OTF-GKyokaICAPro-Medium.otf", "prob": 0.72},
+            {"font": "A-OTF-KyokaICAPro-Medium.otf", "prob": 0.26},
         ],
     }
     line_ky_bad, _, mis_ky_bad = fmt(

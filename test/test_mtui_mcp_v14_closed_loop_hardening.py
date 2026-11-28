@@ -12,6 +12,7 @@ import pytest
 from PIL import Image
 
 from mtui_mcp.config import get_runtime_settings
+from mtui_mcp.font_detector import CACHE_VERSION, region_bbox_signature
 from mtui_mcp.local_inpaint import add_region_to_page
 from mtui_mcp.path_resolver import resolve_page_paths
 from mtui_mcp.project_store import load_page_json, save_page_json_atomic, save_rgb_image_atomic
@@ -92,6 +93,8 @@ def test_fig2_no_bold_heavy_double_counting_false_error(tmp_path: Path) -> None:
     ym_cache = {
         "by_ridx": {
             "0": {
+                "bbox_sig": region_bbox_signature([50.0, 60.0, 140.0, 260.0]),
+                "center": [95.0, 160.0],
                 "pred_family": "KAISHO_BRUSH",
                 "pred_conf": 0.522,
                 "bold_prob": 0.7588,
@@ -100,6 +103,8 @@ def test_fig2_no_bold_heavy_double_counting_false_error(tmp_path: Path) -> None:
                 "top_fonts": [{"font": "A-OTF-KaishoMCBK1Pro-DeBold.otf", "prob": 0.253}],
             },
             "1": {
+                "bbox_sig": region_bbox_signature([160.0, 60.0, 250.0, 260.0]),
+                "center": [205.0, 160.0],
                 "pred_family": "KAKU_GOTHIC",
                 "pred_conf": 0.62,
                 "bold_prob": 0.82,
@@ -108,6 +113,8 @@ def test_fig2_no_bold_heavy_double_counting_false_error(tmp_path: Path) -> None:
                 "top_fonts": [{"font": "A-OTF-KakuminPro-Bold.otf", "prob": 0.32}],
             },
             "2": {
+                "bbox_sig": region_bbox_signature([270.0, 60.0, 360.0, 260.0]),
+                "center": [315.0, 160.0],
                 "pred_family": "KAKU_GOTHIC",
                 "pred_conf": 0.96,
                 "bold_prob": 0.96,
@@ -116,6 +123,8 @@ def test_fig2_no_bold_heavy_double_counting_false_error(tmp_path: Path) -> None:
                 "top_fonts": [{"font": "A-OTF-KakuminPro-Bold.otf", "prob": 0.72}],
             },
             "3": {
+                "bbox_sig": region_bbox_signature([380.0, 60.0, 470.0, 260.0]),
+                "center": [425.0, 160.0],
                 "pred_family": "KAKU_GOTHIC",
                 "pred_conf": 0.92,
                 "bold_prob": 0.76,
@@ -259,11 +268,15 @@ def test_fig1_diff_qa_audits_and_true_1x_verify_crops_metadata(
     ym_file.write_text(
         json.dumps(
             {
+                "version": CACHE_VERSION,
                 "pages": {
                     "V14_013": {
+                        "region_count": 1,
                         "by_ridx": {
                             "0": {
                                 "ridx": 0,
+                                "bbox_sig": region_bbox_signature([180.0, 120.0, 640.0, 620.0]),
+                                "center": [410.0, 370.0],
                                 "pred_family": "MINCHO",
                                 "pred_conf": 1.0,
                                 "bold_prob": 1.0,
@@ -271,9 +284,9 @@ def test_fig1_diff_qa_audits_and_true_1x_verify_crops_metadata(
                                 "family_probs": {"MINCHO": 1.0, "ROUND_GOTHIC": 0.0},
                                 "top_fonts": [{"font": "A-OTF-RyuminPr5-Ultra.otf", "family": "MINCHO", "prob": 0.86}],
                             }
-                        }
+                        },
                     }
-                }
+                },
             },
             ensure_ascii=False,
         ),
@@ -304,3 +317,174 @@ def test_fig1_diff_qa_audits_and_true_1x_verify_crops_metadata(
     assert manifest["ym_high_conf_mismatch_flagged"] == 1
     assert manifest["alignment_flagged_bubbles"] == 1
     assert Path(manifest["sheets"][0]).is_file()
+
+
+def test_r2_diff_qa_audits_scope_coverage_and_uid_dedup_preservation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        get_runtime_settings(),
+        "load_mtui_config_dict",
+        lambda: {"render": {"alignment": "left"}},
+    )
+    folder = tmp_path / "scope_ch"
+    folder.mkdir()
+    page_arr = np.full((400, 400, 3), 255, dtype=np.uint8)
+    p1 = folder / "001.png"
+    p2 = folder / "002.png"
+    Image.fromarray(page_arr).save(p1)
+    Image.fromarray(page_arr).save(p2)
+    paths1 = resolve_page_paths(p1)
+    paths2 = resolve_page_paths(p2)
+    save_rgb_image_atomic(page_arr, paths1.inpainted_path)
+    save_rgb_image_atomic(page_arr, paths2.inpainted_path)
+
+    save_page_json_atomic(
+        paths1,
+        str(p1.resolve()),
+        {
+            "regions": [
+                {
+                    "lines": [[[40.0, 50.0], [160.0, 50.0], [160.0, 260.0], [40.0, 260.0]]],
+                    "text": "大丈夫だ",
+                    "translation": "没问题[BR]放心吧",
+                    "font_family": "FZHei-B01",
+                    "font_size": 26,
+                    "direction": "v",
+                    "alignment": "left",
+                }
+            ]
+        },
+        auto_initial_snapshot=False,
+    )
+    save_page_json_atomic(
+        paths2,
+        str(p2.resolve()),
+        {
+            "regions": [
+                {
+                    "lines": [[[40.0, 50.0], [160.0, 50.0], [160.0, 260.0], [40.0, 260.0]]],
+                    "text": "行くぞ",
+                    "translation": "走吧[BR]快跟上",
+                    "font_family": "FZHei-B01",
+                    "font_size": 26,
+                    "direction": "v",
+                    "alignment": "center",
+                }
+            ]
+        },
+        auto_initial_snapshot=False,
+    )
+
+    before_rep = run_qa_audit(folder, check_inpaint_cv=False, check_font_glyphs=False)
+    assert before_rep["audited_page_names"] == ["001.png", "002.png"]
+    assert before_rep["error_count"] == 1
+
+    partial_after = run_qa_audit(p1, check_inpaint_cv=False, check_font_glyphs=False)
+    assert partial_after["audited_page_names"] == ["001.png"]
+    diff_partial = diff_qa_audits(before_rep, partial_after)
+    assert diff_partial["passed"] is False
+    assert diff_partial["resolved_error_count"] == 0
+    assert diff_partial["unaudited_pages"] == ["002.png"]
+    assert diff_partial["scope_complete"] is False
+
+    diff_scoped_ok = diff_qa_audits(before_rep, partial_after, pages={"001.png"})
+    assert diff_scoped_ok["passed"] is True
+    assert diff_scoped_ok["unaudited_pages"] == []
+
+    diff_scoped_incomplete = diff_qa_audits(before_rep, partial_after, pages={"001.png", "002.png"})
+    assert diff_scoped_incomplete["passed"] is False
+    assert diff_scoped_incomplete["unaudited_pages"] == ["002.png"]
+
+    paths2_fresh = resolve_page_paths(p2)
+    _, d2 = load_page_json(paths2_fresh)
+    d2["regions"][0]["alignment"] = "left"
+    save_page_json_atomic(paths2_fresh, str(p2.resolve()), d2, auto_initial_snapshot=False)
+    after_filtered = run_qa_audit(
+        folder, check_inpaint_cv=False, check_font_glyphs=False, only_pages_with_issues=True
+    )
+    assert after_filtered["audited_page_names"] == ["001.png", "002.png"]
+    diff_full_clean = diff_qa_audits(before_rep, after_filtered)
+    assert diff_full_clean["passed"] is True
+    assert diff_full_clean["resolved_error_count"] == 1
+    assert diff_full_clean["unaudited_pages"] == []
+
+    # R2-F39: UID-less entry must never absorb a subsequent distinct UID entry in `_collect_errors`
+    before_uid_a = {
+        "audited_page_names": ["p.png"],
+        "pages": [
+            {
+                "page_name": "p.png",
+                "issues": [
+                    {
+                        "severity": "error",
+                        "category": "vertical_alignment_mismatch",
+                        "region_index": 0,
+                        "region_uid": "uid-A",
+                        "region_bbox_sig": "sig-same",
+                        "region_source_text": "同じ台詞",
+                    }
+                ],
+            }
+        ],
+    }
+    after_uidless_then_uid_b = {
+        "audited_page_names": ["p.png"],
+        "pages": [
+            {
+                "page_name": "p.png",
+                "issues": [
+                    {
+                        "severity": "error",
+                        "category": "vertical_alignment_mismatch",
+                        "region_index": 0,
+                        "region_bbox_sig": "sig-same",
+                        "region_source_text": "同じ台詞",
+                    },
+                    {
+                        "severity": "error",
+                        "category": "vertical_alignment_mismatch",
+                        "region_index": 1,
+                        "region_uid": "uid-B",
+                        "region_bbox_sig": "sig-same",
+                        "region_source_text": "同じ台詞",
+                    },
+                ],
+            }
+        ],
+    }
+    diff_uid = diff_qa_audits(before_uid_a, after_uidless_then_uid_b)
+    assert diff_uid["passed"] is False
+    assert diff_uid["newly_introduced_error_count"] == 1
+    assert diff_uid["newly_introduced_errors"][0]["region_uid"] == "uid-B"
+
+    # Same region_index=0 emitted twice (first UID-less, then with uid-B) upgrades in-place to uid-B
+    after_same_idx_upgrade = {
+        "audited_page_names": ["p.png"],
+        "pages": [
+            {
+                "page_name": "p.png",
+                "issues": [
+                    {
+                        "severity": "error",
+                        "category": "vertical_alignment_mismatch",
+                        "region_index": 0,
+                        "region_bbox_sig": "sig-same",
+                        "region_source_text": "同じ台詞",
+                    },
+                    {
+                        "severity": "error",
+                        "category": "vertical_alignment_mismatch",
+                        "region_index": 0,
+                        "region_uid": "uid-B",
+                        "region_bbox_sig": "sig-same",
+                        "region_source_text": "同じ台詞",
+                    },
+                ],
+            }
+        ],
+    }
+    diff_up_vs_a = diff_qa_audits(before_uid_a, after_same_idx_upgrade)
+    assert diff_up_vs_a["passed"] is False
+    assert diff_up_vs_a["newly_introduced_error_count"] == 1
+    assert diff_up_vs_a["newly_introduced_errors"][0]["region_uid"] == "uid-B"

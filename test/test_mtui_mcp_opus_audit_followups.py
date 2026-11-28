@@ -188,8 +188,10 @@ def test_script_root_discovery_and_skill_doc_contracts(tmp_path: Path, monkeypat
     assert "<yaml|txt>" in skill_md
     assert 'mtui_snapshots(target_path="<PAGE>", action="create", label="pre_gate_b")' in skill_md
     assert 'mtui_snapshots(target_path="<PAGE>", action="restore", label="pre_gate_b")' in skill_md
-    assert 'mtui_snapshots(target_path="<CHAPTER>", action="cleanup", label="pre_gate_b")' in skill_md
-    assert 'mtui_snapshots(target_path="<CHAPTER>", action="cleanup", label="initial_before_mcp")' in skill_md
+    assert 'mtui_snapshots(target_path="<CHAPTER>", action="cleanup", snapshot_id="<RECORDED_ID>")' in skill_md
+    assert 'mtui_snapshots(target_path="<CHAPTER>", action="cleanup", snapshot_id="<RECORDED_ID>")' in batch_md
+    assert 'action="cleanup", label=' not in skill_md
+    assert 'action="cleanup", label=' not in batch_md
     assert 'mtui_snapshots(target_path="<CHAPTER>", action="cleanup")' not in skill_md
     assert 'mtui_snapshots(target_path="<CHAPTER>", action="create", label="pre_gate_b")' not in skill_md
     assert "style_and_pitfalls.md" in batch_md

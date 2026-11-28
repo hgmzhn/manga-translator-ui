@@ -123,7 +123,13 @@ def normalize_hex_color(value: Any) -> Optional[str]:
                 return f"#{hex_part.lower()}"
         raise ValueError(f"Invalid hex color {value!r}; expected '#rrggbb' or [R, G, B]")
     if isinstance(value, (list, tuple)) and len(value) >= 3:
-        r, g, b = (max(0, min(255, int(round(float(c))))) for c in value[:3])
+        rgb_vals: list[int] = []
+        for c in value[:3]:
+            cf = float(c)
+            if not math.isfinite(cf):
+                raise ValueError(f"Non-finite color channel in {value!r}")
+            rgb_vals.append(max(0, min(255, int(round(cf)))))
+        r, g, b = rgb_vals
         return f"#{r:02x}{g:02x}{b:02x}"
     raise ValueError(f"Unsupported color format: {value!r}")
 
@@ -177,8 +183,12 @@ def validate_and_normalize_style(raw_style: Optional[dict[str, Any]]) -> dict[st
     if isinstance(italic, bool):
         if italic:
             out["italic"] = True
-    elif isinstance(italic, (int, float)) and math.isfinite(float(italic)) and float(italic) != 0.0:
-        out["italic"] = float(italic)
+    elif italic is not None:
+        it_val = float(italic)
+        if not math.isfinite(it_val):
+            raise ValueError("italic must be finite")
+        if it_val != 0.0:
+            out["italic"] = it_val
 
     if bool(s.get("underline", False)):
         out["underline"] = True
@@ -194,11 +204,15 @@ def validate_and_normalize_style(raw_style: Optional[dict[str, Any]]) -> dict[st
 
     if s.get("scale") is not None:
         scale_val = float(s["scale"])
+        if not math.isfinite(scale_val):
+            raise ValueError("scale must be finite")
         if scale_val > 0 and not math.isclose(scale_val, 1.0):
             out["scale"] = scale_val
 
     if s.get("fontSize") is not None:
         fs = float(s["fontSize"])
+        if not math.isfinite(fs):
+            raise ValueError("fontSize must be finite")
         if fs > 0:
             out["fontSize"] = fs
 
@@ -212,7 +226,10 @@ def validate_and_normalize_style(raw_style: Optional[dict[str, Any]]) -> dict[st
             if st.get("color") is not None:
                 st_out["color"] = normalize_hex_color(st["color"])
             if st.get("width") is not None:
-                st_out["width"] = max(0.0, float(st["width"]))
+                sw_val = float(st["width"])
+                if not math.isfinite(sw_val):
+                    raise ValueError(f"{stroke_key}.width must be finite")
+                st_out["width"] = max(0.0, sw_val)
             if st_out:
                 out[stroke_key] = st_out
 
@@ -222,7 +239,10 @@ def validate_and_normalize_style(raw_style: Optional[dict[str, Any]]) -> dict[st
         if glow.get("color") is not None:
             glow_out["color"] = normalize_hex_color(glow["color"])
         if glow.get("blur") is not None:
-            glow_out["blur"] = max(0.0, float(glow["blur"]))
+            gb_val = float(glow["blur"])
+            if not math.isfinite(gb_val):
+                raise ValueError("glow.blur must be finite")
+            glow_out["blur"] = max(0.0, gb_val)
         if glow_out:
             out["glow"] = glow_out
 
@@ -267,6 +287,8 @@ def validate_and_normalize_style(raw_style: Optional[dict[str, Any]]) -> dict[st
         kv = s.get(kern_key)
         if kv is not None:
             kf = float(kv)
+            if not math.isfinite(kf):
+                raise ValueError(f"{kern_key} must be finite")
             if kern_key in ("lineKerning", "nextKerning") or kf != 0.0:
                 out[kern_key] = kf
 
@@ -286,6 +308,8 @@ def validate_and_normalize_style(raw_style: Optional[dict[str, Any]]) -> dict[st
         for off_k in ("offsetX", "offsetY", "rotation"):
             if raw_transform.get(off_k) is not None:
                 fv = float(raw_transform[off_k])
+                if not math.isfinite(fv):
+                    raise ValueError(f"transform.{off_k} must be finite")
                 if fv != 0.0:
                     tf_out[off_k] = fv
         for mir_k in ("mirrorX", "mirrorY"):
@@ -491,36 +515,47 @@ def _flatten_document(doc: dict[str, Any]) -> list[_CharCell]:
     cells: list[_CharCell] = []
     if not is_rich_text_document(doc):
         return cells
-    blocks = doc.get("blocks", [])
+    blocks = doc.get("blocks") or []
     for b_idx, block in enumerate(blocks):
-        inlines = block.get("inlines", []) if isinstance(block, dict) else []
+        raw_inlines = block.get("inlines") if isinstance(block, dict) else None
+        inlines = raw_inlines if isinstance(raw_inlines, list) else []
         for inline in inlines:
             if not isinstance(inline, dict):
                 continue
             itype = inline.get("type", "text")
             if itype == "ruby":
+                raw_rtext = inline.get("text")
                 norm_ruby_text = [
                     {
                         "type": "text",
-                        "text": str(r.get("text", "")),
+                        "text": str(r.get("text") if r.get("text") is not None else ""),
                         "style": validate_and_normalize_style(r.get("style")),
                     }
-                    for r in inline.get("text", [])
+                    for r in (raw_rtext if isinstance(raw_rtext, list) else [])
                     if isinstance(r, dict)
                 ]
                 norm_inline = {"type": "ruby", "base": [], "text": norm_ruby_text}
-                for run in inline.get("base", []):
-                    st = validate_and_normalize_style(run.get("style")) if isinstance(run, dict) else {}
-                    for ch in str(run.get("text", "")):
+                raw_rbase = inline.get("base")
+                for run in (raw_rbase if isinstance(raw_rbase, list) else []):
+                    if not isinstance(run, dict):
+                        continue
+                    st = validate_and_normalize_style(run.get("style"))
+                    run_txt = run.get("text")
+                    for ch in str(run_txt if run_txt is not None else ""):
                         cells.append(_CharCell(ch, st, norm_inline))
             elif itype == "tcy":
-                for run in inline.get("content", []):
-                    st = validate_and_normalize_style(run.get("style")) if isinstance(run, dict) else {}
-                    for ch in str(run.get("text", "")):
+                raw_content = inline.get("content")
+                for run in (raw_content if isinstance(raw_content, list) else []):
+                    if not isinstance(run, dict):
+                        continue
+                    st = validate_and_normalize_style(run.get("style"))
+                    run_txt = run.get("text")
+                    for ch in str(run_txt if run_txt is not None else ""):
                         cells.append(_CharCell(ch, st, inline))
             elif itype == "text":
                 st = validate_and_normalize_style(inline.get("style"))
-                for ch in str(inline.get("text", "")):
+                inl_txt = inline.get("text")
+                for ch in str(inl_txt if inl_txt is not None else ""):
                     cells.append(_CharCell(ch, st, None))
         if b_idx < len(blocks) - 1:
             cells.append(_CharCell("\n", {}, None))
@@ -576,13 +611,14 @@ def _rebuild_document(cells: list[_CharCell]) -> dict[str, Any]:
                 inlines.extend(runs)
             elif runs:
                 if node.get("type") == "ruby":
+                    raw_node_text = node.get("text")
                     ruby_runs = [
                         {
                             "type": "text",
-                            "text": str(r.get("text", "")),
+                            "text": str(r.get("text") if r.get("text") is not None else ""),
                             "style": validate_and_normalize_style(r.get("style")),
                         }
-                        for r in node.get("text", [])
+                        for r in (raw_node_text if isinstance(raw_node_text, list) else [])
                         if isinstance(r, dict)
                     ]
                     inlines.append({"type": "ruby", "base": runs, "text": ruby_runs})
@@ -819,8 +855,14 @@ def apply_span_styles_to_region(
 ) -> dict[str, Any]:
     """Apply whole-region and/or targeted substring/regex/index spans (`style`, `ruby`, `tcy`) to a region."""
     rich = region.get("translation_rich")
-    if reset_existing or not is_rich_text_document(rich):
+    if reset_existing:
         base_doc = plain_to_richtext_document(str(region.get("translation", "") or ""))
+    elif not is_rich_text_document(rich):
+        init_base_style = {"bold": True} if bool(region.get("bold", False)) else None
+        base_doc = plain_to_richtext_document(
+            str(region.get("translation", "") or ""),
+            base_style=init_base_style,
+        )
     else:
         base_doc = copy.deepcopy(rich)
 
@@ -943,12 +985,23 @@ def apply_span_styles_to_region(
                 for k in range(seg_start, seg_end):
                     if raw_patch:
                         cells[k].style = _merge_raw_style_patch(cells[k].style, raw_patch)
+                    is_updatable_existing_ruby = (
+                        raw_ruby_style is not None
+                        and ruby_text is None
+                        and tcy_flag is not True
+                        and isinstance(cells[k].node, dict)
+                        and cells[k].node.get("type") == "ruby"
+                    )
                     if ruby_inherit_flag is not None:
                         cells[k].style = _merge_raw_style_patch(
                             cells[k].style,
                             {"rubyInherit": bool(ruby_inherit_flag)},
                         )
-                    elif ruby_style and not explicit_ruby_inherit_in_patch:
+                    elif (
+                        ruby_style
+                        and not explicit_ruby_inherit_in_patch
+                        and (has_nonempty_ruby or is_updatable_existing_ruby)
+                    ):
                         # Upstream ruby_text_style_for() ignores ruby[0].style unless base style has rubyInherit=False
                         cells[k].style = _merge_raw_style_patch(cells[k].style, {"rubyInherit": False})
 
@@ -959,16 +1012,12 @@ def apply_span_styles_to_region(
                             cells[k].node = None
                         if tcy_flag is False and isinstance(cells[k].node, dict) and cells[k].node.get("type") == "tcy":
                             cells[k].node = None
-                        if (
-                            raw_ruby_style is not None
-                            and ruby_text is None
-                            and isinstance(cells[k].node, dict)
-                            and cells[k].node.get("type") == "ruby"
-                        ):
+                        if is_updatable_existing_ruby and isinstance(cells[k].node, dict):
                             nid = id(cells[k].node)
                             if nid not in mutated_ruby_nodes:
                                 mutated_ruby_nodes.add(nid)
-                                for r_run in cells[k].node.get("text", []):
+                                raw_r_runs = cells[k].node.get("text")
+                                for r_run in (raw_r_runs if isinstance(raw_r_runs, list) else []):
                                     if isinstance(r_run, dict):
                                         r_run["style"] = _merge_raw_style_patch(r_run.get("style"), raw_ruby_style)
 
@@ -990,10 +1039,13 @@ def apply_span_styles_to_region(
             region["bold"] = True
         else:
             region.pop("bold", None)
-    elif reset_existing or (isinstance(whole_style, dict) and "bold" in whole_style and not whole_style.get("bold")):
+    elif isinstance(whole_style, dict) and "bold" in whole_style:
+        if whole_style.get("bold"):
+            region["bold"] = True
+        else:
+            region.pop("bold", None)
+    elif reset_existing:
         region.pop("bold", None)
-    elif isinstance(whole_style, dict) and whole_style.get("bold"):
-        region["bold"] = True
 
     return final_doc
 

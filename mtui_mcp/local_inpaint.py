@@ -16,6 +16,7 @@ from typing import Any, Optional
 import cv2
 import numpy as np
 
+from .bubble_centering import split_multilobe_cusp_bisector
 from .config import get_runtime_settings
 from .path_resolver import PagePaths, resolve_page_paths
 from .project_store import (
@@ -50,19 +51,43 @@ def build_region_polygon_mask(
     shape_hw: tuple[int, int],
     expand_px: int = 0,
 ) -> np.ndarray:
-    """Build a `{0, 255}` uint8 mask for `region['lines']`, matching `desktop_qt_ui/editor/mask_region.py`."""
+    """Build a `{0, 255}` uint8 world-space mask for `region['lines']` rotated by `region['angle']` around `center`."""
     h, w = int(shape_hw[0]), int(shape_hw[1])
     out = np.zeros((h, w), dtype=np.uint8)
+    if h <= 0 or w <= 0 or not isinstance(region, dict):
+        return out
     lines = region.get("lines") or []
+    ang = float(region.get("angle", 0.0) or 0.0)
+    if not math.isfinite(ang):
+        ang = 0.0
+    raw_c = region.get("center")
+    if isinstance(raw_c, (list, tuple)) and len(raw_c) >= 2:
+        cx, cy = float(raw_c[0]), float(raw_c[1])
+    else:
+        cx, cy = region_center(region)
+    rad = math.radians(ang)
+    cos_a, sin_a = math.cos(rad), math.sin(rad)
+
     polys: list[np.ndarray] = []
     for poly in lines:
         try:
-            pts = np.rint(np.asarray(poly, dtype=np.float32)).astype(np.int32)
+            arr = np.asarray(poly, dtype=np.float64)
         except Exception:
             continue
-        if pts.ndim != 2 or pts.shape[0] < 3 or pts.shape[1] < 2:
+        if arr.ndim != 2 or arr.shape[0] < 3 or arr.shape[1] < 2:
             continue
-        pts = pts[:, :2]
+        arr = arr[:, :2]
+        if not np.all(np.isfinite(arr)):
+            continue
+        if abs(ang) > 1e-6:
+            dx = arr[:, 0] - cx
+            dy = arr[:, 1] - cy
+            wx = cx + dx * cos_a - dy * sin_a
+            wy = cy + dx * sin_a + dy * cos_a
+            world_pts = np.column_stack((wx, wy))
+        else:
+            world_pts = arr
+        pts = np.rint(world_pts).astype(np.int32)
         pts[:, 0] = np.clip(pts[:, 0], 0, max(0, w - 1))
         pts[:, 1] = np.clip(pts[:, 1], 0, max(0, h - 1))
         polys.append(pts)
@@ -148,7 +173,7 @@ def pair_divided_by_bubble_cusps(
         bot_c = [c for c in cusps if x_lo <= c[0] <= x_hi and c[3] <= -0.35 and c[4] >= 11.0]
         if (top_c and bot_c) or any(c[4] >= 20.0 for c in top_c + bot_c):
             return True
-    if dy >= 45.0 and dx < 45.0:
+    if dy >= 45.0:
         y_lo, y_hi = min(ay, by) + 8.0, max(ay, by) - 8.0
         left_c = [c for c in cusps if y_lo <= c[1] <= y_hi and c[2] >= 0.35 and c[4] >= 11.0]
         right_c = [c for c in cusps if y_lo <= c[1] <= y_hi and c[2] <= -0.35 and c[4] >= 11.0]
@@ -674,6 +699,7 @@ def _commit_inpainted_and_json_atomic(
     had_prev_inpainted = paths.inpainted_exists and paths.inpainted_path.is_file()
     backup_tmp_path: Optional[Path] = None
     wrote_inpainted = False
+    preserve_backup_on_error = False
     try:
         if had_prev_inpainted:
             paths.inpainted_path.parent.mkdir(parents=True, exist_ok=True)
@@ -689,7 +715,7 @@ def _commit_inpainted_and_json_atomic(
         save_rgb_image_atomic(new_inpainted_rgb, paths.inpainted_path)
         wrote_inpainted = True
         return save_page_json_atomic(paths, image_key, image_data, auto_initial_snapshot=False)
-    except BaseException:
+    except BaseException as orig_exc:
         if wrote_inpainted:
             try:
                 if had_prev_inpainted and backup_tmp_path is not None and backup_tmp_path.is_file():
@@ -698,10 +724,22 @@ def _commit_inpainted_and_json_atomic(
                 elif not had_prev_inpainted and paths.inpainted_path.exists():
                     paths.inpainted_path.unlink()
             except OSError as rb_exc:
-                logger.warning("Failed to roll back %s after JSON save error: %s", paths.inpainted_path, rb_exc)
+                if had_prev_inpainted and backup_tmp_path is not None and backup_tmp_path.exists():
+                    preserve_backup_on_error = True
+                    recovery_msg = (
+                        f"Failed to roll back {paths.inpainted_path} ({rb_exc}); "
+                        f"pre-edit inpainted backup preserved at {backup_tmp_path}"
+                    )
+                    logger.error("%s", recovery_msg)
+                    if isinstance(orig_exc, OSError):
+                        raise OSError(orig_exc.errno, f"{orig_exc} [{recovery_msg}]") from orig_exc
+                    if isinstance(orig_exc, Exception):
+                        raise RuntimeError(f"{orig_exc} [{recovery_msg}]") from orig_exc
+                else:
+                    logger.warning("Failed to roll back %s after JSON save error: %s", paths.inpainted_path, rb_exc)
         raise
     finally:
-        if backup_tmp_path is not None and backup_tmp_path.exists():
+        if not preserve_backup_on_error and backup_tmp_path is not None and backup_tmp_path.exists():
             try:
                 backup_tmp_path.unlink()
             except OSError:
@@ -969,23 +1007,37 @@ def merge_regions_on_page(
                             + int(y0 + bh0 >= ih - 2)
                         )
                         if area0 <= 0.48 * iw * ih and edges < 3:
-                            if v_ov < 0.55 and h_ov < 0.40 and abs(ca[1] - cb[1]) >= 48.0:
-                                raise ValueError(
-                                    f"Refusing to merge Regions #{ia} and #{ib}: they occupy diagonally stepped chambers of a "
-                                    "connected multi-lobe bubble! Keep each chamber as an independent region (pass force_merge=True only to override)."
-                                )
                             pad_c = 6
-                            sub_u8 = np.pad(
-                                (cc_lbls[y0 : y0 + bh0, x0 : x0 + bw0] == lba).astype(np.uint8) * 255,
-                                pad_c,
-                                constant_values=0,
-                            )
+                            comp_u8 = (cc_lbls[y0 : y0 + bh0, x0 : x0 + bw0] == lba).astype(np.uint8)
+                            sub_u8 = np.pad(comp_u8 * 255, pad_c, constant_values=0)
+                            loc_a = (ca[0] - x0 + pad_c, ca[1] - y0 + pad_c)
+                            loc_b = (cb[0] - x0 + pad_c, cb[1] - y0 + pad_c)
                             cusps = detect_inward_bubble_cusps(sub_u8)
-                            if pair_divided_by_bubble_cusps(
-                                cusps,
-                                (ca[0] - x0 + pad_c, ca[1] - y0 + pad_c),
-                                (cb[0] - x0 + pad_c, cb[1] - y0 + pad_c),
+                            divided = pair_divided_by_bubble_cusps(cusps, loc_a, loc_b)
+                            if (
+                                not divided
+                                and cusps
+                                and v_ov < 0.55
+                                and h_ov < 0.40
+                                and abs(ca[1] - cb[1]) >= 48.0
                             ):
+                                split_m = split_multilobe_cusp_bisector((sub_u8 > 0).astype(np.uint8), [loc_a, loc_b])
+                                _, sp_lbl = cv2.connectedComponents(split_m, connectivity=4)
+                                sh_s, sw_s = sp_lbl.shape
+                                sa = int(
+                                    sp_lbl[
+                                        max(0, min(sh_s - 1, int(round(loc_a[1])))),
+                                        max(0, min(sw_s - 1, int(round(loc_a[0])))),
+                                    ]
+                                )
+                                sb = int(
+                                    sp_lbl[
+                                        max(0, min(sh_s - 1, int(round(loc_b[1])))),
+                                        max(0, min(sw_s - 1, int(round(loc_b[0])))),
+                                    ]
+                                )
+                                divided = sa > 0 and sb > 0 and sa != sb
+                            if divided:
                                 raise ValueError(
                                     f"Refusing to merge Regions #{ia} and #{ib}: OpenCV contour analysis detected inward chamber-dividing "
                                     "border cusps/spikes between them (2-chamber connected bubble)! Keep one region per chamber!"

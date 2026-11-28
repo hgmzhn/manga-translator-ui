@@ -111,13 +111,27 @@ def _annotate_regions_on_rgb(
     return out
 
 
+def _resize_binary_mask_preserve_thin(mask_u8: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
+    """Resize binary mask to ``(target_w, target_h)``; downscaling preserves any covered mask pixel via ``INTER_AREA > 0``."""
+    src_h, src_w = mask_u8.shape[:2]
+    binary_f32 = (mask_u8 > 0).astype(np.float32)
+    if (src_w, src_h) == (target_w, target_h):
+        return np.where(binary_f32 > 0.0, 255, 0).astype(np.uint8)
+    cur = binary_f32
+    down_w = min(src_w, target_w)
+    down_h = min(src_h, target_h)
+    if (down_w, down_h) != (src_w, src_h):
+        cur = (cv2.resize(cur, (down_w, down_h), interpolation=cv2.INTER_AREA) > 0.0).astype(np.float32)
+    if (down_w, down_h) != (target_w, target_h):
+        cur = cv2.resize(cur, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
+    return np.where(cur > 0.0, 255, 0).astype(np.uint8)
+
+
 def _overlay_mask_on_rgb(inpainted_rgb: np.ndarray, mask_u8: Optional[np.ndarray]) -> np.ndarray:
     out = inpainted_rgb.copy()
     if mask_u8 is None or not np.any(mask_u8 > 0):
         return out
-    if mask_u8.shape != out.shape[:2]:
-        mask_u8 = cv2.resize(mask_u8, (out.shape[1], out.shape[0]), interpolation=cv2.INTER_NEAREST)
-    binary = (mask_u8 > 0).astype(np.uint8) * 255
+    binary = _resize_binary_mask_preserve_thin(mask_u8, out.shape[1], out.shape[0])
     tint = out.copy()
     tint[binary > 0] = (255, 70, 70)
     cv2.addWeighted(tint, 0.28, out, 0.72, 0, dst=out)
@@ -317,6 +331,13 @@ def _resize_if_needed(img_rgb: np.ndarray, target_w: int, target_h: int) -> np.n
     return cv2.resize(img_rgb, (target_w, target_h), interpolation=interp)
 
 
+def _inpainted_panel_source_info(paths: PagePaths) -> tuple[str, str]:
+    """Return ``(inpainted_panel_source, fallback_short_label)``."""
+    if paths.inpainted_exists:
+        return "inpainted", ""
+    return "original_fallback", "fallback: original"
+
+
 def _rendered_panel_source_info(paths: PagePaths) -> tuple[str, str]:
     """Return ``(rendered_panel_source, fallback_short_label)``."""
     if paths.rendered_output_exists:
@@ -343,6 +364,7 @@ def generate_page_inspection_image(
     _, image_data = load_page_json(paths)
     regions = image_data.get("regions", [])
 
+    inpainted_source, inp_fb_label = _inpainted_panel_source_info(paths)
     rendered_source, fb_label = _rendered_panel_source_info(paths)
 
     if mode == "clean_rendered":
@@ -402,7 +424,7 @@ def generate_page_inspection_image(
 
         mask_u8 = decode_mask_base64(image_data.get("mask_raw"), (h, w))
         if mask_u8 is not None and mask_u8.shape != (vh, vw):
-            mask_u8 = cv2.resize(mask_u8, (vw, vh), interpolation=cv2.INTER_NEAREST)
+            mask_u8 = _resize_binary_mask_preserve_thin(mask_u8, vw, vh)
 
         p1 = _wrap_panel_with_world_rulers(
             _annotate_regions_on_rgb(base_view, regions, draw_polygons=True, coord_scale=(sx, sy)),
@@ -413,11 +435,12 @@ def generate_page_inspection_image(
             world_h=h,
             show_grid=show_grid,
         )
+        p2_title = "2. Inpainted + Mask (Red)" if paths.inpainted_exists else f"2. Inpainted + Mask (Red, {inp_fb_label})"
         p2 = _wrap_panel_with_world_rulers(
             _overlay_mask_on_rgb(inp_view, mask_u8),
             0,
             0,
-            "2. Inpainted + Mask (Red)",
+            p2_title,
             world_w=w,
             world_h=h,
             show_grid=show_grid,
@@ -476,6 +499,8 @@ def generate_page_inspection_image(
         "mode": mode,
         "page_dimensions_wh": [w, h],
         "region_count": len(regions),
+        "inpainted_exists": paths.inpainted_exists,
+        "inpainted_panel_source": inpainted_source,
         "rendered_output_exists": paths.rendered_output_exists,
         "rendered_panel_source": rendered_source,
     }
@@ -536,6 +561,7 @@ def generate_region_loupe_image(
     if inpaint_rgb.shape[:2] != (h, w):
         inpaint_rgb = cv2.resize(inpaint_rgb, (w, h), interpolation=cv2.INTER_LANCZOS4)
 
+    inpainted_source, inp_fb_label = _inpainted_panel_source_info(paths)
     rendered_source, fb_label = _rendered_panel_source_info(paths)
     rendered_rgb = open_rgb_image(paths.rendered_output_path) if paths.rendered_output_exists else inpaint_rgb.copy()
     if rendered_rgb.shape[:2] != (h, w):
@@ -556,6 +582,7 @@ def generate_region_loupe_image(
 
     strips: list[np.ndarray] = []
     crop_records: list[dict[str, Any]] = []
+    inp_suffix = "" if paths.inpainted_exists else f" ({inp_fb_label})"
     ren_suffix = "" if paths.rendered_output_exists else f" ({fb_label})"
 
     for label, r_idx, bbox, cx1, cy1, cx2, cy2, cw, ch, upscale in valid_specs:
@@ -609,7 +636,7 @@ def generate_region_loupe_image(
             orig_crop, cx1, cy1, f"{label} — Original", world_w=cw, world_h=ch, show_grid=show_grid
         )
         p_inp = _wrap_panel_with_world_rulers(
-            inp_crop, cx1, cy1, f"{label} — Inpainted+Mask", world_w=cw, world_h=ch, show_grid=show_grid
+            inp_crop, cx1, cy1, f"{label} — Inpainted+Mask{inp_suffix}", world_w=cw, world_h=ch, show_grid=show_grid
         )
         p_ren = _wrap_panel_with_world_rulers(
             ren_crop, cx1, cy1, f"{label} — Rendered{ren_suffix}", world_w=cw, world_h=ch, show_grid=show_grid
@@ -644,6 +671,8 @@ def generate_region_loupe_image(
     return out_file, {
         "loupe_image_path": str(out_file),
         "inspected_crops": crop_records,
+        "inpainted_exists": paths.inpainted_exists,
+        "inpainted_panel_source": inpainted_source,
         "rendered_output_exists": paths.rendered_output_exists,
         "rendered_panel_source": rendered_source,
         "coordinate_note": "Ruler numbers on the top (X) and left (Y) axes are exact world pixel coordinates on the source page.",

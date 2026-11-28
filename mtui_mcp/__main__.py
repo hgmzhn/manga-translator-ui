@@ -72,7 +72,13 @@ def _run_mcp_transport(
 
     settings.allow_runtime_python_override = False
 
-    loopback = is_loopback_host(host)
+    raw_host = "" if host is None else str(host).strip()
+    bind_host = (
+        raw_host[1:-1].strip()
+        if raw_host.startswith("[") and raw_host.endswith("]")
+        else raw_host
+    )
+    loopback = is_loopback_host(bind_host)
     token = resolve_http_auth_token(auth_token)
     if not loopback and not token:
         raise RuntimeError(
@@ -82,17 +88,16 @@ def _run_mcp_transport(
 
     require_auth = (not loopback) or (auth_token is not None and bool(token))
     if require_auth:
-        stream_app, sse_app = build_mcp_subapps(host, port)
+        stream_app, sse_app = build_mcp_subapps(bind_host, port)
         subapp = stream_app if transport == "streamable-http" else sse_app
         wrapped = BearerAuthMiddleware(subapp, token, allow_unauthenticated_health=False)
-        clean_host = host[1:-1].strip() if host.startswith("[") and host.endswith("]") else host
-        uvicorn.run(wrapped, host=clean_host, port=port, log_level="warning", access_log=False)
+        uvicorn.run(wrapped, host=bind_host, port=port, log_level="warning", access_log=False)
         return
 
     settings_obj = getattr(mcp, "settings", None)
     if settings_obj is not None:
         if hasattr(settings_obj, "host"):
-            settings_obj.host = host
+            settings_obj.host = bind_host
         if hasattr(settings_obj, "port"):
             settings_obj.port = port
 
@@ -101,7 +106,7 @@ def _run_mcp_transport(
         p.kind == inspect.Parameter.VAR_KEYWORD for p in run_params.values()
     )
     if accepts_kwargs or ("host" in run_params and "port" in run_params):
-        mcp.run(transport=transport, host=host, port=port)  # type: ignore[arg-type]
+        mcp.run(transport=transport, host=bind_host, port=port)  # type: ignore[arg-type]
     else:
         mcp.run(transport=transport)  # type: ignore[arg-type]
 

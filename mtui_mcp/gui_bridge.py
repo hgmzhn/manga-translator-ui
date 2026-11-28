@@ -21,6 +21,7 @@ from tempfile import gettempdir
 from typing import Any, Optional
 
 MAX_GUI_REQUEST_BYTES = 256 * 1024
+_ORIG_MP_CLIENT = Client
 
 
 def gui_session_paths(session_name: Optional[str] = None) -> tuple[str, Path]:
@@ -38,7 +39,7 @@ def gui_session_paths(session_name: Optional[str] = None) -> tuple[str, Path]:
 
 def abort_ipc_connection(conn: Any) -> None:
     """Force-unblock any pending I/O on a `multiprocessing.connection` object and close it."""
-    if conn is None:
+    if conn is None or getattr(conn, "closed", False):
         return
     try:
         handle = conn.fileno()
@@ -75,6 +76,77 @@ def abort_ipc_connection(conn: Any) -> None:
         pass
 
 
+def _connect_windows_pipe_with_deadline(address: str, deadline: float) -> Any:
+    import _winapi
+    from multiprocessing.connection import PipeConnection
+
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Timed out connecting to live manga-translator-ui GUI")
+        try:
+            handle = _winapi.CreateFile(
+                address,
+                _winapi.GENERIC_READ | _winapi.GENERIC_WRITE,
+                0,
+                _winapi.NULL,
+                _winapi.OPEN_EXISTING,
+                _winapi.FILE_FLAG_OVERLAPPED,
+                _winapi.NULL,
+            )
+        except OSError as exc:
+            if getattr(exc, "winerror", None) not in (
+                _winapi.ERROR_SEM_TIMEOUT,
+                _winapi.ERROR_PIPE_BUSY,
+            ):
+                raise
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(
+                    "Timed out waiting for busy live manga-translator-ui GUI pipe"
+                ) from exc
+            wait_ms = max(1, min(100, int(remaining * 1000)))
+            try:
+                _winapi.WaitNamedPipe(address, wait_ms)
+            except OSError as wait_exc:
+                if getattr(wait_exc, "winerror", None) not in (
+                    _winapi.ERROR_SEM_TIMEOUT,
+                    _winapi.ERROR_PIPE_BUSY,
+                ):
+                    raise
+                if deadline - time.monotonic() <= 0:
+                    raise TimeoutError(
+                        "Timed out waiting for busy live manga-translator-ui GUI pipe"
+                    ) from wait_exc
+            else:
+                nap = min(0.005, max(0.0, deadline - time.monotonic()))
+                if nap > 0:
+                    time.sleep(nap)
+            continue
+
+        try:
+            _winapi.SetNamedPipeHandleState(
+                handle, _winapi.PIPE_READMODE_MESSAGE, None, None
+            )
+            return PipeConnection(handle)
+        except BaseException:
+            try:
+                _winapi.CloseHandle(handle)
+            except OSError:
+                pass
+            raise
+
+
+def _connect_ipc_client(address: str, deadline: float) -> Any:
+    if (
+        os.name == "nt"
+        and Client is _ORIG_MP_CLIENT
+        and address.startswith("\\\\.\\pipe\\")
+    ):
+        return _connect_windows_pipe_with_deadline(address, deadline)
+    return Client(address, authkey=None)
+
+
 def is_live_gui_session_available(session_name: Optional[str] = None) -> bool:
     _, key_file = gui_session_paths(session_name)
     if not key_file.is_file():
@@ -93,8 +165,12 @@ def call_live_gui(
     timeout_sec: float = 30.0,
     **kwargs: Any,
 ) -> Any:
-    packet = json.dumps({"method": method, "args": kwargs}, ensure_ascii=False).encode("utf-8")
-    if len(packet) > MAX_GUI_REQUEST_BYTES:
+    budget = max(0.05, float(timeout_sec))
+    initial_packet = json.dumps(
+        {"method": method, "args": kwargs, "timeout_sec": round(budget, 6)},
+        ensure_ascii=False,
+    ).encode("utf-8")
+    if len(initial_packet) > MAX_GUI_REQUEST_BYTES:
         raise ValueError("Live GUI IPC request exceeds 256 KiB")
     address, key_file = gui_session_paths(session_name)
     if not key_file.is_file():
@@ -108,13 +184,13 @@ def call_live_gui(
     if not auth:
         raise RuntimeError("Live GUI session key file is empty")
 
-    budget = max(0.05, float(timeout_sec))
     deadline = time.monotonic() + budget
     done = threading.Event()
     state_lock = threading.Lock()
     state: dict[str, Any] = {
         "peer": None,
         "timed_out": False,
+        "closed": False,
         "message": None,
         "error": None,
     }
@@ -122,16 +198,28 @@ def call_live_gui(
     def _exchange() -> None:
         peer = None
         try:
-            peer = Client(address, authkey=None)
+            peer = _connect_ipc_client(address, deadline)
             with state_lock:
                 state["peer"] = peer
                 if state["timed_out"]:
-                    abort_ipc_connection(peer)
+                    if not state["closed"]:
+                        state["closed"] = True
+                        abort_ipc_connection(peer)
                     return
 
             answer_challenge(peer, auth)
             deliver_challenge(peer, auth)
-            peer.send_bytes(packet)
+
+            send_remaining = deadline - time.monotonic()
+            if send_remaining <= 0:
+                raise TimeoutError("Timed out waiting for live manga-translator-ui GUI")
+            wire_packet = json.dumps(
+                {"method": method, "args": kwargs, "timeout_sec": round(send_remaining, 6)},
+                ensure_ascii=False,
+            ).encode("utf-8")
+            if len(wire_packet) > MAX_GUI_REQUEST_BYTES:
+                wire_packet = initial_packet
+            peer.send_bytes(wire_packet)
 
             remaining = deadline - time.monotonic()
             if remaining <= 0 or not peer.poll(remaining):
@@ -142,10 +230,13 @@ def call_live_gui(
             state["error"] = exc
         finally:
             if peer is not None:
-                try:
-                    peer.close()
-                except Exception:
-                    pass
+                with state_lock:
+                    if not state["closed"]:
+                        state["closed"] = True
+                        try:
+                            peer.close()
+                        except Exception:
+                            pass
             done.set()
 
     worker = threading.Thread(target=_exchange, name="mtui-gui-bridge-client", daemon=True)
@@ -156,7 +247,9 @@ def call_live_gui(
         with state_lock:
             state["timed_out"] = True
             peer_to_abort = state["peer"]
-        abort_ipc_connection(peer_to_abort)
+            if peer_to_abort is not None and not state["closed"]:
+                state["closed"] = True
+                abort_ipc_connection(peer_to_abort)
         worker.join(timeout=0.1)
         raise TimeoutError("Timed out waiting for live manga-translator-ui GUI")
 

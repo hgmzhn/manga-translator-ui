@@ -7,15 +7,22 @@ import math
 import os
 import re
 import tempfile
+import threading
+import time
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 import yaml
 
 from .config import get_runtime_settings
 from .path_resolver import PagePaths, list_manga_pages_in_path, resolve_page_paths
 from .project_store import (
+    _acquire_os_file_lock,
     _atomic_replace_with_retry,
+    _PageLockState,
+    _release_os_file_lock,
+    compute_page_revision,
     ensure_region_uids,
     format_region_summary,
     load_page_json,
@@ -29,10 +36,12 @@ from .richtext_builder import (
     _merge_raw_style_patch,
     apply_span_styles_to_region,
     color_to_rgb_list,
+    is_rich_text_document,
     normalize_hex_color,
     region_is_bold,
     set_region_whole_bold,
     sync_region_text_update,
+    validate_and_normalize_style,
     visible_text_of_region,
 )
 
@@ -104,6 +113,91 @@ def _load_yaml_prompt_file(path: Path) -> dict[str, Any]:
     return data
 
 
+_GLOSSARY_LOCKS_GUARD = threading.Lock()
+_GLOSSARY_LOCKS: dict[str, _PageLockState] = {}
+
+
+@contextmanager
+def _glossary_file_lock(target_path: Path, timeout_sec: float = 30.0) -> Iterator[Path]:
+    """Acquire a re-entrant per-glossary-path `threading.RLock` + cross-process advisory file lock."""
+    abs_target = Path(os.path.normpath(os.path.abspath(str(target_path))))
+    lock_path = abs_target.parent / f".{abs_target.name}.lock"
+    norm_key = os.path.normcase(str(lock_path))
+    with _GLOSSARY_LOCKS_GUARD:
+        state = _GLOSSARY_LOCKS.get(norm_key)
+        if state is None:
+            state = _PageLockState()
+            _GLOSSARY_LOCKS[norm_key] = state
+
+    budget = max(0.0, float(timeout_sec))
+    deadline = time.monotonic() + budget
+    acquired_rlock = (
+        state.rlock.acquire(blocking=True, timeout=budget)
+        if budget > 0.0
+        else state.rlock.acquire(blocking=False)
+    )
+    if not acquired_rlock:
+        raise TimeoutError(f"Timed out after {budget:.2f}s waiting for glossary lock on {lock_path}")
+
+    try:
+        if state.depth == 0:
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o666)
+            try:
+                while True:
+                    try:
+                        _acquire_os_file_lock(fd)
+                        break
+                    except OSError as exc:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0.0:
+                            raise TimeoutError(
+                                f"Timed out after {budget:.2f}s waiting for cross-process glossary lock {lock_path}"
+                            ) from exc
+                        time.sleep(min(0.02, remaining))
+            except BaseException:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+                raise
+            state.fd = fd
+        state.depth += 1
+        try:
+            yield lock_path
+        finally:
+            state.depth -= 1
+            if state.depth == 0 and state.fd is not None:
+                fd_to_close = state.fd
+                state.fd = None
+                _release_os_file_lock(fd_to_close)
+                try:
+                    os.close(fd_to_close)
+                except OSError:
+                    pass
+    finally:
+        state.rlock.release()
+
+
+def _fsync_parent_dir_best_effort(path: Path) -> None:
+    """Flush parent directory metadata on POSIX after atomic rename so the directory entry is durable."""
+    if os.name == "nt":
+        return
+    dir_fd: Optional[int] = None
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+        dir_fd = os.open(str(path.parent), flags)
+        os.fsync(dir_fd)
+    except OSError:
+        pass
+    finally:
+        if dir_fd is not None:
+            try:
+                os.close(dir_fd)
+            except OSError:
+                pass
+
+
 def _save_yaml_prompt_atomic(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
@@ -114,6 +208,7 @@ def _save_yaml_prompt_atomic(path: Path, data: dict[str, Any]) -> None:
             os.fsync(f.fileno())
         _atomic_replace_with_retry(tmp_name, path)
         tmp_name = ""
+        _fsync_parent_dir_best_effort(path)
     finally:
         if tmp_name and os.path.exists(tmp_name):
             try:
@@ -132,6 +227,7 @@ def _save_txt_glossary_atomic(path: Path, content: str) -> None:
             os.fsync(f.fileno())
         _atomic_replace_with_retry(tmp_name, path)
         tmp_name = ""
+        _fsync_parent_dir_best_effort(path)
     finally:
         if tmp_name and os.path.exists(tmp_name):
             try:
@@ -147,9 +243,14 @@ def _parse_txt_glossary_line(line: str) -> Optional[tuple[str, str, str, str]]:
         return None
     lead_len = len(line) - len(line.lstrip())
     leading_ws = line[:lead_len]
-    parts = re.split(r"(\t+|\s{2,}|\s+)", stripped, maxsplit=1)
-    if len(parts) == 3 and parts[0] and parts[2]:
-        return (leading_ws, parts[0], parts[1], parts[2])
+    if "\t" in stripped:
+        parts = re.split(r"(\t+)", stripped, maxsplit=1)
+    elif re.search(r"\s{2,}", stripped):
+        parts = re.split(r"(\s{2,})", stripped, maxsplit=1)
+    else:
+        parts = re.split(r"(\s+)", stripped, maxsplit=1)
+    if len(parts) == 3 and parts[0].strip() and parts[2].strip():
+        return (leading_ws, parts[0].strip(), parts[1], parts[2].strip())
     return None
 
 
@@ -194,75 +295,77 @@ def manage_glossary_entries(
         if action not in ("list", "upsert", "delete"):
             raise ValueError(f"Unsupported glossary action: {action!r}")
 
-        raw_lines = target_path.read_text(encoding="utf-8").splitlines() if target_path.is_file() else []
         if action == "list":
+            raw_lines = target_path.read_text(encoding="utf-8").splitlines() if target_path.is_file() else []
             parsed_pairs = _extract_txt_pairs(raw_lines)
             return {"file": str(target_path), "format": "txt", "count": len(parsed_pairs), "entries": parsed_pairs}
 
-        if action == "upsert":
-            out_lines = list(raw_lines)
-            # Map original -> (first_line_index, leading_ws, separator) and drop duplicate entry lines on update
-            orig_locs: dict[str, tuple[int, str, str]] = {}
-            extra_dup_indices: dict[str, list[int]] = {}
-            for idx_ln, ln in enumerate(out_lines):
-                parsed = _parse_txt_glossary_line(ln)
-                if parsed is not None:
-                    lead_ws, orig_tok, sep_tok, _ = parsed
-                    if orig_tok not in orig_locs:
-                        orig_locs[orig_tok] = (idx_ln, lead_ws, sep_tok)
+        with _glossary_file_lock(target_path):
+            raw_lines = target_path.read_text(encoding="utf-8").splitlines() if target_path.is_file() else []
+            if action == "upsert":
+                out_lines = list(raw_lines)
+                # Map original -> (first_line_index, leading_ws, separator) and drop duplicate entry lines on update
+                orig_locs: dict[str, tuple[int, str, str]] = {}
+                extra_dup_indices: dict[str, list[int]] = {}
+                for idx_ln, ln in enumerate(out_lines):
+                    parsed = _parse_txt_glossary_line(ln)
+                    if parsed is not None:
+                        lead_ws, orig_tok, sep_tok, _ = parsed
+                        if orig_tok not in orig_locs:
+                            orig_locs[orig_tok] = (idx_ln, lead_ws, sep_tok)
+                        else:
+                            extra_dup_indices.setdefault(orig_tok, []).append(idx_ln)
+
+                modified = False
+                drop_line_indices: set[int] = set()
+                for item in entries or []:
+                    if not isinstance(item, dict):
+                        continue
+                    orig = str(item.get("original", "")).strip()
+                    trans = str(item.get("translation", "")).strip()
+                    if not orig or not trans:
+                        continue
+                    if orig in orig_locs:
+                        line_i, lead_ws, sep_tok = orig_locs[orig]
+                        out_lines[line_i] = f"{lead_ws}{orig}{sep_tok}{trans}"
+                        for dup_i in extra_dup_indices.get(orig, []):
+                            drop_line_indices.add(dup_i)
                     else:
-                        extra_dup_indices.setdefault(orig_tok, []).append(idx_ln)
+                        orig_locs[orig] = (len(out_lines), "", "\t")
+                        out_lines.append(f"{orig}\t{trans}")
+                    modified = True
 
-            modified = False
-            drop_line_indices: set[int] = set()
-            for item in entries or []:
-                if not isinstance(item, dict):
-                    continue
-                orig = str(item.get("original", "")).strip()
-                trans = str(item.get("translation", "")).strip()
-                if not orig or not trans:
-                    continue
-                if orig in orig_locs:
-                    line_i, lead_ws, sep_tok = orig_locs[orig]
-                    out_lines[line_i] = f"{lead_ws}{orig}{sep_tok}{trans}"
-                    for dup_i in extra_dup_indices.get(orig, []):
-                        drop_line_indices.add(dup_i)
-                else:
-                    orig_locs[orig] = (len(out_lines), "", "\t")
-                    out_lines.append(f"{orig}\t{trans}")
-                modified = True
+                if drop_line_indices:
+                    out_lines = [ln for i, ln in enumerate(out_lines) if i not in drop_line_indices]
+                if modified:
+                    out_txt = ("\n".join(out_lines) + "\n") if out_lines else ""
+                    _save_txt_glossary_atomic(target_path, out_txt)
+                parsed_pairs = _extract_txt_pairs(out_lines)
+                return {"file": str(target_path), "format": "txt", "count": len(parsed_pairs), "entries": parsed_pairs}
 
-            if drop_line_indices:
-                out_lines = [ln for i, ln in enumerate(out_lines) if i not in drop_line_indices]
-            if modified:
-                out_txt = ("\n".join(out_lines) + "\n") if out_lines else ""
+            # action == "delete"
+            to_del = {
+                str(item.get("original", "")).strip()
+                for item in (entries or [])
+                if isinstance(item, dict) and str(item.get("original", "")).strip()
+            }
+            kept_lines: list[str] = []
+            deleted_count = 0
+            for ln in raw_lines:
+                parsed = _parse_txt_glossary_line(ln)
+                if parsed is not None and parsed[1] in to_del:
+                    deleted_count += 1
+                    continue
+                kept_lines.append(ln)
+            if deleted_count > 0:
+                out_txt = ("\n".join(kept_lines) + "\n") if kept_lines else ""
                 _save_txt_glossary_atomic(target_path, out_txt)
-            parsed_pairs = _extract_txt_pairs(out_lines)
-            return {"file": str(target_path), "format": "txt", "count": len(parsed_pairs), "entries": parsed_pairs}
-
-        # action == "delete"
-        to_del = {
-            str(item.get("original", "")).strip()
-            for item in (entries or [])
-            if isinstance(item, dict) and str(item.get("original", "")).strip()
-        }
-        kept_lines: list[str] = []
-        deleted_count = 0
-        for ln in raw_lines:
-            parsed = _parse_txt_glossary_line(ln)
-            if parsed is not None and parsed[1] in to_del:
-                deleted_count += 1
-                continue
-            kept_lines.append(ln)
-        if deleted_count > 0:
-            out_txt = ("\n".join(kept_lines) + "\n") if kept_lines else ""
-            _save_txt_glossary_atomic(target_path, out_txt)
-        parsed_pairs = _extract_txt_pairs(kept_lines)
-        return {"file": str(target_path), "format": "txt", "count": len(parsed_pairs), "deleted": deleted_count}
+            parsed_pairs = _extract_txt_pairs(kept_lines)
+            return {"file": str(target_path), "format": "txt", "count": len(parsed_pairs), "deleted": deleted_count}
 
     # YAML HQ glossary format (`dict/*.yaml`)
-    data = _load_yaml_prompt_file(target_path)
     if action == "list":
+        data = _load_yaml_prompt_file(target_path)
         flat_count = sum(len(v) for v in (data.get("glossary") or {}).values() if isinstance(v, list))
         return {
             "file": str(target_path),
@@ -272,110 +375,113 @@ def manage_glossary_entries(
             "glossary": data.get("glossary", {}),
         }
 
-    if action == "set_system_prompt":
-        data["system_prompt"] = str(system_prompt or "")
-        _save_yaml_prompt_atomic(target_path, data)
-        return {"file": str(target_path), "system_prompt": data["system_prompt"]}
+    if action not in ("set_system_prompt", "upsert", "delete"):
+        raise ValueError(f"Unsupported glossary action: {action!r}")
 
-    cat = category if category in GLOSSARY_CATEGORIES else "Person"
-    cat_list: list[dict[str, Any]] = data["glossary"].setdefault(cat, [])
-    # Clean out template blank placeholder (`original: ""`)
-    cat_list[:] = [e for e in cat_list if isinstance(e, dict) and str(e.get("original", "")).strip()]
+    with _glossary_file_lock(target_path):
+        data = _load_yaml_prompt_file(target_path)
+        if action == "set_system_prompt":
+            data["system_prompt"] = str(system_prompt or "")
+            _save_yaml_prompt_atomic(target_path, data)
+            return {"file": str(target_path), "system_prompt": data["system_prompt"]}
 
-    if action == "upsert":
-        for item in entries or []:
-            if not isinstance(item, dict):
-                continue
-            orig = str(item.get("original", "")).strip()
-            trans = str(item.get("translation", "")).strip()
-            alias_orig = str(item.get("alias") or item.get("alias_original") or orig).strip()
-            has_desc = "description" in item and item.get("description") is not None
-            desc = str(item.get("description") or "").strip()
-            cond = str(item.get("condition") or "").strip()
-            has_overwrite = "overwrite" in item and item.get("overwrite") is not None
-            replace_record = bool(item.get("replace", False))
-            if not orig or not trans:
-                continue
-            tr_obj: dict[str, Any] = {"text": trans}
-            if cond:
-                tr_obj["condition"] = cond
+        cat = category if category in GLOSSARY_CATEGORIES else "Person"
+        cat_list: list[dict[str, Any]] = data["glossary"].setdefault(cat, [])
+        # Clean out template blank placeholder (`original: ""`)
+        cat_list[:] = [e for e in cat_list if isinstance(e, dict) and str(e.get("original", "")).strip()]
 
-            matched_idx = next(
-                (i for i, existing in enumerate(cat_list) if str(existing.get("original", "")).strip() == orig),
-                None,
-            )
-            if matched_idx is not None and not replace_record:
-                existing_rec = cat_list[matched_idx]
-                aliases = existing_rec.get("aliases")
-                if not isinstance(aliases, list):
-                    aliases = []
-                    existing_rec["aliases"] = aliases
-                alias_entry = next(
-                    (
-                        a
-                        for a in aliases
-                        if isinstance(a, dict) and str(a.get("original", "")).strip() == alias_orig
-                    ),
+        if action == "upsert":
+            for item in entries or []:
+                if not isinstance(item, dict):
+                    continue
+                orig = str(item.get("original", "")).strip()
+                trans = str(item.get("translation", "")).strip()
+                alias_orig = str(item.get("alias") or item.get("alias_original") or orig).strip()
+                has_desc = "description" in item and item.get("description") is not None
+                desc = str(item.get("description") or "").strip()
+                cond = str(item.get("condition") or "").strip()
+                has_overwrite = "overwrite" in item and item.get("overwrite") is not None
+                replace_record = bool(item.get("replace", False))
+                if not orig or not trans:
+                    continue
+                tr_obj: dict[str, Any] = {"text": trans}
+                if cond:
+                    tr_obj["condition"] = cond
+
+                matched_idx = next(
+                    (i for i, existing in enumerate(cat_list) if str(existing.get("original", "")).strip() == orig),
                     None,
                 )
-                if alias_entry is None:
-                    aliases.append({"original": alias_orig, "translations": [tr_obj]})
-                else:
-                    tr_list = alias_entry.get("translations")
-                    if not isinstance(tr_list, list):
-                        tr_list = []
-                        alias_entry["translations"] = tr_list
-                    cond_entry = next(
+                if matched_idx is not None and not replace_record:
+                    existing_rec = cat_list[matched_idx]
+                    aliases = existing_rec.get("aliases")
+                    if not isinstance(aliases, list):
+                        aliases = []
+                        existing_rec["aliases"] = aliases
+                    alias_entry = next(
                         (
-                            t
-                            for t in tr_list
-                            if isinstance(t, dict) and str(t.get("condition") or "").strip() == cond
+                            a
+                            for a in aliases
+                            if isinstance(a, dict) and str(a.get("original", "")).strip() == alias_orig
                         ),
                         None,
                     )
-                    if cond_entry is not None:
-                        cond_entry["text"] = trans
+                    if alias_entry is None:
+                        aliases.append({"original": alias_orig, "translations": [tr_obj]})
                     else:
-                        tr_list.append(tr_obj)
+                        tr_list = alias_entry.get("translations")
+                        if not isinstance(tr_list, list):
+                            tr_list = []
+                            alias_entry["translations"] = tr_list
+                        cond_entry = next(
+                            (
+                                t
+                                for t in tr_list
+                                if isinstance(t, dict) and str(t.get("condition") or "").strip() == cond
+                            ),
+                            None,
+                        )
+                        if cond_entry is not None:
+                            cond_entry["text"] = trans
+                        else:
+                            tr_list.append(tr_obj)
 
-                if has_overwrite:
-                    existing_rec["overwrite"] = bool(item["overwrite"])
-                elif "overwrite" not in existing_rec:
-                    existing_rec["overwrite"] = False
+                    if has_overwrite:
+                        existing_rec["overwrite"] = bool(item["overwrite"])
+                    elif "overwrite" not in existing_rec:
+                        existing_rec["overwrite"] = False
 
-                if has_desc:
-                    if desc:
-                        existing_rec["description"] = desc
-                    else:
-                        existing_rec.pop("description", None)
-            else:
-                new_record: dict[str, Any] = {
-                    "original": orig,
-                    "aliases": [
-                        {
-                            "original": alias_orig,
-                            "translations": [tr_obj],
-                        }
-                    ],
-                    "overwrite": bool(item.get("overwrite", False)),
-                }
-                if desc:
-                    new_record["description"] = desc
-                if matched_idx is not None:
-                    cat_list[matched_idx] = new_record
+                    if has_desc:
+                        if desc:
+                            existing_rec["description"] = desc
+                        else:
+                            existing_rec.pop("description", None)
                 else:
-                    cat_list.append(new_record)
-        _save_yaml_prompt_atomic(target_path, data)
-        return {"file": str(target_path), "category": cat, "category_entries": cat_list}
+                    new_record: dict[str, Any] = {
+                        "original": orig,
+                        "aliases": [
+                            {
+                                "original": alias_orig,
+                                "translations": [tr_obj],
+                            }
+                        ],
+                        "overwrite": bool(item.get("overwrite", False)),
+                    }
+                    if desc:
+                        new_record["description"] = desc
+                    if matched_idx is not None:
+                        cat_list[matched_idx] = new_record
+                    else:
+                        cat_list.append(new_record)
+            _save_yaml_prompt_atomic(target_path, data)
+            return {"file": str(target_path), "category": cat, "category_entries": cat_list}
 
-    if action == "delete":
+        # action == "delete"
         targets = {str(item.get("original", "")).strip() for item in (entries or [])}
         before = len(cat_list)
         cat_list[:] = [e for e in cat_list if str(e.get("original", "")).strip() not in targets]
         _save_yaml_prompt_atomic(target_path, data)
         return {"file": str(target_path), "category": cat, "deleted": before - len(cat_list)}
-
-    raise ValueError(f"Unsupported glossary action: {action!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -476,9 +582,17 @@ def _apply_batch_set_fields_to_region(reg: dict[str, Any], set_fields: dict[str,
                 changed = True
         elif k == "bold":
             want_bold = bool(v)
-            if region_is_bold(reg) != want_bold:
-                set_region_whole_bold(reg, want_bold)
-                changed = True
+            if want_bold:
+                if not region_is_bold(reg) or reg.get("bold") is not True:
+                    before_snap = copy.deepcopy(reg)
+                    set_region_whole_bold(reg, True)
+                    if reg != before_snap:
+                        changed = True
+            elif region_is_bold(reg) or "bold" in reg or is_rich_text_document(reg.get("translation_rich")):
+                before_snap = copy.deepcopy(reg)
+                set_region_whole_bold(reg, False)
+                if reg != before_snap:
+                    changed = True
         elif k == "direction":
             new_dir = {"h": "horizontal", "v": "vertical"}.get(str(v).strip().lower(), str(v).strip().lower())
             cur_raw = str(reg.get("direction") or "").strip().lower()
@@ -539,6 +653,34 @@ def _apply_batch_set_fields_to_region(reg: dict[str, Any], set_fields: dict[str,
     return changed
 
 
+def _validate_batch_rich_spans(rich_spans: Optional[list[dict[str, Any]]]) -> None:
+    if rich_spans is None:
+        return
+    if not isinstance(rich_spans, list):
+        raise TypeError("rich_spans must be a list of span dicts")
+    for span_spec in rich_spans:
+        if not isinstance(span_spec, dict):
+            continue
+        spec = copy.deepcopy(span_spec)
+        spec.pop("match", None)
+        regex_str = spec.pop("regex", None)
+        if regex_str is not None:
+            re.compile(str(regex_str))
+        spec.pop("start", None)
+        spec.pop("end", None)
+        spec.pop("occurrence", None)
+        spec.pop("ruby", None)
+        raw_ruby_style = spec.pop("ruby_style", None)
+        if raw_ruby_style is not None:
+            validate_and_normalize_style(raw_ruby_style)
+        spec.pop("ruby_inherit", None)
+        spec.pop("tcy", None)
+        raw_style_sub = spec.pop("style", None)
+        raw_patch = raw_style_sub if raw_style_sub is not None else spec
+        if raw_patch:
+            _merge_raw_style_patch({}, raw_patch)
+
+
 def batch_edit_chapter_pages(
     target_path: str | Path,
     *,
@@ -556,6 +698,7 @@ def batch_edit_chapter_pages(
     _validate_batch_set_fields(set_fields)
     if rich_style is not None:
         _merge_raw_style_patch({}, rich_style)
+    _validate_batch_rich_spans(rich_spans)
     if find_text is not None and use_regex:
         re.compile(find_text)
 
@@ -563,9 +706,12 @@ def batch_edit_chapter_pages(
     modified_page_paths: list[PagePaths] = []
     hits: list[dict[str, Any]] = []
 
-    def _process_single_page(paths: PagePaths) -> None:
+    def _transform_page_in_memory(
+        paths: PagePaths,
+    ) -> Optional[tuple[str, dict[str, Any], list[tuple[int, str, str, dict[str, Any]]], str]]:
         if not paths.json_exists:
-            return
+            return None
+        pre_rev = compute_page_revision(paths)
         image_key, image_data = load_page_json(paths)
         regions = image_data.get("regions", [])
         ensure_region_uids(regions)
@@ -622,27 +768,28 @@ def batch_edit_chapter_pages(
                 uid = str(reg.get("region_uid") or "")
                 page_hits.append((r_idx, uid, before_vis, reg))
 
-        if page_changed and not dry_run:
-            saved_json = save_page_json_atomic(paths, image_key, image_data)
-            refreshed = resolve_page_paths(saved_json)
-            _, saved_data = load_page_json(refreshed)
-            saved_regs = saved_data.get("regions", [])
-            modified_page_paths.append(refreshed)
-            for r_idx, uid, before_vis, fallback_reg in page_hits:
-                try:
-                    s_idx = resolve_region_target_index(saved_regs, region_uid=uid) if uid else r_idx
-                    after_summary = format_region_summary(s_idx, saved_regs[s_idx])
-                except (KeyError, IndexError):
-                    after_summary = format_region_summary(r_idx, fallback_reg)
-                hits.append(
-                    {
-                        "page_name": paths.source_path.name,
-                        "region_index": r_idx,
-                        "before_translation": before_vis,
-                        "after": after_summary,
-                    }
-                )
-        elif page_changed and dry_run:
+        if not page_changed:
+            return None
+        return (image_key, image_data, page_hits, pre_rev)
+
+    # Phase 1: Pre-validate and stage edits across ALL target pages in memory BEFORE writing any page to disk!
+    staged_pages: list[tuple[PagePaths, str, dict[str, Any], list[tuple[int, str, str, dict[str, Any]]], str]] = []
+    for p in pages:
+        if not p.json_exists:
+            continue
+        if dry_run:
+            staged = _transform_page_in_memory(p)
+        else:
+            with page_edit_lock(p):
+                p_fresh = resolve_page_paths(p.source_path)
+                staged = _transform_page_in_memory(p_fresh)
+                p = p_fresh
+        if staged is not None:
+            image_key, image_data, page_hits, pre_rev = staged
+            staged_pages.append((p, image_key, image_data, page_hits, pre_rev))
+
+    if dry_run:
+        for paths, _ik, _id, page_hits, _rev in staged_pages:
             modified_page_paths.append(paths)
             for r_idx, _uid, before_vis, reg in page_hits:
                 hits.append(
@@ -653,15 +800,48 @@ def batch_edit_chapter_pages(
                         "after": format_region_summary(r_idx, reg),
                     }
                 )
-
-    for p in pages:
-        if not p.json_exists:
-            continue
-        if dry_run:
-            _process_single_page(p)
-        else:
-            with page_edit_lock(p):
-                _process_single_page(resolve_page_paths(p.source_path))
+    else:
+        # Phase 2: Commit staged pages atomically; if a runtime/OS error occurs mid-commit, report committed_pages & failed_page!
+        committed_pages: list[str] = []
+        for paths, image_key, image_data, page_hits, staged_rev in staged_pages:
+            try:
+                with page_edit_lock(paths):
+                    cur_paths = resolve_page_paths(paths.source_path)
+                    if compute_page_revision(cur_paths) != staged_rev:
+                        re_staged = _transform_page_in_memory(cur_paths)
+                        if re_staged is None:
+                            continue
+                        image_key, image_data, page_hits, _ = re_staged
+                    saved_json = save_page_json_atomic(cur_paths, image_key, image_data)
+                    refreshed = resolve_page_paths(saved_json)
+                    _, saved_data = load_page_json(refreshed)
+                    saved_regs = saved_data.get("regions", [])
+                    modified_page_paths.append(refreshed)
+                    committed_pages.append(paths.source_path.name)
+                    for r_idx, uid, before_vis, fallback_reg in page_hits:
+                        try:
+                            s_idx = resolve_region_target_index(saved_regs, region_uid=uid) if uid else r_idx
+                            after_summary = format_region_summary(s_idx, saved_regs[s_idx])
+                        except (KeyError, IndexError):
+                            after_summary = format_region_summary(r_idx, fallback_reg)
+                        hits.append(
+                            {
+                                "page_name": paths.source_path.name,
+                                "region_index": r_idx,
+                                "before_translation": before_vis,
+                                "after": after_summary,
+                            }
+                        )
+            except Exception as exc:
+                if committed_pages:
+                    partial_err = RuntimeError(
+                        f"Batch edit failed on {paths.source_path.name} after committing "
+                        f"committed_pages={committed_pages!r} (failed_page={paths.source_path.name!r}): {exc}"
+                    )
+                    partial_err.committed_pages = list(committed_pages)  # type: ignore[attr-defined]
+                    partial_err.failed_page = paths.source_path.name  # type: ignore[attr-defined]
+                    raise partial_err from exc
+                raise
 
     return modified_page_paths, {
         "dry_run": dry_run,

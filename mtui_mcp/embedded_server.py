@@ -30,6 +30,8 @@ logger = logging.getLogger("mtui_mcp.embedded_server")
 
 
 def _format_url_host(host: str) -> str:
+    if not host:
+        return "0.0.0.0"
     if ":" in host and not host.startswith("["):
         return f"[{host}]"
     return host
@@ -41,7 +43,7 @@ def is_loopback_host(host: str) -> bool:
     if cleaned.startswith("[") and cleaned.endswith("]"):
         cleaned = cleaned[1:-1].strip()
     if not cleaned:
-        return True
+        return False
     if cleaned.lower() == "localhost":
         return True
     try:
@@ -144,7 +146,12 @@ def _configure_mcp_host_and_security(host: str, port: int) -> None:
 
 def build_mcp_subapps(host: str, port: int) -> tuple[Starlette, Starlette]:
     """Create fresh Streamable HTTP (`/mcp`) and SSE (`/sse` + `/messages/`) Starlette apps."""
-    _configure_mcp_host_and_security(host, port)
+    clean_host = (
+        host[1:-1].strip()
+        if host.startswith("[") and host.endswith("]")
+        else host
+    )
+    _configure_mcp_host_and_security(clean_host, port)
 
     # In mcp 1.x (FastMCP), `_session_manager` is cached on the instance and
     # `StreamableHTTPSessionManager.run()` can only be entered once per instance.
@@ -157,12 +164,12 @@ def build_mcp_subapps(host: str, port: int) -> tuple[Starlette, Starlette]:
 
     stream_kwargs: dict[str, Any] = {}
     if "host" in inspect.signature(mcp.streamable_http_app).parameters:
-        stream_kwargs["host"] = host
+        stream_kwargs["host"] = clean_host
     stream_app = mcp.streamable_http_app(**stream_kwargs)
 
     sse_kwargs: dict[str, Any] = {}
     if "host" in inspect.signature(mcp.sse_app).parameters:
-        sse_kwargs["host"] = host
+        sse_kwargs["host"] = clean_host
     sse_app = mcp.sse_app(**sse_kwargs)
 
     return stream_app, sse_app
@@ -183,7 +190,7 @@ class EmbeddedMcpHttpServer:
         warm_up: bool = False,
         auth_token: Optional[str] = None,
     ) -> None:
-        self._host: str = str(host or "127.0.0.1").strip() or "127.0.0.1"
+        self._host: str = "127.0.0.1" if host is None else str(host).strip()
         self._port: int = int(port)
         self._mtui_root: Optional[Path] = Path(mtui_root) if mtui_root is not None else None
         self._mtui_python: Optional[Path] = Path(mtui_python) if mtui_python is not None else None
@@ -339,12 +346,6 @@ class EmbeddedMcpHttpServer:
                 settings.refresh(mtui_root=self._mtui_root, mtui_python=self._mtui_python)
             settings.allow_runtime_python_override = False
 
-            if self._warm_up and settings.is_engine_available:
-                try:
-                    get_worker_client().ensure_started()
-                except Exception as exc:
-                    logger.warning("Initial worker warm-up failed during embedded start: %s", exc)
-
             bound = self._bind_listener_socket()
             if bound is None:
                 return False
@@ -400,6 +401,11 @@ class EmbeddedMcpHttpServer:
         deadline = time.monotonic() + max(0.1, float(timeout))
         while time.monotonic() < deadline:
             if server.started and not server.should_exit:
+                if self._warm_up and settings.is_engine_available:
+                    try:
+                        get_worker_client().ensure_started()
+                    except Exception as exc:
+                        logger.warning("Initial worker warm-up failed during embedded start: %s", exc)
                 logger.info(
                     "Embedded MCP HTTP server listening on %s (SSE: %s)",
                     self.streamable_http_url,
