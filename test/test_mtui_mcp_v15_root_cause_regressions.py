@@ -28,14 +28,12 @@ from mtui_mcp.richtext_builder import sync_region_text_update
 
 
 def _ensure_zero_contour_tankuin_font(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure `Arphic Tankuin Bold GB` is available for 0-contour glyph tests even on clean CI checkouts."""
-    if "﹁" in check_missing_glyphs("Arphic Tankuin Bold GB", "距离﹁作品﹂完成"):
-        return
-
+    """Always mount deterministic synthetic `Arphic Tankuin Bold GB` (0-contour quotes) + `FZYaSong-DB-GBK` fallback in `tmp_path`."""
     fake_root = tmp_path / "synthetic_mtui_root"
     fonts_dir = fake_root / "fonts"
     fonts_dir.mkdir(parents=True, exist_ok=True)
     ttf_path = fonts_dir / "ArphicTankuinSynthetic.ttf"
+    fallback_ttf_path = fonts_dir / "FZYaSongSynthetic.ttf"
 
     pen = TTGlyphPen(None)
     pen.moveTo((100, 100))
@@ -60,6 +58,17 @@ def _ensure_zero_contour_tankuin_font(tmp_path: Path, monkeypatch: pytest.Monkey
     fb.setupOS2()
     fb.setupPost()
     fb.save(str(ttf_path))
+
+    fb_fallback = FontBuilder(1000, isTTF=True)
+    fb_fallback.setupGlyphOrder([".notdef", "box"])
+    fb_fallback.setupCharacterMap({ord(ch): "box" for ch in "距离作品完成还差得远︙﹁﹂︻︼︴"})
+    fb_fallback.setupGlyf({".notdef": box_glyph, "box": box_glyph})
+    fb_fallback.setupHorizontalMetrics({".notdef": (1000, 0), "box": (1000, 100)})
+    fb_fallback.setupHorizontalHeader(ascent=800, descent=-200)
+    fb_fallback.setupNameTable({"familyName": "FZYaSong-DB-GBK", "styleName": "Regular"})
+    fb_fallback.setupOS2()
+    fb_fallback.setupPost()
+    fb_fallback.save(str(fallback_ttf_path))
 
     monkeypatch.setattr(get_runtime_settings(), "mtui_root", fake_root)
 

@@ -15,8 +15,7 @@ from typing import Any, Optional
 logger = logging.getLogger("mtui_mcp.config")
 
 
-def _is_valid_mtui_root(path: Path) -> bool:
-    """Return True if ``path`` looks like a manga-translator-ui root directory."""
+def _has_source_mtui_files(path: Path) -> bool:
     try:
         return (
             path.is_dir()
@@ -25,6 +24,39 @@ def _is_valid_mtui_root(path: Path) -> bool:
         )
     except OSError:
         return False
+
+
+def _is_frozen_mtui_bundle() -> bool:
+    """Return True when running inside a frozen PyInstaller bundle packaging manga_translator."""
+    if not getattr(sys, "frozen", False) or not sys.executable:
+        return False
+    try:
+        if importlib.util.find_spec("manga_translator") is not None:
+            return True
+    except Exception:
+        pass
+    meipass = getattr(sys, "_MEIPASS", None)
+    return bool(meipass and _has_source_mtui_files(Path(meipass)))
+
+
+def _is_valid_mtui_root(path: Path) -> bool:
+    """Return True if ``path`` is a valid source checkout or frozen app root directory."""
+    if _has_source_mtui_files(path):
+        return True
+    if _is_frozen_mtui_bundle():
+        try:
+            if not path.is_dir():
+                return False
+            cand_norm = os.path.normcase(os.path.abspath(str(path)))
+            exe_dir_norm = os.path.normcase(os.path.dirname(os.path.abspath(sys.executable)))
+            if cand_norm == exe_dir_norm:
+                return True
+            meipass = getattr(sys, "_MEIPASS", None)
+            if meipass and cand_norm == os.path.normcase(os.path.abspath(str(meipass))):
+                return True
+        except OSError:
+            return False
+    return False
 
 
 def _is_current_python_mtui_capable() -> bool:
@@ -50,14 +82,18 @@ def _discover_mtui_root(explicit: Optional[str | Path] = None) -> Optional[Path]
         if env_val:
             candidates.append(Path(env_val).expanduser())
 
-    # Walk ancestor directories of `mtui_mcp/config.py` first so `<repo_root>/mtui_mcp`
+    # In frozen builds, prefer the executable directory (holding config/, fonts/, dict/, models/, .env)
+    # before walking _MEIPASS internal ancestors.
+    if getattr(sys, "frozen", False) and sys.executable:
+        exe_dir = Path(os.path.abspath(sys.executable)).parent
+        candidates.append(exe_dir)
+
+    # Walk ancestor directories of `mtui_mcp/config.py` so `<repo_root>/mtui_mcp`
     # resolves `<repo_root>` regardless of current working directory or clone folder name.
     this_file = Path(__file__).resolve()
     candidates.extend(this_file.parents)
 
-    if getattr(sys, "frozen", False) and sys.executable:
-        exe_dir = Path(sys.executable).resolve().parent
-        candidates.append(exe_dir)
+    if getattr(sys, "frozen", False):
         meipass = getattr(sys, "_MEIPASS", None)
         if meipass:
             candidates.append(Path(meipass))
@@ -122,11 +158,15 @@ def _discover_mtui_python(
 
         if _is_current_python_mtui_capable():
             candidates.append(Path(sys.executable))
+        elif _is_frozen_mtui_bundle():
+            candidates.append(Path(os.path.abspath(sys.executable)))
 
     for candidate in candidates:
         try:
-            if candidate.is_file():
-                return candidate.resolve()
+            # Preserve virtualenv symlink entrypoints on POSIX (`abspath` without `resolve()`).
+            abs_candidate = Path(os.path.abspath(str(candidate)))
+            if abs_candidate.is_file():
+                return abs_candidate
         except OSError:
             continue
     return None
@@ -138,6 +178,7 @@ class MtuiRuntimeSettings:
 
     mtui_root: Optional[Path] = None
     mtui_python: Optional[Path] = None
+    allow_runtime_python_override: bool = True
     worker_idle_timeout_sec: int = 600
     auto_backup_on_first_edit: bool = True
     return_inline_images_default: bool = True

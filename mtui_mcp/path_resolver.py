@@ -94,12 +94,14 @@ def _find_source_from_translation_map(image_path: Path) -> Optional[Path]:
         return None
     norm_str = os.path.normpath(str(image_path))
     direct = mapping.get(norm_str)
-    if direct and os.path.exists(direct):
+    if isinstance(direct, str) and direct.strip() and os.path.isfile(direct):
         return Path(os.path.normpath(direct))
     norm_case = os.path.normcase(os.path.abspath(norm_str))
     for out_key, src_val in mapping.items():
+        if not isinstance(out_key, str) or not isinstance(src_val, str) or not src_val.strip():
+            continue
         try:
-            if os.path.normcase(os.path.abspath(out_key)) == norm_case and os.path.exists(src_val):
+            if os.path.normcase(os.path.abspath(out_key)) == norm_case and os.path.isfile(src_val):
                 return Path(os.path.normpath(src_val))
         except Exception:
             continue
@@ -138,7 +140,7 @@ def resolve_source_image_path(path_like: str | Path) -> Path:
     if mapped is not None:
         return mapped
 
-    # 3. Passed manga_translator_work/editor_base/<name> or manga_translator_work/inpainted/<stem>_inpainted.<ext>
+    # 3. Passed manga_translator_work/editor_base/<name>, inpainted/<stem>_inpainted.<ext>, or result/<stem>.<ext>
     parent = norm.parent
     grandparent = parent.parent
     if parent.name == EDITOR_BASE_SUBDIR and grandparent.name == WORK_DIR_NAME:
@@ -150,6 +152,18 @@ def resolve_source_image_path(path_like: str | Path) -> Path:
         stem = norm.stem
         if stem.endswith("_inpainted"):
             stem = stem[: -len("_inpainted")]
+        same_ext = src_dir / f"{stem}{norm.suffix}"
+        if same_ext.is_file():
+            return same_ext
+        for ext in SUPPORTED_IMAGE_EXTENSIONS:
+            candidate = src_dir / f"{stem}{ext}"
+            if candidate.is_file():
+                return candidate
+    if parent.name == RESULT_SUBDIR and grandparent.name == WORK_DIR_NAME:
+        src_dir = grandparent.parent
+        stem = norm.stem
+        if stem.endswith("-translated"):
+            stem = stem[: -len("-translated")]
         same_ext = src_dir / f"{stem}{norm.suffix}"
         if same_ext.is_file():
             return same_ext
@@ -407,4 +421,13 @@ def list_manga_pages_in_path(target_path: str | Path, recursive: bool = False) -
         page_files.sort(key=natural_sort_key)
         found_images.extend(page_files)
 
-    return [resolve_page_paths(img) for img in found_images]
+    resolved_pages: list[PagePaths] = []
+    seen_sources: set[str] = set()
+    for img in found_images:
+        page_paths = resolve_page_paths(img)
+        norm_src = os.path.normcase(os.path.normpath(os.path.abspath(str(page_paths.source_path))))
+        if norm_src in seen_sources:
+            continue
+        seen_sources.add(norm_src)
+        resolved_pages.append(page_paths)
+    return resolved_pages

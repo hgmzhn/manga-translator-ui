@@ -26,10 +26,23 @@ from mtui_mcp.server import (
 from mtui_mcp.worker.client import get_worker_client
 
 
-def test_live_mtui_gpu_inpaint_richtext_layout_and_render(tmp_path: Path) -> None:
+def test_live_mtui_gpu_inpaint_richtext_layout_and_render(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     settings = get_runtime_settings()
     if not settings.is_engine_available:
         pytest.skip("manga-translator-ui runtime not available on this machine")
+
+    orig_load_cfg = settings.load_mtui_config_dict
+
+    def _isolated_mtui_config() -> dict:
+        cfg = dict(orig_load_cfg() or {})
+        app_cfg = dict(cfg.get("app") or {})
+        app_cfg["last_output_path"] = ""
+        cfg["app"] = app_cfg
+        return cfg
+
+    monkeypatch.setattr(settings, "load_mtui_config_dict", _isolated_mtui_config)
 
     has_lama_weights = bool(
         settings.mtui_root
@@ -39,6 +52,8 @@ def test_live_mtui_gpu_inpaint_richtext_layout_and_render(tmp_path: Path) -> Non
     chapter_dir = tmp_path / "live_chapter"
     chapter_dir.mkdir(parents=True)
     page_path = chapter_dir / "001.png"
+    isolated_result_dir = chapter_dir / "manga_translator_work" / "result"
+    isolated_result_dir.mkdir(parents=True, exist_ok=True)
 
     # Build a crisp 900x700 comic page with two speech bubbles + dark Japanese strokes
     canvas = np.full((900, 700, 3), 215, dtype=np.uint8)
@@ -69,6 +84,8 @@ def test_live_mtui_gpu_inpaint_richtext_layout_and_render(tmp_path: Path) -> Non
     Image.fromarray(inpainted).save(paths.inpainted_path)
 
     image_data = {
+        "last_export_dir": str(isolated_result_dir.resolve()),
+        "last_output_path": str((isolated_result_dir / "001.png").resolve()),
         "mask_raw": encode_mask_base64(mask),
         "mask_is_refined": True,
         "regions": [
@@ -118,7 +135,7 @@ def test_live_mtui_gpu_inpaint_richtext_layout_and_render(tmp_path: Path) -> Non
                 page_path=str(page_path),
                 add_rects=[[556, 176, 574, 210]],
                 inpaint_method="neural",
-                neural_inpainter=None if has_lama_weights else "blur",
+                neural_inpainter="lama_large" if has_lama_weights else "blur",
                 blur_radius=None if has_lama_weights else 45,
                 re_render=False,
             )
@@ -171,11 +188,25 @@ def test_live_mtui_gpu_inpaint_richtext_layout_and_render(tmp_path: Path) -> Non
 
         final_paths = resolve_page_paths(page_path)
         assert final_paths.rendered_output_exists
+        assert final_paths.rendered_output_path.resolve().is_relative_to(tmp_path.resolve())
         rendered_rgb = open_rgb_image(final_paths.rendered_output_path)
-        right_bubble_crop = rendered_rgb[140:360, 440:575]
-        left_bubble_crop = rendered_rgb[510:610, 120:320]
-        assert np.min(right_bubble_crop) < 150, "Expected rendered vertical rich text inside right bubble"
-        assert np.min(left_bubble_crop) < 150, "Expected rendered horizontal text inside left bubble"
+        # Crop strictly inside each bubble's pure-white interior (excluding ellipse borders near x=443)
+        # and verify newly rendered text pixels relative to `repaired_inp`.
+        right_pre = repaired_inp[165:335, 455:565]
+        right_post = rendered_rgb[165:335, 455:565]
+        assert np.min(right_pre) > 180, "Right interior reference crop must exclude bubble border"
+        right_ink_diff = np.max(np.abs(right_post.astype(np.int16) - right_pre.astype(np.int16)), axis=2)
+        assert int(np.sum(right_ink_diff >= 60)) >= 50 and np.min(right_post) < 150, (
+            "Expected newly rendered vertical rich text inside right bubble interior"
+        )
+
+        left_pre = repaired_inp[520:600, 130:310]
+        left_post = rendered_rgb[520:600, 130:310]
+        assert np.min(left_pre) > 180, "Left interior reference crop must exclude bubble border"
+        left_ink_diff = np.max(np.abs(left_post.astype(np.int16) - left_pre.astype(np.int16)), axis=2)
+        assert int(np.sum(left_ink_diff >= 60)) >= 50 and np.min(left_post) < 150, (
+            "Expected newly rendered horizontal text inside left bubble interior"
+        )
 
         tmap_file = final_paths.rendered_output_path.parent / "translation_map.json"
         assert tmap_file.is_file()
@@ -185,7 +216,7 @@ def test_live_mtui_gpu_inpaint_richtext_layout_and_render(tmp_path: Path) -> Non
         vis_loupe = mtui_inspect_region_visual(str(page_path), region_indices=[0, 1], return_inline_image=True)
         assert len(vis_loupe) == 2
 
-        batch_res = json.loads(mtui_render_pages(str(chapter_dir)))
+        batch_res = json.loads(mtui_render_pages(str(chapter_dir), output_dir=str(isolated_result_dir)))
         assert batch_res["rendered_count"] == 1
     finally:
         get_worker_client().shutdown()

@@ -10,6 +10,7 @@ import _bootstrap  # noqa: F401, I001
 
 import importlib.util
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -123,6 +124,20 @@ def test_in_process_center_bubbles_and_vram_release(tmp_path: Path, monkeypatch:
 
     def fake_render_single_page(paths, **kwargs):
         render_calls.append(paths.source_path.name)
+        _, page_data = load_page_json(paths)
+        inp_rgb = np.asarray(Image.open(paths.inpainted_path).convert("RGB"), dtype=np.uint8).copy()
+        for reg in page_data.get("regions") or []:
+            rcx, rcy = reg.get("center") or [160.0, 180.0]
+            x0 = max(0, int(round(float(rcx) - 20.0)))
+            x1 = min(inp_rgb.shape[1], int(round(float(rcx) + 20.0)))
+            y0 = max(0, int(round(float(rcy) - 50.0)))
+            y1 = min(inp_rgb.shape[0], int(round(float(rcy) + 50.0)))
+            inp_rgb[y0:y1, x0:x1] = 10
+        prev_mtime = paths.rendered_output_path.stat().st_mtime if paths.rendered_output_path.is_file() else 0.0
+        paths.rendered_output_path.parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(inp_rgb).save(paths.rendered_output_path)
+        new_mtime = max(paths.rendered_output_path.stat().st_mtime, prev_mtime + 0.05)
+        os.utime(paths.rendered_output_path, (new_mtime, new_mtime))
         return {"status": "ok", "output_path": str(paths.rendered_output_path)}
 
     monkeypatch.setattr(server, "_render_single_page_via_worker", fake_render_single_page)
@@ -133,10 +148,10 @@ def test_in_process_center_bubbles_and_vram_release(tmp_path: Path, monkeypatch:
     assert centers_json.is_file()
     assert len(render_calls) >= 2
 
-    # Off-center x=195.0 inside bubble centered at x=160.0 must have moved left toward ~160!
+    # Off-center x=195.0 inside bubble centered at x=160.0 must converge within two-sided tolerance of 160.0 (never double-shifting to ~125)!
     _, d1 = load_page_json(resolve_page_paths(p1))
     new_cx = float(d1["regions"][0]["center"][0])
-    assert new_cx < 180.0
+    assert abs(new_cx - 160.0) <= 8.0, f"Expected optical center near 160.0, got {new_cx}"
 
     # Verify `mtui_status(release_vram=True)` works cleanly when worker is idle
     st = json.loads(server.mtui_status(release_vram=True))
@@ -173,8 +188,11 @@ def test_script_root_discovery_and_skill_doc_contracts(tmp_path: Path, monkeypat
     assert "<yaml|txt>" in skill_md
     assert 'mtui_snapshots(target_path="<PAGE>", action="create", label="pre_gate_b")' in skill_md
     assert 'mtui_snapshots(target_path="<PAGE>", action="restore", label="pre_gate_b")' in skill_md
-    assert 'mtui_snapshots(target_path="<CHAPTER>", action="cleanup")' in skill_md
+    assert 'mtui_snapshots(target_path="<CHAPTER>", action="cleanup", label="pre_gate_b")' in skill_md
+    assert 'mtui_snapshots(target_path="<CHAPTER>", action="cleanup", label="initial_before_mcp")' in skill_md
+    assert 'mtui_snapshots(target_path="<CHAPTER>", action="cleanup")' not in skill_md
     assert 'mtui_snapshots(target_path="<CHAPTER>", action="create", label="pre_gate_b")' not in skill_md
     assert "style_and_pitfalls.md" in batch_md
     assert "mistranslation_checklist.md" in batch_md
+    assert "stage7_compare: ok" in batch_md
     assert "前一话进入 Stage 7 时，可以先开始下一话的 Stage 0~1" not in batch_md

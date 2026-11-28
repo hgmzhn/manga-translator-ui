@@ -371,6 +371,103 @@ def is_rich_text_document(value: Any) -> bool:
     return isinstance(value, dict) and value.get("format") == RICH_TEXT_FORMAT and isinstance(value.get("blocks"), list)
 
 
+def _validate_richtext_text_run(run: Any, field_path: str) -> dict[str, Any]:
+    if not isinstance(run, dict):
+        raise ValueError(f"{field_path} must be a text run dict, got {type(run).__name__}")
+    unknown = set(run.keys()) - {"type", "text", "style"}
+    if unknown:
+        raise ValueError(f"{field_path} has unknown keys: {sorted(unknown)}")
+    rtype = run.get("type", "text")
+    if rtype != "text":
+        raise ValueError(f"{field_path}.type must be 'text', got {rtype!r}")
+    raw_txt = run.get("text", "")
+    if not isinstance(raw_txt, str):
+        raise ValueError(f"{field_path}.text must be a string, got {type(raw_txt).__name__}")
+    raw_st = run.get("style")
+    if raw_st is not None and not isinstance(raw_st, dict):
+        raise ValueError(f"{field_path}.style must be a dict, got {type(raw_st).__name__}")
+    try:
+        norm_st = validate_and_normalize_style(raw_st)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid {field_path}.style: {exc}") from exc
+    return {"type": "text", "text": raw_txt, "style": norm_st}
+
+
+def validate_richtext_document(doc: Any, *, field_name: str = "translation_rich") -> dict[str, Any]:
+    """Strictly validate and normalize a `richtext.v1` document structure (`blocks`, `inlines`, and nested runs)."""
+    if not isinstance(doc, dict):
+        raise ValueError(f"{field_name} must be a richtext.v1 dict, got {type(doc).__name__}")
+    if doc.get("format") != RICH_TEXT_FORMAT:
+        raise ValueError(f"{field_name}.format must be {RICH_TEXT_FORMAT!r}, got {doc.get('format')!r}")
+    unknown_top = set(doc.keys()) - {"format", "blocks"}
+    if unknown_top:
+        raise ValueError(f"{field_name} has unknown top-level keys: {sorted(unknown_top)}")
+    blocks = doc.get("blocks")
+    if not isinstance(blocks, list):
+        raise ValueError(f"{field_name}.blocks must be a list, got {type(blocks).__name__}")
+
+    norm_blocks: list[dict[str, Any]] = []
+    for b_idx, block in enumerate(blocks):
+        b_path = f"{field_name}.blocks[{b_idx}]"
+        if not isinstance(block, dict):
+            raise ValueError(f"{b_path} must be a paragraph dict, got {type(block).__name__}")
+        unknown_blk = set(block.keys()) - {"type", "inlines"}
+        if unknown_blk:
+            raise ValueError(f"{b_path} has unknown keys: {sorted(unknown_blk)}")
+        btype = block.get("type", "paragraph")
+        if btype != "paragraph":
+            raise ValueError(f"{b_path}.type must be 'paragraph', got {btype!r}")
+        inlines = block.get("inlines", [])
+        if not isinstance(inlines, list):
+            raise ValueError(f"{b_path}.inlines must be a list, got {type(inlines).__name__}")
+
+        norm_inlines: list[dict[str, Any]] = []
+        for i_idx, inline in enumerate(inlines):
+            i_path = f"{b_path}.inlines[{i_idx}]"
+            if not isinstance(inline, dict):
+                raise ValueError(f"{i_path} must be an inline dict, got {type(inline).__name__}")
+            itype = inline.get("type", "text")
+            if itype == "text":
+                norm_inlines.append(_validate_richtext_text_run(inline, i_path))
+            elif itype == "tcy":
+                unknown_tcy = set(inline.keys()) - {"type", "content"}
+                if unknown_tcy:
+                    raise ValueError(f"{i_path} has unknown keys: {sorted(unknown_tcy)}")
+                content = inline.get("content")
+                if not isinstance(content, list):
+                    raise ValueError(f"{i_path}.content must be a list, got {type(content).__name__}")
+                norm_content = [
+                    _validate_richtext_text_run(r, f"{i_path}.content[{r_idx}]")
+                    for r_idx, r in enumerate(content)
+                ]
+                norm_inlines.append({"type": "tcy", "content": norm_content})
+            elif itype == "ruby":
+                unknown_ruby = set(inline.keys()) - {"type", "base", "text"}
+                if unknown_ruby:
+                    raise ValueError(f"{i_path} has unknown keys: {sorted(unknown_ruby)}")
+                base_runs = inline.get("base")
+                ruby_runs = inline.get("text")
+                if not isinstance(base_runs, list):
+                    raise ValueError(f"{i_path}.base must be a list, got {type(base_runs).__name__}")
+                if not isinstance(ruby_runs, list):
+                    raise ValueError(f"{i_path}.text must be a list, got {type(ruby_runs).__name__}")
+                norm_base = [
+                    _validate_richtext_text_run(r, f"{i_path}.base[{r_idx}]")
+                    for r_idx, r in enumerate(base_runs)
+                ]
+                norm_ruby = [
+                    _validate_richtext_text_run(r, f"{i_path}.text[{r_idx}]")
+                    for r_idx, r in enumerate(ruby_runs)
+                ]
+                norm_inlines.append({"type": "ruby", "base": norm_base, "text": norm_ruby})
+            else:
+                raise ValueError(f"{i_path}.type must be 'text', 'ruby', or 'tcy', got {itype!r}")
+
+        norm_blocks.append({"type": "paragraph", "inlines": norm_inlines})
+
+    return {"format": RICH_TEXT_FORMAT, "blocks": norm_blocks}
+
+
 def plain_to_richtext_document(plain_text: str, base_style: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     """Build a valid `richtext.v1` document from multiline text (`\\n` or `[BR]`)."""
     norm_style = validate_and_normalize_style(base_style)
@@ -512,7 +609,14 @@ def document_has_nontrivial_styling(doc: Optional[dict[str, Any]], plain_storage
     if not is_rich_text_document(doc):
         return False
     for block in doc.get("blocks", []):
-        for inline in block.get("inlines", []):
+        if not isinstance(block, dict):
+            continue
+        inlines = block.get("inlines")
+        if not isinstance(inlines, list):
+            continue
+        for inline in inlines:
+            if not isinstance(inline, dict):
+                continue
             itype = inline.get("type", "text")
             if itype in ("ruby", "tcy"):
                 return True
@@ -771,17 +875,49 @@ def apply_span_styles_to_region(
                     break
                 hits.append((found, found + len(needle)))
                 pos = found + len(needle)
-            if occurrence is not None and 0 <= int(occurrence) < len(hits):
-                ranges.append(hits[int(occurrence)])
+            if occurrence is not None:
+                occ_idx = int(occurrence)
+                if 0 <= occ_idx < len(hits):
+                    ranges.append(hits[occ_idx])
             else:
                 ranges.extend(hits)
         elif regex_str:
             hits = [(m.start(), m.end()) for m in re.finditer(str(regex_str), full_text) if m.end() > m.start()]
-            if occurrence is not None and 0 <= int(occurrence) < len(hits):
-                ranges.append(hits[int(occurrence)])
+            if occurrence is not None:
+                occ_idx = int(occurrence)
+                if 0 <= occ_idx < len(hits):
+                    ranges.append(hits[occ_idx])
             else:
                 ranges.extend(hits)
 
+        has_nonempty_ruby = ruby_text is not None and bool(str(ruby_text))
+        has_empty_ruby = ruby_text is not None and not bool(str(ruby_text))
+
+        # Reject partial-node ruby_style patches so unmatched base chars of a multi-char ruby node are never mutated
+        if raw_ruby_style is not None and ruby_text is None and tcy_flag is not True:
+            covered_indices = {
+                idx_c
+                for r_start, r_end in ranges
+                for idx_c in range(r_start, r_end)
+                if cells[idx_c].char != "\n"
+            }
+            seen_check_nodes: set[int] = set()
+            for idx_c in sorted(covered_indices):
+                existing_node = cells[idx_c].node
+                if isinstance(existing_node, dict) and existing_node.get("type") == "ruby":
+                    nid = id(existing_node)
+                    if nid in seen_check_nodes:
+                        continue
+                    seen_check_nodes.add(nid)
+                    node_indices = [i for i, c in enumerate(cells) if c.node is existing_node]
+                    if not all(i in covered_indices for i in node_indices):
+                        base_str = "".join(cells[i].char for i in node_indices)
+                        raise ValueError(
+                            f"ruby_style span only partially covers ruby node {base_str!r}; "
+                            "match the full ruby base text or set ruby explicitly on the target slice"
+                        )
+
+        mutated_ruby_nodes: set[int] = set()
         for r_start, r_end in ranges:
             # Split across line breaks so nodes never cross paragraphs
             seg_start = r_start
@@ -795,15 +931,12 @@ def apply_span_styles_to_region(
                     seg_end += 1
 
                 new_node: Optional[dict[str, Any]] = None
-                if ruby_text is not None:
-                    if str(ruby_text):
-                        new_node = {
-                            "type": "ruby",
-                            "base": [],
-                            "text": [{"type": "text", "text": str(ruby_text), "style": copy.deepcopy(ruby_style)}],
-                        }
-                    else:
-                        new_node = None
+                if has_nonempty_ruby:
+                    new_node = {
+                        "type": "ruby",
+                        "base": [],
+                        "text": [{"type": "text", "text": str(ruby_text), "style": copy.deepcopy(ruby_style)}],
+                    }
                 elif tcy_flag is True:
                     new_node = {"type": "tcy", "content": []}
 
@@ -819,15 +952,25 @@ def apply_span_styles_to_region(
                         # Upstream ruby_text_style_for() ignores ruby[0].style unless base style has rubyInherit=False
                         cells[k].style = _merge_raw_style_patch(cells[k].style, {"rubyInherit": False})
 
-                    if ruby_text is not None or tcy_flag is not None:
-                        if tcy_flag is False or ruby_text == "":
+                    if has_nonempty_ruby or tcy_flag is True:
+                        cells[k].node = new_node
+                    else:
+                        if has_empty_ruby and isinstance(cells[k].node, dict) and cells[k].node.get("type") == "ruby":
                             cells[k].node = None
-                        else:
-                            cells[k].node = new_node
-                    elif raw_ruby_style is not None and isinstance(cells[k].node, dict) and cells[k].node.get("type") == "ruby":
-                        for r_run in cells[k].node.get("text", []):
-                            if isinstance(r_run, dict):
-                                r_run["style"] = _merge_raw_style_patch(r_run.get("style"), raw_ruby_style)
+                        if tcy_flag is False and isinstance(cells[k].node, dict) and cells[k].node.get("type") == "tcy":
+                            cells[k].node = None
+                        if (
+                            raw_ruby_style is not None
+                            and ruby_text is None
+                            and isinstance(cells[k].node, dict)
+                            and cells[k].node.get("type") == "ruby"
+                        ):
+                            nid = id(cells[k].node)
+                            if nid not in mutated_ruby_nodes:
+                                mutated_ruby_nodes.add(nid)
+                                for r_run in cells[k].node.get("text", []):
+                                    if isinstance(r_run, dict):
+                                        r_run["style"] = _merge_raw_style_patch(r_run.get("style"), raw_ruby_style)
 
                 seg_start = seg_end + 1
 
@@ -840,6 +983,18 @@ def apply_span_styles_to_region(
         region["translation_rich"] = final_doc
     else:
         region.pop("translation_rich", None)
+
+    non_ws_cells = [c for c in cells if c.char != "\n" and not c.char.isspace()]
+    if non_ws_cells:
+        if all(bool(c.style.get("bold", False)) for c in non_ws_cells):
+            region["bold"] = True
+        else:
+            region.pop("bold", None)
+    elif reset_existing or (isinstance(whole_style, dict) and "bold" in whole_style and not whole_style.get("bold")):
+        region.pop("bold", None)
+    elif isinstance(whole_style, dict) and whole_style.get("bold"):
+        region["bold"] = True
+
     return final_doc
 
 

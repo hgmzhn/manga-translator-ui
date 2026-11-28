@@ -11,8 +11,8 @@
 1. 输入目录本身含有图片页 → 当作**一话**处理。
 2. 输入目录不含图片、但子目录含图片 → 按自然排序（`第2话` 排在 `第10话` 前面）**逐个子目录**当作一话。跳过 `manga_translator_work`、`backups`、`.git`。
 3. 各话**严格按顺序逐话执行 Stage 0~7**；一话内部按第 4 节分片并行。**上一话完全结束（含 Stage 7）前不要提前启动下一话的 Stage 0~1**；进入下一话跑命令行 `aac translate-raw` 前，若常驻 worker 刚跑过 `neural` 修图，先调用一次 `mtui_status(release_vram=True)` 释放常驻显存缓存，杜绝 8GB 显卡双进程抢显存。
-4. 每话结束时（Stage 7 生成完 `comparisons/` 后），若全话 `STATUS: DONE`，立即调用 `mtui_snapshots(target_path="<CHAPTER>", action="cleanup")` 清空本话 `.mtui_mcp_snapshots` 临时快照省空间（若有 `UNRESOLVED` 页则仅清理正常页、保留异常页快照），再向 `<QA>/run_log.md` 写入本话最终状态并进入下一话。
-5. **断点续跑**：如果某话的 `run_log.md` 已经标记 `STATUS: DONE`，并且 `comparisons/` 不为空，就直接跳过（除非用户明确要求重做）。
+4. 每话结束时（Stage 7 执行 `aac compare` 完毕后），先将 `stage7_compare: ok (sheets=<N>)`（`<N>` 为实际生成的差异对比图张数，精修前后像素完全一致时可为 `0`）连同最终状态写入 `<QA>/run_log.md`；若全话 `STATUS: DONE`，仅清理本次运行创建的快照——调用 `mtui_snapshots(target_path="<CHAPTER>", action="cleanup", label="pre_gate_b")` 与 `mtui_snapshots(target_path="<CHAPTER>", action="cleanup", label="initial_before_mcp")`（或传入本次运行记录的 `snapshot_id`；严禁无 `label` / `snapshot_id` 全量清空，以免误删用户手动创建的检查点；若有 `UNRESOLVED` 页则仅对正常 `<PAGE>` 按标签清理、保留异常页快照），然后进入下一话。
+5. **断点续跑**：如果某话的 `run_log.md` 已经标记 `STATUS: DONE` 且明确记录了 `stage7_compare: ok (sheets=<N>)`——当 `<N> > 0` 且 `comparisons/` 内存在对应对比图，或当明确记录 `stage7_compare: ok (sheets=0)`（精修前后无像素差异、Stage 7 已正常跑完）时，直接跳过该话（除非用户明确要求重做）；若缺少 `stage7_compare: ok` 记录（说明 Stage 7 尚未执行或中断），则不得跳过，需补跑完成。
 
 ---
 
@@ -52,6 +52,7 @@ STATUS: DONE | DONE_WITH_ISSUES
 pages: 42   regions: 318   verify_sheets_reviewed: 106/106
 gate_a: errors 0 (initial 37), warnings 12 (handled 12)
 regression_diff: newly_introduced_error_count 0
+stage7_compare: ok (sheets=18)
 modified_pages: [3, 7, 13, 21]
 
 ## AUTO_FIXED（遇到问题并已自动解决）
@@ -101,11 +102,12 @@ modified_pages: [3, 7, 13, 21]
 - 发现问题就自己判断最优方案并直接修复、验证，按 unattended_batch_ops.md 第 2 节处理；不要停下来提问，也不要只记录不处理。
 - 需要修改术语表时不要直接改，写进回报里交给主控。
 - 编辑时可先 re_render=False，最后对自己负责的页调用一次 mtui_render_pages。不要运行全局 center-bubbles。
-回报内容（JSON）：{"pages":[A,B], "modified_pages":[...], "sheets_reviewed":n, "sheets_total":n,
+回报内容（JSON）：{"pages":[A,B], "selected_pages":[...], "skipped_pages":[...], "missing_artifact_pages":[...],
+"modified_pages":[...], "sheets_reviewed":n, "sheets_total":n,
 "auto_fixed":[...], "decisions":[...], "glossary_proposals":[...], "unresolved":[...]}
 ```
 
-主控收到回报后，核对 `sheets_reviewed == sheets_total`。不相等就把漏看的 sheet 重新派回这个分片；`unresolved` 里的项，主控可以换一种思路再试一次。
+主控收到回报后，必须同时核对两项覆盖门禁：① **选中页集合核对**：回报中的 `pages` / `selected_pages` 必须完整覆盖派发的第 `A~B` 页，且 `verify_crops_manifest.json` 的 `missing_artifact_pages == []`（严禁出现选中页因缺成图/JSON/底图未生成卡片却只靠 sheet 数放行；若 `skipped_pages` 含 `no_visible_regions` 须核实确为无字页）；② **Sheet 全量复核**：`sheets_reviewed == sheets_total`（`sheets_total` 必须取自 `verify_crops_manifest.json` 的 `verify_sheet_count`）。任一门禁未通过，必须先补齐缺失成图或把漏看的 sheet 重新派回该分片；`unresolved` 里的项，主控可以换一种思路再试一次。
 
 ---
 

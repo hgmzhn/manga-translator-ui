@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import inspect
 import json
 import logging
+import os
+import re
+import shutil
+import sys
+import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Literal, Optional
 
@@ -14,8 +22,9 @@ except ImportError:  # pragma: no cover - fallback for mcp < 2.0
     from mcp.server.fastmcp import FastMCP as MCPServer  # type: ignore[assignment]
     from mcp.server.fastmcp import Image  # type: ignore[assignment]
 
+from . import project_store as _project_store
 from .bubble_centering import run_closed_loop_bubble_centering
-from .config import get_runtime_settings
+from .config import _is_valid_mtui_root, get_runtime_settings
 from .font_catalog import check_missing_glyphs, list_available_fonts
 from .glossary_manager import batch_edit_chapter_pages, manage_glossary_entries
 from .gui_bridge import (
@@ -40,6 +49,7 @@ from .project_store import (
     create_snapshots_for_target,
     decode_mask_base64,
     encode_mask_base64,
+    ensure_initial_snapshot,
     extract_chapter_script_data,
     format_region_summary,
     get_page_details_dict,
@@ -62,18 +72,109 @@ from .worker.client import get_worker_client
 
 logger = logging.getLogger("mtui_mcp.server")
 
+_PYTHON_BINARY_NAME_RE = re.compile(r"^python(?:\d+(?:\.\d+)*)?w?(?:\.exe)?$", re.IGNORECASE)
+_ALLOWED_MTUI_PYTHON_SUBDIRS: tuple[str, ...] = (
+    ".venv",
+    "packaging/python",
+    "env",
+    "python",
+    "runtime",
+)
+
+
+@contextlib.contextmanager
+def _acquire_page_edit_lock(
+    target: PagePaths | str | Path,
+    timeout_sec: float = 30.0,
+) -> Iterator[Any]:
+    lock_fn = getattr(_project_store, "page_edit_lock", None)
+    if callable(lock_fn):
+        with lock_fn(target, timeout_sec=timeout_sec) as locked:
+            yield locked
+    else:
+        yield target
+
+
+def _mask_sha1_hex(mask: Any, shape_hw: tuple[int, int]) -> str:
+    import numpy as np
+
+    if mask is None:
+        arr = np.zeros(shape_hw, dtype=np.uint8)
+    else:
+        arr = np.where(np.asarray(mask) > 0, 255, 0).astype(np.uint8)
+    return hashlib.sha1(arr.tobytes()).hexdigest()
+
+
+def _file_stat_sig(path: Path) -> Optional[list[int]]:
+    try:
+        st = path.stat()
+        return [int(st.st_size), int(st.st_mtime_ns)]
+    except OSError:
+        return None
+
+
+def _validate_mtui_python_override(
+    mtui_python_raw: str,
+    effective_root: Optional[Path],
+) -> str:
+    raw_str = str(mtui_python_raw).strip()
+    if not raw_str:
+        raise ValueError("mtui_python must not be empty.")
+
+    cand_abs = Path(os.path.abspath(str(Path(raw_str).expanduser())))
+    if not cand_abs.is_file():
+        raise ValueError(f"mtui_python executable does not exist: {raw_str!r}")
+
+    cand_norm = os.path.normcase(str(cand_abs))
+    env_py = os.environ.get("MTUI_PYTHON", "").strip()
+    if env_py:
+        env_norm = os.path.normcase(os.path.abspath(str(Path(env_py).expanduser())))
+        if cand_norm == env_norm:
+            return str(cand_abs)
+
+    if sys.executable:
+        sys_norm = os.path.normcase(os.path.abspath(sys.executable))
+        if cand_norm == sys_norm:
+            return str(cand_abs)
+
+    if _PYTHON_BINARY_NAME_RE.match(cand_abs.name) is None:
+        raise ValueError(
+            f"Rejected mtui_python {raw_str!r}: executable name must be a Python interpreter binary."
+        )
+
+    if effective_root is not None:
+        try:
+            cand_parent_resolved = cand_abs.parent.resolve()
+        except OSError:
+            cand_parent_resolved = None
+        if cand_parent_resolved is not None:
+            for rel_sub in _ALLOWED_MTUI_PYTHON_SUBDIRS:
+                sub_dir = effective_root / rel_sub
+                try:
+                    if sub_dir.is_dir() and cand_parent_resolved.is_relative_to(sub_dir.resolve()):
+                        return str(cand_abs)
+                except (OSError, ValueError):
+                    continue
+
+    raise ValueError(
+        "Rejected mtui_python override: interpreter must match MTUI_PYTHON / sys.executable "
+        "or reside inside the validated mtui_root (.venv, packaging/python, env, python, runtime)."
+    )
+
+
 SERVER_INSTRUCTIONS = """You are connected to MTUI-MCP, the post-translation QA, image-repair, and typesetting MCP server for `manga-translator-ui`.
 
 Recommended Agent Workflow after `manga-translator-ui` finishes translating a manga folder/page:
 1. Discovery & Audit:
-   - Call `mtui_list_pages` or `mtui_qa_audit` on the manga folder to find all pages and automatically detect untranslated kana/hangul, low-OCR-confidence bubbles, missing font glyphs, line-break punctuation/orphan issues, direction mismatches, and un-erased residual ink specks!
+   - Optional Page Discovery: Call `mtui_list_pages` on the manga folder to enumerate pages in reading order and inspect artifact / untranslated-region status.
+   - Automated QA Diagnostics: Call `mtui_qa_audit` on the manga folder (or page) to detect untranslated kana/hangul, low-OCR-confidence bubbles, missing font glyphs, line-break punctuation/orphan issues, direction mismatches, and un-erased residual ink specks!
    - Call `mtui_chapter_script` to read the whole chapter's dialogue in reading order (`rtl` for Japanese manga, `ltr` for Korean/Western) and check terminology, character names, pronouns, and tone consistency alongside `mtui_manage_glossary`.
 2. Visual Inspection:
    - Call `mtui_inspect_page_visual` (`mode="side_by_side"` or `"inpaint_check"`) to visually compare Original vs Inpainted+Mask vs Rendered.
    - For bubbles needing closer repair or layout tuning, call `mtui_inspect_region_visual` to view zoomed 3-panel strips with exact world `(X, Y)` pixel coordinate rulers!
 3. Proofreading, Image Repair & Typesetting:
-   - Text, Line-Breaking & Typography: Use `mtui_update_regions` (or `mtui_batch_edit_chapter` across all pages) to fix translations, `\n` line breaks, `font_size`, `font_family`, `font_color`, `stroke_color`, `stroke_width`, `direction` (`h`/`v`), `alignment` (keep `"left"` for vertical manga bubbles so columns stay top-aligned / 齐顶; NEVER set `"center"` just to center a bubble — use `center-bubbles` / `center` coordinates instead!), `line_spacing`, `letter_spacing`, `center`/`move_dx`/`move_dy`, `angle`, and 4-point perspective quads (`white_frame_quad_local`; do not blindly overwrite `center`/`angle` when `has_perspective_quad=True` unless clearing perspective).
-   - Line-Breaking Policy (Agent-Owned): ALL line breaks (`\n`) MUST be judged and inserted directly by YOU (the Agent) based on semantic phrasing, emotional cadence, punctuation rules (never start a line with closing punctuation; avoid 1-char orphan tail lines), and visual speech-bubble curvature/aspect ratio. Native auto-wrap and HanLP line-breakers are strictly disabled during rendering so your exact `\n` breaks are rendered 100% verbatim!
+   - Text, Line-Breaking & Typography: Use `mtui_update_regions` (or `mtui_batch_edit_chapter` across all pages) to fix translations, `\\n` line breaks, `font_size`, `font_family`, `font_color`, `stroke_color`, `stroke_width`, `direction` (`h`/`v`), `alignment` (keep `"left"` for vertical manga bubbles so columns stay top-aligned / 齐顶; NEVER set `"center"` just to center a bubble — use `center-bubbles` / `center` coordinates instead!), `line_spacing`, `letter_spacing`, `center`/`move_dx`/`move_dy`, `angle`, and 4-point perspective quads (`white_frame_quad_local`; do not blindly overwrite `center`/`angle` when `has_perspective_quad=True` unless clearing perspective).
+   - Line-Breaking Policy (Agent-Owned): ALL line breaks (`\\n`) MUST be judged and inserted directly by YOU (the Agent) based on semantic phrasing, emotional cadence, punctuation rules (never start a line with closing punctuation; avoid 1-char orphan tail lines), and visual speech-bubble curvature/aspect ratio. Native auto-wrap and HanLP line-breakers are strictly disabled during rendering so your exact `\\n` breaks are rendered 100% verbatim!
    - Font Styles & Rich Text: Bold, italic, underline, strikethrough, emphasis dots (着重号), Ruby furigana (注音 + `rubyInherit`), TCY horizontal-in-vertical (`!!`/`2026`), outer stroke, glow, and glyph blur/motion-blur (`blur`/`blurAngle`/`blurRadial`/`blurMotion`/`blurMotionDistance`) MUST be set via `mtui_style_region_richtext` (or `rich_style`/`rich_spans` in `mtui_update_regions`), which builds strict `richtext.v1` documents.
    - Inpainting & Artwork Restoration: Use `mtui_edit_mask_and_inpaint` with world `(X, Y)` coordinates read from the loupe ruler:
      * `add_rects` / `add_polygons` / `dilate_regions` / `auto_detect_ink_rects` to erase leftover furigana/SFX (`inpaint_method="neural"` uses `lama_large`/`lama_mpe` on GPU; `"solid_fill"` instantly fills clean speech bubbles).
@@ -158,15 +259,37 @@ def mtui_status(
     """Check or configure `manga-translator-ui` installation path, Python venv, GPU status, and active config defaults.
 
     Args:
-        mtui_root: Optional path to `manga-translator-ui` root folder if not auto-detected.
-        mtui_python: Optional path to `manga-translator-ui`'s `.venv` Python executable.
+        mtui_root: Optional path to `manga-translator-ui` root folder if not auto-detected (STDIO/local mode only).
+        mtui_python: Optional path to `manga-translator-ui`'s `.venv` Python executable (STDIO/local mode only; restricted to verified venv/runtime paths).
         warm_up_worker: If True, immediately starts and pings the warm Qt6/PyTorch engine worker.
         release_vram: If True, unloads cached LaMa/OCR GPU models inside the warm worker and empties PyTorch CUDA cache.
     """
     settings = get_runtime_settings()
-    if mtui_root or mtui_python:
+    if mtui_root is not None or mtui_python is not None:
+        if not getattr(settings, "allow_runtime_python_override", True):
+            raise ValueError(
+                "Overriding mtui_root or mtui_python at runtime is disabled over HTTP/SSE transport; "
+                "configure MTUI_ROOT / MTUI_PYTHON via environment variables or CLI startup flags."
+            )
+
+        effective_root = settings.mtui_root
+        validated_root: Optional[str] = None
+        if mtui_root is not None:
+            raw_root = str(mtui_root).strip()
+            if not raw_root:
+                raise ValueError("mtui_root must not be empty.")
+            cand_root = Path(raw_root).expanduser().resolve()
+            if not _is_valid_mtui_root(cand_root):
+                raise ValueError(f"Invalid manga-translator-ui root directory: {mtui_root!r}")
+            effective_root = cand_root
+            validated_root = str(cand_root)
+
+        validated_python: Optional[str] = None
+        if mtui_python is not None:
+            validated_python = _validate_mtui_python_override(mtui_python, effective_root)
+
         get_worker_client().shutdown()
-        settings.refresh(mtui_root=mtui_root, mtui_python=mtui_python)
+        settings.refresh(mtui_root=validated_root, mtui_python=validated_python)
 
     vram_release_info: Optional[dict[str, Any]] = None
     if release_vram:
@@ -225,6 +348,8 @@ def mtui_list_pages(
     for idx, p in enumerate(pages):
         reg_count = 0
         empty_trans_count = 0
+        json_valid: Optional[bool] = True if p.json_exists else None
+        json_error: Optional[str] = None
         if p.json_exists:
             try:
                 _, img_data = load_page_json(p)
@@ -233,28 +358,34 @@ def mtui_list_pages(
                 empty_trans_count = sum(
                     1
                     for r in regs
-                    if str(r.get("text", "")).strip() and not str(r.get("translation", "")).strip()
+                    if isinstance(r, dict)
+                    and str(r.get("text", "")).strip()
+                    and not str(r.get("translation", "")).strip()
                 )
-            except Exception:
-                pass
-        records.append(
-            {
-                "page_index": idx,
-                "page_name": p.source_path.name,
-                "source_path": str(p.source_path),
-                "json_exists": p.json_exists,
-                "inpainted_exists": p.inpainted_exists,
-                "rendered_output_exists": p.rendered_output_exists,
-                "rendered_output_path": str(p.rendered_output_path),
-                "region_count": reg_count,
-                "untranslated_regions": empty_trans_count,
-            }
-        )
+            except Exception as exc:
+                json_valid = False
+                json_error = str(exc)
+        rec: dict[str, Any] = {
+            "page_index": idx,
+            "page_name": p.source_path.name,
+            "source_path": str(p.source_path),
+            "json_exists": p.json_exists,
+            "json_valid": json_valid,
+            "inpainted_exists": p.inpainted_exists,
+            "rendered_output_exists": p.rendered_output_exists,
+            "rendered_output_path": str(p.rendered_output_path),
+            "region_count": reg_count,
+            "untranslated_regions": empty_trans_count,
+        }
+        if json_error is not None:
+            rec["json_error"] = json_error
+        records.append(rec)
 
     return _json_text(
         {
             "total_pages": len(records),
             "pages_with_json": sum(1 for r in records if r["json_exists"]),
+            "pages_with_invalid_json": sum(1 for r in records if r["json_valid"] is False),
             "pages_rendered": sum(1 for r in records if r["rendered_output_exists"]),
             "pages": records,
         }
@@ -366,6 +497,28 @@ def mtui_qa_audit(
     - `summary_only`: return only counts + saved path + diff (keeps large chapter reports out of the context window;
       combine with `save_json_path`).
     """
+    if save_json_path and diff_against_json:
+        save_p = Path(save_json_path).expanduser()
+        diff_p = Path(diff_against_json).expanduser()
+        same_file = False
+        try:
+            if save_p.exists() and diff_p.exists():
+                same_file = os.path.samefile(save_p, diff_p)
+        except OSError:
+            same_file = False
+        if not same_file:
+            try:
+                same_file = os.path.normcase(str(save_p.resolve())) == os.path.normcase(str(diff_p.resolve()))
+            except OSError:
+                same_file = os.path.normcase(os.path.abspath(str(save_p))) == os.path.normcase(
+                    os.path.abspath(str(diff_p))
+                )
+        if same_file:
+            raise ValueError(
+                "save_json_path and diff_against_json must not point to the same file; "
+                "saving first would overwrite the baseline report before diffing."
+            )
+
     report = run_qa_audit(
         target_path,
         check_inpaint_cv=check_inpaint_cv,
@@ -375,11 +528,6 @@ def mtui_qa_audit(
         glossary_file=glossary_file,
     )
     result: dict[str, Any] = dict(report)
-    if save_json_path:
-        out = Path(save_json_path)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(_json_text(report), encoding="utf-8")
-        result["saved_json_path"] = str(out)
     if diff_against_json:
         from .qa_auditor import diff_qa_audits
 
@@ -389,6 +537,11 @@ def mtui_qa_audit(
             result["regression_diff"] = diff_qa_audits(before_rep, report)
         else:
             result["regression_diff"] = {"error": f"baseline not found: {before_path}"}
+    if save_json_path:
+        out = Path(save_json_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(_json_text(report), encoding="utf-8")
+        result["saved_json_path"] = str(out)
     if summary_only:
         result.pop("pages", None)
     return _json_text(result)
@@ -537,34 +690,47 @@ def mtui_style_region_richtext(
     Plus optional `"ruby": "注音文本"`, `"ruby_style": {...}`, `"ruby_inherit": bool`, or `"tcy": True` (vertical horizontal-in-vertical 纵中横)!
     """
     paths = resolve_page_paths(page_path)
-    verify_expected_revision(paths, expected_revision)
-    image_key, image_data = load_page_json(paths)
-    regions = image_data.get("regions", [])
-    resolved_idx = resolve_region_target_index(regions, region_index=region_index, region_uid=region_uid)
+    with _acquire_page_edit_lock(paths):
+        paths = resolve_page_paths(paths.source_path)
+        verify_expected_revision(paths, expected_revision)
+        image_key, image_data = load_page_json(paths)
+        regions = image_data.get("regions", [])
+        resolved_idx = resolve_region_target_index(regions, region_index=region_index, region_uid=region_uid)
 
-    reg = regions[resolved_idx]
-    if whole_style or spans or reset_existing:
-        apply_span_styles_to_region(
-            reg,
-            whole_style=whole_style,
-            spans=spans,
-            reset_existing=reset_existing,
+        reg = regions[resolved_idx]
+        target_uid = reg.get("region_uid")
+        if whole_style or spans or reset_existing:
+            apply_span_styles_to_region(
+                reg,
+                whole_style=whole_style,
+                spans=spans,
+                reset_existing=reset_existing,
+            )
+
+        if apply_project_rules:
+            settings = get_runtime_settings()
+            rules_file = (settings.config_dir / "rich_text_rules.yaml") if settings.config_dir else None
+            apply_project_richtext_rules(reg, rules_yaml_path=rules_file)
+
+        saved_json = save_page_json_atomic(paths, image_key, image_data)
+        refreshed = resolve_page_paths(saved_json)
+        _, saved_data = load_page_json(refreshed)
+        saved_regions = saved_data.get("regions", [])
+        saved_idx = (
+            resolve_region_target_index(saved_regions, region_uid=target_uid)
+            if target_uid
+            else resolved_idx
         )
+        saved_reg = saved_regions[saved_idx] if 0 <= saved_idx < len(saved_regions) else reg
+        reg_summary = format_region_summary(saved_idx, saved_reg)
 
-    if apply_project_rules:
-        settings = get_runtime_settings()
-        rules_file = (settings.config_dir / "rich_text_rules.yaml") if settings.config_dir else None
-        apply_project_richtext_rules(reg, rules_yaml_path=rules_file)
-
-    saved_json = save_page_json_atomic(paths, image_key, image_data)
-    refreshed = resolve_page_paths(saved_json)
     render_info = _render_single_page_via_worker(refreshed, proof_only=proof_only) if re_render else None
 
     return _json_text(
         {
             "page_name": refreshed.source_path.name,
-            "revision": compute_page_revision(refreshed),
-            "region": format_region_summary(resolved_idx, reg),
+            "revision": compute_page_revision(resolve_page_paths(refreshed.source_path)),
+            "region": reg_summary,
             "render_result": render_info,
         }
     )
@@ -615,85 +781,142 @@ def mtui_edit_mask_and_inpaint(
     if not paths.display_base_path.is_file():
         raise FileNotFoundError(f"Base image not found: {paths.display_base_path}")
 
-    base_rgb = open_rgb_image(paths.display_base_path)
-    image_key, image_data = load_page_json(paths)
-    regions = image_data.get("regions", [])
-    prev_mask = decode_mask_base64(image_data.get("mask_raw"), base_rgb.shape[:2])
-
-    new_mask, added_delta, removed_delta = apply_mask_operations(
-        prev_mask,
-        base_rgb,
-        regions,
-        add_rects=add_rects,
-        add_polygons=add_polygons,
-        add_brush_strokes=add_brush_strokes,
-        dilate_regions=dilate_regions,
-        auto_detect_ink_rects=auto_detect_ink_rects,
-        tight_halo_rects=tight_halo_rects,
-        erase_rects=erase_rects,
-        erase_polygons=erase_polygons,
-        erase_brush_strokes=erase_brush_strokes,
-    )
-
-    new_mask_b64 = encode_mask_base64(new_mask)
-    image_data["mask_raw"] = new_mask_b64
-    image_data["mask_is_refined"] = True
-    saved_json = save_page_json_atomic(paths, image_key, image_data)
-    refreshed = resolve_page_paths(saved_json)
-
-    added_px = int(sum((added_delta > 0).sum() for _ in [0]))
-    removed_px = int(sum((removed_delta > 0).sum() for _ in [0]))
-
-    inpaint_info: dict[str, Any]
     settings = get_runtime_settings()
-    if inpaint_method == "neural" and settings.is_engine_available:
-        inpaint_info = get_worker_client().call(
-            "incremental_neural_inpaint",
-            {
-                "display_base_path": str(refreshed.display_base_path),
-                "inpainted_path": str(refreshed.inpainted_path),
-                "current_mask_b64": new_mask_b64,
-                "added_mask_b64": encode_mask_base64(added_delta) if added_px > 0 else "",
-                "removed_mask_b64": encode_mask_base64(removed_delta) if removed_px > 0 else "",
-                "inpainter": neural_inpainter,
-                "blur_radius": blur_radius,
-                "full_reinpaint": full_reinpaint,
-            },
-        )
-    else:
-        fallback_method = "telea" if inpaint_method == "neural" else inpaint_method
-        prev_inpaint = (
-            None
-            if full_reinpaint or not refreshed.inpainted_exists
-            else open_rgb_image(refreshed.inpainted_path)
-        )
-        repair_kwargs: dict[str, Any] = {}
-        resolved_blur_radius: Optional[int] = None
-        if fallback_method == "blur":
-            if blur_radius is not None:
-                resolved_blur_radius = max(0, min(200, int(blur_radius)))
-            else:
-                cfg_dict = settings.load_mtui_config_dict()
-                cfg_br = (cfg_dict.get("inpainter") or {}).get("blur_radius", 0)
-                resolved_blur_radius = max(0, min(200, int(cfg_br or 0)))
-            repair_kwargs["blur_radius"] = resolved_blur_radius
-        repaired = apply_incremental_local_repair(
+    inpaint_info: dict[str, Any]
+    with _acquire_page_edit_lock(paths):
+        paths = resolve_page_paths(paths.source_path)
+        if settings.auto_backup_on_first_edit:
+            ensure_initial_snapshot(paths)
+
+        base_rgb = open_rgb_image(paths.display_base_path)
+        image_key, image_data = load_page_json(paths)
+        regions = image_data.get("regions", [])
+        prev_mask = decode_mask_base64(image_data.get("mask_raw"), base_rgb.shape[:2])
+        prev_mask_sha1 = _mask_sha1_hex(prev_mask, base_rgb.shape[:2])
+
+        prev_mask_synced = True
+        if "mask_inpainted_sha1" in image_data:
+            saved_sha1 = image_data.get("mask_inpainted_sha1")
+            saved_stat = image_data.get("mask_inpainted_stat")
+            cur_stat = _file_stat_sig(paths.inpainted_path)
+            if not saved_sha1:
+                prev_mask_synced = False
+            elif saved_sha1 != prev_mask_sha1:
+                if cur_stat is None or (saved_stat is not None and cur_stat == saved_stat):
+                    prev_mask_synced = False
+
+        new_mask, added_delta, removed_delta = apply_mask_operations(
+            prev_mask,
             base_rgb,
-            prev_inpaint,
-            new_mask,
-            added_delta,
-            removed_delta,
-            method=fallback_method,
-            **repair_kwargs,
+            regions,
+            add_rects=add_rects,
+            add_polygons=add_polygons,
+            add_brush_strokes=add_brush_strokes,
+            dilate_regions=dilate_regions,
+            auto_detect_ink_rects=auto_detect_ink_rects,
+            tight_halo_rects=tight_halo_rects,
+            erase_rects=erase_rects,
+            erase_polygons=erase_polygons,
+            erase_brush_strokes=erase_brush_strokes,
         )
-        save_rgb_image_atomic(repaired, refreshed.inpainted_path)
-        inpaint_info = {
-            "status": "ok",
-            "inpainted_path": str(refreshed.inpainted_path),
-            "method": fallback_method,
-        }
-        if resolved_blur_radius is not None:
-            inpaint_info["blur_radius"] = resolved_blur_radius
+
+        new_mask_b64 = encode_mask_base64(new_mask)
+        added_px = int((added_delta > 0).sum())
+        removed_px = int((removed_delta > 0).sum())
+
+        prev_inpaint_had_file = paths.inpainted_path.is_file()
+        inpaint_backup_tmp = ""
+        if prev_inpaint_had_file:
+            paths.inpainted_path.parent.mkdir(parents=True, exist_ok=True)
+            fd_bak, inpaint_backup_tmp = tempfile.mkstemp(
+                prefix=f".{paths.inpainted_path.name}.bak.",
+                suffix=paths.inpainted_path.suffix or ".png",
+                dir=str(paths.inpainted_path.parent),
+            )
+            os.close(fd_bak)
+            shutil.copy2(paths.inpainted_path, inpaint_backup_tmp)
+
+        actual_inp_path = paths.inpainted_path
+        try:
+            if inpaint_method == "neural" and settings.is_engine_available:
+                inpaint_info = get_worker_client().call(
+                    "incremental_neural_inpaint",
+                    {
+                        "display_base_path": str(paths.display_base_path),
+                        "inpainted_path": str(paths.inpainted_path),
+                        "current_mask_b64": new_mask_b64,
+                        "added_mask_b64": encode_mask_base64(added_delta) if added_px > 0 else "",
+                        "removed_mask_b64": encode_mask_base64(removed_delta) if removed_px > 0 else "",
+                        "inpainter": neural_inpainter,
+                        "blur_radius": blur_radius,
+                        "full_reinpaint": full_reinpaint,
+                        "prev_mask_synced": prev_mask_synced,
+                    },
+                )
+                actual_inp_path = Path(str(inpaint_info.get("inpainted_path") or paths.inpainted_path))
+            else:
+                fallback_method = "telea" if inpaint_method == "neural" else inpaint_method
+                prev_inpaint = (
+                    None
+                    if full_reinpaint or not prev_mask_synced or not paths.inpainted_exists
+                    else open_rgb_image(paths.inpainted_path)
+                )
+                repair_kwargs: dict[str, Any] = {}
+                resolved_blur_radius: Optional[int] = None
+                if fallback_method == "blur":
+                    if blur_radius is not None:
+                        resolved_blur_radius = max(0, min(200, int(blur_radius)))
+                    else:
+                        cfg_dict = settings.load_mtui_config_dict()
+                        cfg_br = (cfg_dict.get("inpainter") or {}).get("blur_radius", 0)
+                        resolved_blur_radius = max(0, min(200, int(cfg_br or 0)))
+                    repair_kwargs["blur_radius"] = resolved_blur_radius
+                repaired = apply_incremental_local_repair(
+                    base_rgb,
+                    prev_inpaint,
+                    new_mask,
+                    added_delta,
+                    removed_delta,
+                    method=fallback_method,
+                    **repair_kwargs,
+                )
+                save_rgb_image_atomic(repaired, paths.inpainted_path)
+                actual_inp_path = paths.inpainted_path
+                inpaint_info = {
+                    "status": "ok",
+                    "inpainted_path": str(paths.inpainted_path),
+                    "method": fallback_method,
+                }
+                if resolved_blur_radius is not None:
+                    inpaint_info["blur_radius"] = resolved_blur_radius
+
+            image_data["mask_raw"] = new_mask_b64
+            image_data["mask_is_refined"] = True
+            image_data["mask_inpainted_sha1"] = _mask_sha1_hex(new_mask, base_rgb.shape[:2])
+            image_data["mask_inpainted_stat"] = _file_stat_sig(actual_inp_path)
+            saved_json = save_page_json_atomic(paths, image_key, image_data)
+            refreshed = resolve_page_paths(saved_json)
+        except BaseException:
+            if prev_inpaint_had_file and inpaint_backup_tmp and os.path.isfile(inpaint_backup_tmp):
+                try:
+                    os.replace(inpaint_backup_tmp, paths.inpainted_path)
+                    inpaint_backup_tmp = ""
+                except OSError:
+                    pass
+            elif not prev_inpaint_had_file:
+                for created_cand in {paths.inpainted_path, actual_inp_path}:
+                    if created_cand.is_file():
+                        try:
+                            created_cand.unlink()
+                        except OSError:
+                            pass
+            raise
+        finally:
+            if inpaint_backup_tmp and os.path.exists(inpaint_backup_tmp):
+                try:
+                    os.remove(inpaint_backup_tmp)
+                except OSError:
+                    pass
 
     refreshed = resolve_page_paths(refreshed.source_path)
     render_info = _render_single_page_via_worker(refreshed) if re_render else None
@@ -755,29 +978,40 @@ def mtui_add_region(
     )
 
     if auto_mask_ink and inpaint_method == "neural" and get_runtime_settings().is_engine_available:
-        rect = reg_summary["bbox_xyxy"]
-        _, img_data = load_page_json(refreshed)
-        base_rgb = open_rgb_image(refreshed.display_base_path)
-        cur_mask = decode_mask_base64(img_data.get("mask_raw"), base_rgb.shape[:2])
-        if cur_mask is not None:
-            import numpy as np
+        with _acquire_page_edit_lock(refreshed):
+            rect = reg_summary["bbox_xyxy"]
+            img_key, img_data = load_page_json(refreshed)
+            base_rgb = open_rgb_image(refreshed.display_base_path)
+            cur_mask = decode_mask_base64(img_data.get("mask_raw"), base_rgb.shape[:2])
+            if cur_mask is not None:
+                import numpy as np
 
-            added_m = np.zeros_like(cur_mask)
-            x1, y1, x2, y2 = (int(round(v)) for v in rect)
-            added_m[max(0, y1) : min(cur_mask.shape[0], y2), max(0, x1) : min(cur_mask.shape[1], x2)] = cur_mask[
-                max(0, y1) : min(cur_mask.shape[0], y2), max(0, x1) : min(cur_mask.shape[1], x2)
-            ]
-            get_worker_client().call(
-                "incremental_neural_inpaint",
-                {
-                    "display_base_path": str(refreshed.display_base_path),
-                    "inpainted_path": str(refreshed.inpainted_path),
-                    "current_mask_b64": encode_mask_base64(cur_mask),
-                    "added_mask_b64": encode_mask_base64(added_m),
-                    "removed_mask_b64": "",
-                },
-            )
-            refreshed = resolve_page_paths(refreshed.source_path)
+                added_m = np.zeros_like(cur_mask)
+                x1, y1, x2, y2 = (int(round(v)) for v in rect)
+                added_m[max(0, y1) : min(cur_mask.shape[0], y2), max(0, x1) : min(cur_mask.shape[1], x2)] = cur_mask[
+                    max(0, y1) : min(cur_mask.shape[0], y2), max(0, x1) : min(cur_mask.shape[1], x2)
+                ]
+                try:
+                    inp_res = get_worker_client().call(
+                        "incremental_neural_inpaint",
+                        {
+                            "display_base_path": str(refreshed.display_base_path),
+                            "inpainted_path": str(refreshed.inpainted_path),
+                            "current_mask_b64": encode_mask_base64(cur_mask),
+                            "added_mask_b64": encode_mask_base64(added_m),
+                            "removed_mask_b64": "",
+                        },
+                    )
+                    actual_inp = Path(str(inp_res.get("inpainted_path") or refreshed.inpainted_path))
+                    img_data["mask_inpainted_sha1"] = _mask_sha1_hex(cur_mask, base_rgb.shape[:2])
+                    img_data["mask_inpainted_stat"] = _file_stat_sig(actual_inp)
+                    save_page_json_atomic(refreshed, img_key, img_data, auto_initial_snapshot=False)
+                except BaseException:
+                    img_data["mask_inpainted_sha1"] = ""
+                    img_data["mask_inpainted_stat"] = _file_stat_sig(refreshed.inpainted_path)
+                    save_page_json_atomic(refreshed, img_key, img_data, auto_initial_snapshot=False)
+                    raise
+                refreshed = resolve_page_paths(refreshed.source_path)
 
     render_info = _render_single_page_via_worker(refreshed) if re_render else None
     return _json_text(
@@ -1130,6 +1364,7 @@ def mtui_ocr_or_translate_regions(
     res = get_worker_client().call(
         "ocr_or_translate_regions",
         {
+            "source_path": str(paths.source_path),
             "display_base_path": str(paths.display_base_path),
             "json_path": str(paths.json_path) if paths.json_exists else None,
             "region_indices": region_indices or [],

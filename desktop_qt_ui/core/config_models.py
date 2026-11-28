@@ -219,7 +219,7 @@ class AppSection(BaseModel):
     )
     mcp_server_host: str = "127.0.0.1"  # 内置 MCP HTTP/SSE 服务监听地址
     mcp_server_port: int = Field(
-        default=8765, ge=0, le=65535
+        default=8765, ge=1, le=65535
     )  # 内置 MCP HTTP/SSE 服务监听端口
     saved_colors: Optional[List[str]] = None  # 保存的常用颜色列表
     saved_style_presets: Optional[Dict[str, Dict[str, Any]]] = (

@@ -10,9 +10,13 @@ from pathlib import Path
 import cv2
 import numpy as np
 import pytest
+from fontTools.fontBuilder import FontBuilder
+from fontTools.pens.ttGlyphPen import TTGlyphPen
 from PIL import Image
 
 import mtui_mcp.qa_auditor as qa_mod
+import mtui_mcp.worker.client as worker_client_mod
+from mtui_mcp.config import get_runtime_settings
 from mtui_mcp.font_detector import (
     CACHE_VERSION,
     classify_current_mtui_font,
@@ -27,7 +31,6 @@ from mtui_mcp.project_store import (
     save_rgb_image_atomic,
 )
 from mtui_mcp.qa_auditor import _detect_structural_and_border_cv_issues, diff_qa_audits, run_qa_audit
-import mtui_mcp.worker.client as worker_client_mod
 
 
 def _load_audit_cli_module(monkeypatch: pytest.MonkeyPatch | None = None):
@@ -492,7 +495,35 @@ def test_raw_bold_mismatch_and_yuzumarker_bold_mismatch_short_box_guards() -> No
     assert yb.get(3) == "error"
 
 
+def _write_synthetic_ttf(dest: Path, family_name: str, chars: str, style_name: str = "Regular") -> None:
+    pen = TTGlyphPen(None)
+    pen.moveTo((100, 100))
+    pen.lineTo((900, 100))
+    pen.lineTo((900, 900))
+    pen.lineTo((100, 900))
+    pen.closePath()
+    box_glyph = pen.glyph()
+
+    fb = FontBuilder(1000, isTTF=True)
+    fb.setupGlyphOrder([".notdef", "box"])
+    fb.setupCharacterMap({ord(ch): "box" for ch in chars})
+    fb.setupGlyf({".notdef": box_glyph, "box": box_glyph})
+    fb.setupHorizontalMetrics({".notdef": (1000, 0), "box": (1000, 100)})
+    fb.setupHorizontalHeader(ascent=800, descent=-200)
+    fb.setupNameTable({"familyName": family_name, "styleName": style_name})
+    fb.setupOS2()
+    fb.setupPost()
+    fb.save(str(dest))
+
+
 def test_wenkai_punctuation_fallback_and_cache_version_refresh(tmp_path: Path, monkeypatch) -> None:
+    fake_root = tmp_path / "synthetic_mtui_root"
+    fonts_dir = fake_root / "fonts"
+    fonts_dir.mkdir(parents=True, exist_ok=True)
+    _write_synthetic_ttf(fonts_dir / "FZZhunYuan-M02.ttf", "FZZhunYuan-M02", "︙这个人")
+    _write_synthetic_ttf(fonts_dir / "FZBeiWeiKaiShu-S19.ttf", "FZBeiWeiKaiShu-S19", "︙这个人")
+    monkeypatch.setattr(get_runtime_settings(), "mtui_root", fake_root)
+
     assert _pick_punctuation_fallback_font("LXGW WenKai", "︙") == "FZZhunYuan-M02"
     assert _pick_punctuation_fallback_font("LXGW WenKai::Medium", "︙") == "FZZhunYuan-M02"
     assert _pick_punctuation_fallback_font("FZNewKai-Z03", "︙") == "FZBeiWeiKaiShu-S19"

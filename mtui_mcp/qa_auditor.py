@@ -14,21 +14,18 @@ import numpy as np
 
 from .bubble_centering import split_multilobe_cusp_bisector
 from .config import get_runtime_settings
-from .font_catalog import check_region_missing_glyphs
+from .font_catalog import check_region_missing_glyphs_by_font
 from .font_detector import (
+    CACHE_VERSION,
     classify_current_mtui_font,
     classify_vcb_font_entry,
     is_narrow_kana_stretch_suspect,
     load_font_detection_cache,
     lookup_cached_region_prediction,
     recommend_mtui_font_for_prediction,
+    region_bbox_signature,
     yuzumarker_models_available,
 )
-
-try:
-    from .font_detector import CACHE_VERSION
-except ImportError:
-    CACHE_VERSION = 2
 from .local_inpaint import (
     detect_inward_bubble_cusps,
     extract_tight_halo_glyph_mask,
@@ -115,6 +112,36 @@ def _find_double_rotated_vertical_glyphs(rich: Any) -> list[str]:
         if isinstance(blk, dict):
             _walk(blk.get("inlines"))
     return sorted(bad)
+
+
+def _enrich_issue_identities(issues: list[dict[str, Any]], regions: list[dict[str, Any]]) -> None:
+    """Attach cross-edit stable region identities (UID, bbox signature, source text, and overlap pair metadata)."""
+    if not issues or not regions:
+        return
+    reg_meta: list[tuple[Optional[str], str, str]] = []
+    for reg in regions:
+        uid = str(reg.get("region_uid") or "").strip() or None
+        bsig = region_bbox_signature(region_bbox_xyxy(reg))
+        stxt = str(reg.get("text") or "").strip()
+        reg_meta.append((uid, bsig, stxt))
+
+    n_regs = len(reg_meta)
+    for iss in issues:
+        r_idx = iss.get("region_index")
+        if isinstance(r_idx, int) and 0 <= r_idx < n_regs:
+            uid_a, bsig_a, stxt_a = reg_meta[r_idx]
+            if uid_a is not None:
+                iss.setdefault("region_uid", uid_a)
+            iss.setdefault("region_bbox_sig", bsig_a)
+            iss.setdefault("region_source_text", stxt_a)
+
+            o_idx = iss.get("other_region_index")
+            if isinstance(o_idx, int) and 0 <= o_idx < n_regs:
+                uid_b, bsig_b, stxt_b = reg_meta[o_idx]
+                iss.setdefault("overlap_pair_indices", [int(r_idx), int(o_idx)])
+                iss.setdefault("overlap_pair_uids", [uid_a, uid_b])
+                iss.setdefault("overlap_pair_bbox_sigs", [bsig_a, bsig_b])
+                iss.setdefault("overlap_pair_source_texts", [stxt_a, stxt_b])
 
 
 def _boxes_iou(a: list[float], b: list[float]) -> float:
@@ -246,6 +273,7 @@ def _detect_residual_ink_around_regions(
                 }
             )
 
+    _enrich_issue_identities(findings, regions)
     return findings
 
 _CREDIT_RE = re.compile(r"(原作\s*[:：]|漫画\s*[:：]|キャラクター原案|角色原案|SBクリエイティブ|SB\s*Creative)", re.IGNORECASE)
@@ -1005,7 +1033,9 @@ def _detect_structural_and_border_cv_issues(
             continue
 
         # 9a. Local YuzuMarker (ResNet-50 4x Ensemble) exact Japanese commercial font detector (primary ground-truth check)
-        ym_pred = lookup_cached_region_prediction(yuzumarker_page_cache, reg, r_idx)
+        ym_pred = lookup_cached_region_prediction(
+            yuzumarker_page_cache, reg, r_idx, total_regions=len(regions)
+        )
         if ym_pred is not None:
             pred_conf = float(ym_pred.get("pred_conf") or 0.0)
             has_prop = bool(ym_pred.get("neighbor_propagated_family"))
@@ -1343,34 +1373,40 @@ def _detect_structural_and_border_cv_issues(
     # ZERO situational assumptions about "same panel / same speaker" (manga often switches fonts mid-panel!).
     # Strictly flags when a low-confidence YuzuMarker region (`pred_conf < 0.84` or `top1 < 0.68`) diverged in Chinese font
     # from a high-confidence region (`pred_conf >= 0.88` & `top1 >= 0.72`) whose MEASURED RAW GLYPH GEOMETRY closely matches!
-    cand_ridxs_for_font = [
-        ri
-        for ri, rg in enumerate(regions)
-        if len(re.sub(r"[\W_]+", "", visible_text_of_region(rg))) >= 4
-        and float(rg.get("stroke_width", 0.07) or 0.07) < 0.20
-    ]
-    for idx_i in range(len(cand_ridxs_for_font)):
-        ra_i = cand_ridxs_for_font[idx_i]
-        reg_a = regions[ra_i]
+    cand_font_items: list[tuple[int, dict[str, Any], dict[str, Any], Optional[int]]] = []
+    if yuzumarker_page_cache:
+        reg_to_bubble_lbl = {
+            r_i: lbl_i for lbl_i, rl_i in bubble_to_regs.items() for r_i, _, _ in rl_i
+        }
+        total_regs_n = len(regions)
+        for ri, rg in enumerate(regions):
+            if (
+                len(re.sub(r"[\W_]+", "", visible_text_of_region(rg))) < 4
+                or float(rg.get("stroke_width", 0.07) or 0.07) >= 0.20
+            ):
+                continue
+            ym_cand = lookup_cached_region_prediction(
+                yuzumarker_page_cache, rg, ri, total_regions=total_regs_n
+            )
+            if ym_cand is not None:
+                cand_font_items.append((ri, rg, ym_cand, reg_to_bubble_lbl.get(ri)))
+
+    for idx_i in range(len(cand_font_items)):
+        ra_i, reg_a, ym_a, lbl_a = cand_font_items[idx_i]
         ff_a = str(reg_a.get("font_family") or "FZHei-B01").strip() or "FZHei-B01"
         b_a = region_is_bold(reg_a)
         fam_a = classify_current_mtui_font(ff_a)
         box_a = region_bbox_xyxy(reg_a)
         gm_a = reg_raw_geom.get(ra_i)
         shw_a = reg_stroke_hw.get(ra_i, 0.0)
-        ym_a = lookup_cached_region_prediction(yuzumarker_page_cache, reg_a, ra_i)
-        for idx_j in range(idx_i + 1, len(cand_ridxs_for_font)):
-            rb_i = cand_ridxs_for_font[idx_j]
-            reg_b = regions[rb_i]
+        for idx_j in range(idx_i + 1, len(cand_font_items)):
+            rb_i, reg_b, ym_b, lbl_b = cand_font_items[idx_j]
             ff_b = str(reg_b.get("font_family") or "FZHei-B01").strip() or "FZHei-B01"
             b_b = region_is_bold(reg_b)
             fam_b = classify_current_mtui_font(ff_b)
             if fam_a == fam_b and b_a == b_b:
                 continue
-            if any(ra_i in [t[0] for t in rl] and rb_i in [t[0] for t in rl] for rl in bubble_to_regs.values()):
-                continue
-            ym_b = lookup_cached_region_prediction(yuzumarker_page_cache, reg_b, rb_i)
-            if ym_a is None or ym_b is None:
+            if lbl_a is not None and lbl_a == lbl_b:
                 continue
             pa_conf = float(ym_a.get("pred_conf") or 0.0)
             pb_conf = float(ym_b.get("pred_conf") or 0.0)
@@ -1468,6 +1504,17 @@ def _detect_structural_and_border_cv_issues(
                             min(
                                 (bw_lim * 0.74) / max(len(lns_s) * lsp_s, 1.0),
                                 (bh_lim * 0.74) / max(max(_count_vertical_cells_in_line(ln) for ln in lns_s) * csp_s, 1.0),
+                            )
+                        ),
+                    )
+                else:
+                    max_h_chars = max(len(ln) for ln in lns_s)
+                    cap_fs = min(
+                        max(cap_fs, int(round(bw_lim * 0.55 / max(max_h_chars * csp_s, 1.5)))) if max_h_chars <= 3 else cap_fs,
+                        int(
+                            min(
+                                (bw_lim * 0.74) / max(max_h_chars * csp_s, 1.0),
+                                (bh_lim * 0.74) / max(len(lns_s) * lsp_s, 1.0),
                             )
                         ),
                     )
@@ -1817,20 +1864,33 @@ def _detect_structural_and_border_cv_issues(
                     has_cur_a = any(math.hypot(icxa - rcx, icya - rcy) < 46.0 for _, rcx, rcy in r_list)
                     has_cur_b = any(math.hypot(icxb - rcx, icyb - rcy) < 46.0 for _, rcx, rcy in r_list)
                     if not (has_cur_a and has_cur_b):
-                        miss_box = ibox_a if not has_cur_a else ibox_b
-                        miss_reg = ireg_a if not has_cur_a else ireg_b
-                        nearest_reg = min(r_list, key=lambda t: math.hypot(icxa - t[1], icya - t[2]))
+                        miss_is_a = not has_cur_a
+                        miss_box = ibox_a if miss_is_a else ibox_b
+                        miss_reg = ireg_a if miss_is_a else ireg_b
+                        miss_cx, miss_cy = (icxa, icya) if miss_is_a else (icxb, icyb)
+                        nearest_reg = min(r_list, key=lambda t: math.hypot(miss_cx - t[1], miss_cy - t[2]))
+                        nearest_dist = math.hypot(miss_cx - nearest_reg[1], miss_cy - nearest_reg[2])
                         emitted_unfilled_for_lbl = True
+                        if nearest_dist <= 140.0:
+                            lobe_msg = (
+                                f"Connected 2-chamber bubble [{int(miss_box[0])}, {int(miss_box[1])}, {int(miss_box[2])}, {int(miss_box[3])}] "
+                                f"(raw={str(miss_reg.get('text', ''))!r}, cusp_divided={is_cusp_divided}) was merged into or left empty near "
+                                f"Region #{nearest_reg[0]} (dist={nearest_dist:.0f}px)! "
+                                "Initial translation separated these two chambers — split back into 2 independent regions (1 per chamber)!"
+                            )
+                        else:
+                            lobe_msg = (
+                                f"Connected 2-chamber bubble [{int(miss_box[0])}, {int(miss_box[1])}, {int(miss_box[2])}, {int(miss_box[3])}] "
+                                f"(raw={str(miss_reg.get('text', ''))!r}, cusp_divided={is_cusp_divided}) is missing its region "
+                                f"(closest in bubble is Region #{nearest_reg[0]} at dist={nearest_dist:.0f}px) — "
+                                "verify Raw image whether it was dropped or merged, and keep 1 independent region per chamber!"
+                            )
                         findings.append(
                             {
                                 "severity": "error",
                                 "category": "unfilled_connected_lobe",
                                 "region_index": nearest_reg[0],
-                                "message": (
-                                    f"Connected 2-chamber bubble [{int(miss_box[0])}, {int(miss_box[1])}, {int(miss_box[2])}, {int(miss_box[3])}] "
-                                    f"(raw={str(miss_reg.get('text', ''))!r}, cusp_divided={is_cusp_divided}) was wrongly merged into Region #{nearest_reg[0]}! "
-                                    "Initial translation ALREADY separated these two chambers — split back into 2 independent regions (1 per chamber)!"
-                                ),
+                                "message": lobe_msg,
                                 "lobe_bbox_xyxy": [int(round(v)) for v in miss_box],
                             }
                         )
@@ -2325,10 +2385,11 @@ def _detect_structural_and_border_cv_issues(
                     }
                 )
 
+    _enrich_issue_identities(findings, regions)
     return findings
 
 
-def audit_single_page(
+def _audit_single_page_with_context(
     paths: PagePaths,
     *,
     check_inpaint_cv: bool = True,
@@ -2338,7 +2399,7 @@ def audit_single_page(
     default_alignment: str = "",
     yuzumarker_page_cache: Optional[dict[str, Any]] = None,
     glossary_terms: Optional[tuple[GlossaryTerm, ...]] = None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], list[dict[str, Any]], int]:
     issues: list[dict[str, Any]] = []
 
     if not paths.json_exists:
@@ -2350,13 +2411,17 @@ def audit_single_page(
                 "message": "No *_translations.json found for this page (ensure '图片可编辑 / save_text' was enabled).",
             }
         )
-        return {
-            "page_name": paths.source_path.name,
-            "source_path": str(paths.source_path),
-            "region_count": 0,
-            "issue_count": len(issues),
-            "issues": issues,
-        }
+        return (
+            {
+                "page_name": paths.source_path.name,
+                "source_path": str(paths.source_path),
+                "region_count": 0,
+                "issue_count": len(issues),
+                "issues": issues,
+            },
+            [],
+            0,
+        )
 
     _, image_data = load_page_json(paths)
     regions = image_data.get("regions", [])
@@ -2403,7 +2468,8 @@ def audit_single_page(
         src_txt = str(reg.get("text", "") or "").strip()
         vis_txt = visible_text_of_region(reg).strip()
         target_lang = str(reg.get("target_lang") or default_target_lang).upper()
-        prob = float(reg.get("prob", 1.0) or 1.0)
+        raw_prob = reg.get("prob")
+        prob = 1.0 if raw_prob is None or raw_prob == "" else float(raw_prob)
         fs = int(round(float(reg.get("font_size") or 16)))
         bbox = region_bbox_xyxy(reg)
         bw, bh = bbox[2] - bbox[0], bbox[3] - bbox[1]
@@ -2738,22 +2804,24 @@ def audit_single_page(
                     }
                 )
         if check_font_glyphs and vis_txt:
-            eff_font = str(reg.get("font_family") or default_font_family).strip()
-            if eff_font:
-                missing_chars = check_region_missing_glyphs(reg, default_font_family)
-                if missing_chars:
-                    font_missing_map.setdefault(eff_font, set()).update(missing_chars)
-                    issues.append(
-                        {
-                            "severity": "error",
-                            "category": "missing_font_glyphs",
-                            "region_index": idx,
-                            "message": (
-                                f"Region #{idx}: font {eff_font!r} is missing glyph(s) "
-                                f"{''.join(missing_chars)!r} — will render tofu boxes unless font_family or character is changed!"
-                            ),
-                        }
-                    )
+            missing_by_font = check_region_missing_glyphs_by_font(reg, default_font_family)
+            for actual_font, missing_chars in missing_by_font.items():
+                if not missing_chars:
+                    continue
+                font_missing_map.setdefault(actual_font, set()).update(missing_chars)
+                issues.append(
+                    {
+                        "severity": "error",
+                        "category": "missing_font_glyphs",
+                        "region_index": idx,
+                        "font_family": actual_font,
+                        "missing_glyphs": list(missing_chars),
+                        "message": (
+                            f"Region #{idx}: font {actual_font!r} is missing glyph(s) "
+                            f"{''.join(missing_chars)!r} — will render tofu boxes unless font_family or character is changed!"
+                        ),
+                    }
+                )
 
     # 6. Overlapping regions & rendered text-block collision check (`图6` V17_031 #2 colliding with #3!)
     est_render_rects: list[tuple[int, list[float]]] = []
@@ -2794,6 +2862,8 @@ def audit_single_page(
                         "severity": "error",
                         "category": "overlapping_regions",
                         "region_index": idx_a,
+                        "other_region_index": idx_b,
+                        "overlap_pair_indices": [idx_a, idx_b],
                         "message": f"Regions #{idx_a} and #{idx_b} overlap heavily (overlap={overlap:.2f}) — merge or reposition so text never collides!",
                     }
                 )
@@ -2811,6 +2881,8 @@ def audit_single_page(
                         "severity": "error",
                         "category": "rendered_regions_overlap",
                         "region_index": idx_a,
+                        "other_region_index": idx_b,
+                        "overlap_pair_indices": [idx_a, idx_b],
                         "message": (
                             f"Rendered text blocks of Region #{idx_a} ({visible_text_of_region(regions[idx_a])!r}) and "
                             f"Region #{idx_b} ({visible_text_of_region(regions[idx_b])!r}) collide by {int(round(ix_w))}x{int(round(iy_h))}px (`图6`)! "
@@ -2865,13 +2937,42 @@ def audit_single_page(
         )
         issues.extend(struct_findings)
 
-    return {
-        "page_name": paths.source_path.name,
-        "source_path": str(paths.source_path),
-        "region_count": len(regions),
-        "issue_count": len(issues),
-        "issues": issues,
-    }
+    _enrich_issue_identities(issues, regions)
+    return (
+        {
+            "page_name": paths.source_path.name,
+            "source_path": str(paths.source_path),
+            "region_count": len(regions),
+            "issue_count": len(issues),
+            "issues": issues,
+        },
+        regions,
+        img_h,
+    )
+
+
+def audit_single_page(
+    paths: PagePaths,
+    *,
+    check_inpaint_cv: bool = True,
+    check_font_glyphs: bool = True,
+    default_font_family: str = "",
+    default_target_lang: str = "CHS",
+    default_alignment: str = "",
+    yuzumarker_page_cache: Optional[dict[str, Any]] = None,
+    glossary_terms: Optional[tuple[GlossaryTerm, ...]] = None,
+) -> dict[str, Any]:
+    rep, _, _ = _audit_single_page_with_context(
+        paths,
+        check_inpaint_cv=check_inpaint_cv,
+        check_font_glyphs=check_font_glyphs,
+        default_font_family=default_font_family,
+        default_target_lang=default_target_lang,
+        default_alignment=default_alignment,
+        yuzumarker_page_cache=yuzumarker_page_cache,
+        glossary_terms=glossary_terms,
+    )
+    return rep
 
 
 def run_qa_audit(
@@ -2893,6 +2994,8 @@ def run_qa_audit(
 
     # Ensure local YuzuMarker 4x Ensemble font cache is populated in production runs
     ym_caches_by_work: dict[Path, dict[str, Any]] = {}
+    ym_scan_degraded = False
+    ym_scan_error: Optional[str] = None
     if check_inpaint_cv and pages and yuzumarker_models_available():
         for p in pages:
             if p.work_dir not in ym_caches_by_work:
@@ -2911,17 +3014,26 @@ def run_qa_audit(
 
                 get_worker_client().detect_fonts(target_path, force_refresh=force_yuzumarker)
                 ym_caches_by_work = {w: load_font_detection_cache(w) for w in ym_caches_by_work}
-            except Exception:
-                pass
+            except Exception as exc:
+                if force_yuzumarker:
+                    ym_scan_degraded = True
+                    ym_scan_error = str(exc)
+    elif force_yuzumarker and pages:
+        ym_scan_degraded = True
+        ym_scan_error = (
+            "check_inpaint_cv=False"
+            if not check_inpaint_cv
+            else "YuzuMarker models not available under MTUI_ROOT/models/yuzumarker"
+        )
 
     page_reports: list[dict[str, Any]] = []
     counts_by_category: dict[str, int] = {}
     total_issues = 0
 
-    all_reports: list[tuple[PagePaths, dict[str, Any]]] = []
+    all_reports: list[tuple[PagePaths, dict[str, Any], list[dict[str, Any]], int]] = []
     for p in pages:
         p_ym_cache = ((ym_caches_by_work.get(p.work_dir) or {}).get("pages") or {}).get(p.source_path.stem)
-        rep = audit_single_page(
+        rep, pregs, ph = _audit_single_page_with_context(
             p,
             check_inpaint_cv=check_inpaint_cv,
             check_font_glyphs=check_font_glyphs,
@@ -2931,24 +3043,19 @@ def run_qa_audit(
             yuzumarker_page_cache=p_ym_cache,
             glossary_terms=active_glossary,
         )
-        all_reports.append((p, rep))
+        all_reports.append((p, rep, pregs, ph))
 
     # Cross-page repeated top/bottom margin running series-title detector (`图4`, even when volume digits are omitted!)
     if len(all_reports) >= 4:
-        margin_groups: dict[str, list[tuple[dict[str, Any], int, str, str]]] = {}
-        for p, rep in all_reports:
-            if not p.json_exists or not p.display_base_path.is_file():
+        margin_groups: dict[str, list[tuple[dict[str, Any], list[dict[str, Any]], int, str, str]]] = {}
+        for _, rep, pregs, ph in all_reports:
+            if not pregs or ph <= 0:
                 continue
-            try:
-                from PIL import Image as _PILImage
-
-                with _PILImage.open(p.display_base_path) as _im:
-                    _, ph = _im.size
-            except Exception:
-                continue
-            _, pdata = load_page_json(p)
-            pregs = pdata.get("regions", [])
-            already_hdr = {iss.get("region_index") for iss in rep["issues"] if iss.get("category") == "running_header_book_title"}
+            already_hdr = {
+                iss.get("region_index")
+                for iss in rep["issues"]
+                if iss.get("category") == "running_header_book_title"
+            }
             for r_idx, reg in enumerate(pregs):
                 if r_idx in already_hdr:
                     continue
@@ -2966,22 +3073,22 @@ def run_qa_audit(
                 ):
                     norm_key = re.sub(r"[\s・·:：\-—\d①-⑳\(\)（）\[\]［］]+", "", src_t or vis_t).casefold()
                     if len(norm_key) >= 3:
-                        margin_groups.setdefault(norm_key, []).append((rep, r_idx, vis_t, src_t))
+                        margin_groups.setdefault(norm_key, []).append((rep, pregs, r_idx, vis_t, src_t))
         for norm_key, hits in margin_groups.items():
-            distinct_pages = {id(rep) for rep, _, _, _ in hits}
+            distinct_pages = {id(rep) for rep, _, _, _, _ in hits}
             if len(distinct_pages) >= 2:
-                for rep, r_idx, vis_t, src_t in hits:
-                    rep["issues"].append(
-                        {
-                            "severity": "warning",
-                            "category": "running_header_book_title",
-                            "region_index": int(r_idx),
-                            "message": (
-                                f"Region #{r_idx} ({vis_t!r}, raw={src_t!r}) repeats across {len(distinct_pages)} pages in the page margin — "
-                                "running book/series title headers must NOT be translated; delete region with `restore_artwork=True`!"
-                            ),
-                        }
-                    )
+                for rep, pregs, r_idx, vis_t, src_t in hits:
+                    hdr_iss: dict[str, Any] = {
+                        "severity": "warning",
+                        "category": "running_header_book_title",
+                        "region_index": int(r_idx),
+                        "message": (
+                            f"Region #{r_idx} ({vis_t!r}, raw={src_t!r}) repeats across {len(distinct_pages)} pages in the page margin — "
+                            "running book/series title headers must NOT be translated; delete region with `restore_artwork=True`!"
+                        ),
+                    }
+                    _enrich_issue_identities([hdr_iss], pregs)
+                    rep["issues"].append(hdr_iss)
                     rep["issue_count"] = len(rep["issues"])
 
     error_count = 0
@@ -2989,7 +3096,7 @@ def run_qa_audit(
     info_count = 0
     errors_by_category: dict[str, int] = {}
 
-    for _, rep in all_reports:
+    for _, rep, _, _ in all_reports:
         total_issues += rep["issue_count"]
         for iss in rep["issues"]:
             cat = iss["category"]
@@ -3005,7 +3112,7 @@ def run_qa_audit(
         if not only_pages_with_issues or rep["issue_count"] > 0:
             page_reports.append(rep)
 
-    return {
+    out_report: dict[str, Any] = {
         "audited_pages": len(pages),
         "total_issues": total_issues,
         "error_count": error_count,
@@ -3015,6 +3122,115 @@ def run_qa_audit(
         "errors_by_category": errors_by_category,
         "pages": page_reports,
     }
+    if ym_scan_degraded:
+        out_report["yuzumarker_scan_degraded"] = True
+        out_report["yuzumarker_scan_error"] = ym_scan_error or "YuzuMarker scan failed"
+    return out_report
+
+
+_OVERLAP_PAIR_CATEGORIES = frozenset({"overlapping_regions", "rendered_regions_overlap"})
+_MSG_PAIR_RE = re.compile(r"Region(?:s)?\s*#(\d+)\b.*?#(\d+)\b")
+
+
+def _extract_single_reg_id(
+    uid_raw: Any,
+    bsig_raw: Any,
+    stxt_raw: Any,
+    has_stxt: bool,
+    idx_raw: Any,
+    page_box: Optional[tuple[int, ...]] = None,
+) -> tuple[bool, Optional[str], Optional[str], Optional[str], Optional[int], Optional[tuple[int, ...]]]:
+    if idx_raw is None and uid_raw is None and bsig_raw is None:
+        return (True, None, None, None, None, page_box)
+    uid = str(uid_raw).strip() if uid_raw is not None and str(uid_raw).strip() else None
+    bsig = str(bsig_raw).strip() if bsig_raw is not None and str(bsig_raw).strip() else None
+    stxt = str(stxt_raw).strip() if has_stxt and stxt_raw is not None else None
+    r_idx = int(idx_raw) if isinstance(idx_raw, int) else None
+    return (False, uid, bsig, stxt, r_idx, None)
+
+
+def _same_single_reg_id(
+    b: tuple[bool, Optional[str], Optional[str], Optional[str], Optional[int], Optional[tuple[int, ...]]],
+    a: tuple[bool, Optional[str], Optional[str], Optional[str], Optional[int], Optional[tuple[int, ...]]],
+) -> bool:
+    b_page, b_uid, b_sig, b_txt, b_idx, b_box = b
+    a_page, a_uid, a_sig, a_txt, a_idx, a_box = a
+    if b_page or a_page:
+        return b_page and a_page and b_box == a_box
+    if b_uid is not None and a_uid is not None:
+        return b_uid == a_uid
+    if b_sig is not None and a_sig is not None:
+        return b_sig == a_sig and (b_txt or "") == (a_txt or "")
+    if (b_uid is not None) != (a_uid is not None) or (b_sig is not None) != (a_sig is not None):
+        return False
+    return b_idx is not None and b_idx == a_idx
+
+
+def _extract_issue_target_spec(iss: dict[str, Any]) -> tuple[bool, Any]:
+    cat = str(iss.get("category") or "")
+    pair_idxs = iss.get("overlap_pair_indices")
+    pair_uids = iss.get("overlap_pair_uids")
+    pair_sigs = iss.get("overlap_pair_bbox_sigs")
+    pair_txts = iss.get("overlap_pair_source_texts")
+    other_idx = iss.get("other_region_index")
+
+    is_pair = (
+        cat in _OVERLAP_PAIR_CATEGORIES
+        or (isinstance(pair_idxs, (list, tuple)) and len(pair_idxs) == 2)
+        or (isinstance(pair_uids, (list, tuple)) and len(pair_uids) == 2)
+        or isinstance(other_idx, int)
+    )
+    if is_pair:
+        idx0 = pair_idxs[0] if isinstance(pair_idxs, (list, tuple)) and len(pair_idxs) == 2 else iss.get("region_index")
+        idx1 = pair_idxs[1] if isinstance(pair_idxs, (list, tuple)) and len(pair_idxs) == 2 else other_idx
+        if idx1 is None:
+            m_pair = _MSG_PAIR_RE.search(str(iss.get("message") or ""))
+            if m_pair:
+                if idx0 is None:
+                    idx0 = int(m_pair.group(1))
+                idx1 = int(m_pair.group(2))
+        uid0 = pair_uids[0] if isinstance(pair_uids, (list, tuple)) and len(pair_uids) == 2 else iss.get("region_uid")
+        uid1 = pair_uids[1] if isinstance(pair_uids, (list, tuple)) and len(pair_uids) == 2 else None
+        sig0 = pair_sigs[0] if isinstance(pair_sigs, (list, tuple)) and len(pair_sigs) == 2 else iss.get("region_bbox_sig")
+        sig1 = pair_sigs[1] if isinstance(pair_sigs, (list, tuple)) and len(pair_sigs) == 2 else None
+        has_ptxts = isinstance(pair_txts, (list, tuple)) and len(pair_txts) == 2
+        txt0 = pair_txts[0] if has_ptxts else iss.get("region_source_text")
+        txt1 = pair_txts[1] if has_ptxts else None
+        r0 = _extract_single_reg_id(uid0, sig0, txt0, has_ptxts or ("region_source_text" in iss), idx0)
+        r1 = _extract_single_reg_id(uid1, sig1, txt1, has_ptxts, idx1)
+        return (True, (r0, r1))
+
+    raw_box = iss.get("box_xyxy")
+    pbox = tuple(int(v) for v in raw_box[:4]) if isinstance(raw_box, (list, tuple)) and len(raw_box) >= 4 else None
+    single = _extract_single_reg_id(
+        iss.get("region_uid"),
+        iss.get("region_bbox_sig"),
+        iss.get("region_source_text"),
+        "region_source_text" in iss,
+        iss.get("region_index"),
+        page_box=pbox,
+    )
+    return (False, single)
+
+
+def _same_issue_target_spec(spec_b: tuple[bool, Any], spec_a: tuple[bool, Any], *, exact_uid_only: bool = False) -> bool:
+    is_pair_b, val_b = spec_b
+    is_pair_a, val_a = spec_a
+    if is_pair_b != is_pair_a:
+        return False
+    if is_pair_b:
+        b0, b1 = val_b
+        a0, a1 = val_a
+        if exact_uid_only:
+            if b0[1] is None or b1[1] is None or a0[1] is None or a1[1] is None:
+                return False
+            return (b0[1] == a0[1] and b1[1] == a1[1]) or (b0[1] == a1[1] and b1[1] == a0[1])
+        return (_same_single_reg_id(b0, a0) and _same_single_reg_id(b1, a1)) or (
+            _same_single_reg_id(b0, a1) and _same_single_reg_id(b1, a0)
+        )
+    if exact_uid_only:
+        return val_b[1] is not None and val_a[1] is not None and val_b[1] == val_a[1]
+    return _same_single_reg_id(val_b, val_a)
 
 
 def diff_qa_audits(
@@ -3027,11 +3243,12 @@ def diff_qa_audits(
     """Compare two `run_qa_audit` reports to enforce a zero-regression closed-loop gate after Gate B mutations.
 
     Blocks any newly introduced `error` (especially newly introduced high-confidence `yuzumarker_font_mismatch`
-    or `vertical_alignment_mismatch` regressions caused by visual verifier edits).
+    or `vertical_alignment_mismatch` regressions caused by visual verifier edits), matching regions by stable
+    identity rather than list index and distinguishing multiple overlap pairs per region.
     """
 
-    def _index_errors(report: dict[str, Any]) -> dict[tuple[str, Any, str], dict[str, Any]]:
-        indexed: dict[tuple[str, Any, str], dict[str, Any]] = {}
+    def _collect_errors(report: dict[str, Any]) -> list[tuple[tuple[str, str, str], tuple[bool, Any], dict[str, Any]]]:
+        collected: list[tuple[tuple[str, str, str], tuple[bool, Any], dict[str, Any]]] = []
         for p_rep in report.get("pages") or []:
             pname = str(p_rep.get("page_name") or "")
             if pages is not None and pname not in pages and Path(pname).stem not in pages:
@@ -3039,21 +3256,67 @@ def diff_qa_audits(
             for iss in p_rep.get("issues") or []:
                 if str(iss.get("severity") or "").lower() != "error":
                     continue
-                key = (pname, iss.get("region_index"), str(iss.get("category") or ""))
-                if key not in indexed:
-                    entry = dict(iss)
-                    entry["page_name"] = pname
-                    indexed[key] = entry
-        return indexed
+                cat = str(iss.get("category") or "")
+                extra_disc = str(iss.get("font_family") or "") if cat == "missing_font_glyphs" else ""
+                bucket_key = (pname, cat, extra_disc)
+                target_spec = _extract_issue_target_spec(iss)
+                if any(
+                    bk == bucket_key and _same_issue_target_spec(ts, target_spec)
+                    for bk, ts, _ in collected
+                ):
+                    continue
+                entry = dict(iss)
+                entry["page_name"] = pname
+                collected.append((bucket_key, target_spec, entry))
+        return collected
 
-    before_errs = _index_errors(before_report)
-    after_errs = _index_errors(after_report)
+    before_items = _collect_errors(before_report)
+    after_items = _collect_errors(after_report)
 
-    def _key_sort(k: tuple[str, Any, str]) -> tuple[str, int, str]:
-        return (k[0], -1 if k[1] is None else int(k[1]), k[2])
+    matched_before: set[int] = set()
+    matched_after: set[int] = set()
 
-    new_errors = [after_errs[k] for k in sorted(after_errs.keys(), key=_key_sort) if k not in before_errs]
-    resolved_errors = [before_errs[k] for k in sorted(before_errs.keys(), key=_key_sort) if k not in after_errs]
+    # Pass 1: exact UID matches within the same (page_name, category, extra_disc) bucket
+    for a_i, (a_bk, a_spec, _) in enumerate(after_items):
+        for b_i, (b_bk, b_spec, _) in enumerate(before_items):
+            if b_i in matched_before or b_bk != a_bk:
+                continue
+            if _same_issue_target_spec(b_spec, a_spec, exact_uid_only=True):
+                matched_before.add(b_i)
+                matched_after.add(a_i)
+                break
+
+    # Pass 2: verified fallback matches (e.g. pre-UID baseline matched by bbox_sig + source_text)
+    for a_i, (a_bk, a_spec, _) in enumerate(after_items):
+        if a_i in matched_after:
+            continue
+        for b_i, (b_bk, b_spec, _) in enumerate(before_items):
+            if b_i in matched_before or b_bk != a_bk:
+                continue
+            if _same_issue_target_spec(b_spec, a_spec, exact_uid_only=False):
+                matched_before.add(b_i)
+                matched_after.add(a_i)
+                break
+
+    def _entry_sort_key(e: dict[str, Any]) -> tuple[str, int, int, str, str]:
+        r_idx = e.get("region_index")
+        o_idx = e.get("other_region_index")
+        return (
+            str(e.get("page_name") or ""),
+            -1 if r_idx is None else int(r_idx),
+            -1 if o_idx is None else int(o_idx),
+            str(e.get("category") or ""),
+            str(e.get("font_family") or ""),
+        )
+
+    new_errors = sorted(
+        [after_items[i][2] for i in range(len(after_items)) if i not in matched_after],
+        key=_entry_sort_key,
+    )
+    resolved_errors = sorted(
+        [before_items[i][2] for i in range(len(before_items)) if i not in matched_before],
+        key=_entry_sort_key,
+    )
     new_high_conf_ym = [
         e
         for e in new_errors
@@ -3062,8 +3325,8 @@ def diff_qa_audits(
     ]
 
     return {
-        "before_error_count": len(before_errs),
-        "after_error_count": len(after_errs),
+        "before_error_count": len(before_items),
+        "after_error_count": len(after_items),
         "resolved_error_count": len(resolved_errors),
         "newly_introduced_error_count": len(new_errors),
         "newly_introduced_high_conf_yuzumarker_count": len(new_high_conf_ym),

@@ -22,7 +22,7 @@ lastUpdated: true
 3. 点击“跳转”列进入对应设置页的参数小节；没有独立显式锚点的参数行跳转到页面本身。
 4. 默认值、依赖、消费者和运行机理一律以跳转后的设置页正文为准，这里不展开。
 
-本页聚焦设置页的可见参数行。`settings_tab_layout.json` 有 110 个条目，其中 109 个渲染为可见参数；剩余的 `render.font_color` 因发行默认值为 `null` 且没有对应控件分支而不渲染。界面语言、主题、系统代理、更新检查和自动检查更新开关属于“关于应用”页面，不是设置页参数行。以下内容不属于本页：API 管理页的凭据、地址、模型、候选槽与轮询策略，编辑器属性面板参数，提示词列表与批量管理方案，以及九种工作流的完整处理步骤。
+本页聚焦设置页的可见参数行。`settings_tab_layout.json` 有 114 个条目，其中 113 个渲染为可见参数；剩余的 `render.font_color` 因发行默认值为 `null` 且没有对应控件分支而不渲染。界面语言、主题、系统代理、更新检查和自动检查更新开关属于“关于应用”页面，不是设置页参数行。以下内容不属于本页：API 管理页的凭据、地址、模型、候选槽与轮询策略，编辑器属性面板参数，提示词列表与批量管理方案，以及九种工作流的完整处理步骤。
 
 ## 设置页与页签 {#settings-tabs}
 
@@ -34,11 +34,11 @@ lastUpdated: true
 | `OCR` | OCR | 文字识别 | 17 | [OCR、过滤与文本行合并](../desktop/settings/ocr-filter-and-merge.md) |
 | `Detection` | Detection | 检测 | 13 | [检测](../desktop/settings/detection.md) |
 | `Translation` | Translation | 翻译 | 11 | [翻译设置](../desktop/settings/translation.md) |
-| `Inpainting` | Inpainting | 修复 | 10 | [蒙版与图像修复](../desktop/settings/mask-and-inpainting.md) |
-| `Typesetting` | Typesetting | 排版 | 28 | [排版与渲染](../desktop/settings/typesetting-and-rendering.md) |
+| `Inpainting` | Inpainting | 修复 | 11 | [蒙版与图像修复](../desktop/settings/mask-and-inpainting.md) |
+| `Typesetting` | Typesetting | 排版 | 30 | [排版与渲染](../desktop/settings/typesetting-and-rendering.md) |
 | `Mode Specific` | Mode Specific | 模式相关 | 12 | [模式专用工作流与模板对齐](../desktop/settings/mode-specific.md)、[超分与上色](../desktop/settings/upscale-and-colorization.md) |
 
-七个页签合计 108 个可见参数行。
+七个页签合计 113 个可见参数行。
 
 ## 参数索引 {#parameter-index}
 
@@ -152,7 +152,7 @@ lastUpdated: true
 
 ### 排版 {#tab-typesetting}
 
-本页签 29 个参数的说明见[排版与渲染](../desktop/settings/typesetting-and-rendering.md)。该页参数小节没有独立显式锚点，全部跳转到页面本身。
+本页签 30 个参数的说明见[排版与渲染](../desktop/settings/typesetting-and-rendering.md)。该页参数小节没有独立显式锚点，全部跳转到页面本身。
 
 | 存储值 | English 实际值 | 简体中文实际值 | 跳转 |
 | --- | --- | --- | --- |
@@ -240,11 +240,11 @@ lastUpdated: true
 ### 代码位置 {#source-evidence}
 | 层级 | 文件 | 本页核对内容 |
 | --- | --- | --- |
-| 设置布局 | `desktop_qt_ui/ui/main_page/settings_tab_layout.json` | 七个页签、110 个条目、109 个可见参数、`Advanced` 分隔线 |
+| 设置布局 | `desktop_qt_ui/ui/main_page/settings_tab_layout.json` | 七个页签、114 个条目、113 个可见参数、`Advanced` 分隔线 |
 | 页面外壳 | `desktop_qt_ui/ui/main_page/pages/settings_page.py` | 页签标题 key、导入/导出、说明面板 |
 | 动态控件 | `desktop_qt_ui/ui/main_page/dynamic_settings.py` | 控件类型、文件编辑动作、跳过的字段 |
 | UI/i18n | `desktop_qt_ui/app_logic.py`、`desktop_qt_ui/locales/en_US.json`、`zh_CN.json` | label 映射与实际中英文显示值 |
 | 配置模型 | `desktop_qt_ui/core/config_models.py`、`manga_translator/config.py` | Qt/核心参数定义与默认 |
-| 生成数据 | `doc/wiki/data/settings.generated.json`、`doc/wiki/data/i18n.generated.json` | 109 条参数记录、1353 个 i18n 条目 |
+| 生成数据 | `doc/wiki/data/settings.generated.json`、`doc/wiki/data/i18n.generated.json` | 113 条参数记录、1523 个 i18n 条目 |
 | 调查资料 | `doc/wiki/research/phase0-options-i18n-matrix.md`、`phase0-page-coverage-matrix.md` | 选项矩阵和覆盖矩阵 |
 | 设置专题页 | `doc/wiki/zh/desktop/settings/*.md` | 参数锚点与跳转目标逐项核对 |

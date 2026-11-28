@@ -35,7 +35,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import base64
 import inspect
 import json
 import math
@@ -44,6 +43,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import cv2
@@ -146,11 +146,11 @@ def _discover_mtui_runtime(explicit_root: Path | None = None) -> tuple[Path, Pat
             ):
                 py = root / rel_py
                 if py.is_file():
-                    return root.resolve(), py.resolve()
+                    return root.resolve(), Path(os.path.abspath(str(py)))
             if not getattr(sys, "frozen", False) and sys.executable:
                 cur_py = Path(sys.executable)
                 if cur_py.is_file():
-                    return root.resolve(), cur_py.resolve()
+                    return root.resolve(), Path(os.path.abspath(str(cur_py)))
     raise RuntimeError("Could not auto-discover manga-translator-ui root & Python interpreter. Set MTUI_ROOT or pass --mtui-root.")
 
 
@@ -166,7 +166,12 @@ import sys
 import time
 
 mtui_root = os.path.abspath(sys.argv[1])
-payload = json.loads(sys.argv[2])
+_payload_arg = sys.argv[2]
+if os.path.isfile(_payload_arg):
+    with open(_payload_arg, "r", encoding="utf-8") as _pf:
+        payload = json.load(_pf)
+else:
+    payload = json.loads(_payload_arg)
 chapter_dir = os.path.abspath(payload["chapter_dir"])
 target_files = [os.path.abspath(p) for p in payload["files"]]
 overwrite = bool(payload.get("overwrite", False))
@@ -400,6 +405,28 @@ def _resolve_page_rendered_status(src_p: Path) -> tuple[bool, Path | None]:
         return jp.is_file(), _find_rendered_page(src_p.parent / "manga_translator_work" / "result", src_p)
 
 
+def _copy_file_atomic(src: Path, dst: Path) -> None:
+    """Copy `src` to `dst` via a same-directory temp file + atomic replace so partial writes never leave corrupt backups."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{dst.stem}_", suffix=f"{dst.suffix}.tmp", dir=str(dst.parent))
+    os.close(fd)
+    try:
+        shutil.copy2(src, tmp_name)
+        try:
+            from mtui_mcp.project_store import _atomic_replace_with_retry
+
+            _atomic_replace_with_retry(tmp_name, dst)
+        except ImportError:
+            os.replace(tmp_name, dst)
+        tmp_name = ""
+    finally:
+        if tmp_name and os.path.exists(tmp_name):
+            try:
+                os.remove(tmp_name)
+            except OSError:
+                pass
+
+
 def _backup_result_to_before(
     res_dir: Path,
     backup_before_dir: Path,
@@ -409,29 +436,71 @@ def _backup_result_to_before(
 ) -> int:
     _ensure_repo_src_on_path()
     backup_before_dir.mkdir(parents=True, exist_ok=True)
-    existing = [p for p in backup_before_dir.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTS]
-    if existing and not overwrite:
-        print(f"[BACKUP] Keeping existing {len(existing)} before_result snapshot(s) in {backup_before_dir}", flush=True)
-        return len(existing)
+    existing_by_stem: dict[str, Path] = {}
+    for p in backup_before_dir.iterdir():
+        if p.is_file() and p.suffix.lower() in IMAGE_EXTS:
+            try:
+                if p.stat().st_size > 0:
+                    existing_by_stem.setdefault(p.stem.casefold(), p)
+            except OSError:
+                pass
 
+    kept = 0
     copied = 0
     if source_pages is not None:
         for sp in sorted(source_pages, key=_natural_sort_key):
+            stem_cf = sp.stem.casefold()
+            prev = existing_by_stem.get(stem_cf)
+            if prev is not None and not overwrite:
+                kept += 1
+                continue
             _, rendered_p = _resolve_page_rendered_status(sp)
             if rendered_p is not None and rendered_p.is_file():
-                dst_name = f"{sp.stem}{rendered_p.suffix}"
-                shutil.copy2(rendered_p, backup_before_dir / dst_name)
+                dst = backup_before_dir / f"{sp.stem}{rendered_p.suffix}"
+                _copy_file_atomic(rendered_p, dst)
+                if prev is not None and prev != dst and prev.exists():
+                    try:
+                        prev.unlink()
+                    except OSError:
+                        pass
+                existing_by_stem[stem_cf] = dst
                 copied += 1
-        print(f"[BACKUP] Saved {copied} initial-translation page(s) -> {backup_before_dir}", flush=True)
-        return copied
+        total = kept + copied
+        if copied == 0 and kept > 0:
+            print(f"[BACKUP] Keeping existing {kept} before_result snapshot(s) in {backup_before_dir}", flush=True)
+        else:
+            print(
+                f"[BACKUP] Saved {copied} initial-translation page(s) (kept {kept} existing) -> {backup_before_dir}",
+                flush=True,
+            )
+        return total
 
     if not res_dir.is_dir():
-        return 0
+        return len(existing_by_stem)
     for rp in sorted((p for p in res_dir.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTS), key=_natural_sort_key):
-        shutil.copy2(rp, backup_before_dir / rp.name)
+        stem_cf = rp.stem.casefold()
+        prev = existing_by_stem.get(stem_cf)
+        if prev is not None and not overwrite:
+            kept += 1
+            continue
+        dst = backup_before_dir / rp.name
+        _copy_file_atomic(rp, dst)
+        if prev is not None and prev != dst and prev.exists():
+            try:
+                prev.unlink()
+            except OSError:
+                pass
+        existing_by_stem[stem_cf] = dst
         copied += 1
-    print(f"[BACKUP] Saved {copied} initial-translation page(s) -> {backup_before_dir}", flush=True)
-    return copied
+    total = kept + copied
+    if copied == 0 and kept > 0:
+        print(f"[BACKUP] Keeping existing {kept} before_result snapshot(s) in {backup_before_dir}", flush=True)
+    else:
+        print(
+            f"[BACKUP] Saved {copied} initial-translation page(s) (kept {kept} existing) -> {backup_before_dir}",
+            flush=True,
+        )
+    return total
 
 
 def cmd_translate_raw(
@@ -448,7 +517,13 @@ def cmd_translate_raw(
         raise FileNotFoundError(f"Chapter directory not found: {chapter_dir}")
 
     pages = sorted(
-        (p for p in chapter_dir.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTS),
+        (
+            p
+            for p in chapter_dir.iterdir()
+            if p.is_file()
+            and p.suffix.lower() in IMAGE_EXTS
+            and not p.stem.lower().endswith("-translated")
+        ),
         key=_natural_sort_key,
     )
     if not pages:
@@ -487,11 +562,25 @@ def cmd_translate_raw(
     env["PYTHONIOENCODING"] = "utf-8"
     env["QT_QPA_PLATFORM"] = "offscreen"
 
-    proc = subprocess.run(
-        [str(resolved_py), "-c", _HEADLESS_TRANSLATE_RUNNER, str(resolved_root), json.dumps(payload)],
-        cwd=str(resolved_root),
-        env=env,
-    )
+    runner_fd, runner_tmp = tempfile.mkstemp(prefix="mtui_translate_runner_", suffix=".py")
+    os.close(runner_fd)
+    payload_fd, payload_tmp = tempfile.mkstemp(prefix="mtui_translate_payload_", suffix=".json")
+    os.close(payload_fd)
+    try:
+        Path(runner_tmp).write_text(_HEADLESS_TRANSLATE_RUNNER, encoding="utf-8")
+        Path(payload_tmp).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        proc = subprocess.run(
+            [str(resolved_py), runner_tmp, str(resolved_root), payload_tmp],
+            cwd=str(resolved_root),
+            env=env,
+        )
+    finally:
+        for tmp_p in (runner_tmp, payload_tmp):
+            try:
+                if os.path.exists(tmp_p):
+                    os.remove(tmp_p)
+            except OSError:
+                pass
     if proc.returncode != 0:
         raise SystemExit(proc.returncode)
 
@@ -685,8 +774,10 @@ def cmd_audit(chapter_dir: Path, out_dir: Path) -> None:
                     f"    [OUT_OF_BUBBLE_CHECK] json_angle={ang:+.2f}° (floating/borderless text) — inspect raw_font_grid to match: (1) true slant angle (+deg = '/' top-right/bottom-left, -deg = '\\' top-left/bottom-right, 0° if upright), (2) handwriting/aside font (Xiaolai/Yozai), (3) restrained font_size!"
                 )
 
-        mask_b64 = img_data.get("mask_raw", "")
-        mask = cv2.imdecode(np.frombuffer(base64.b64decode(mask_b64), np.uint8), cv2.IMREAD_GRAYSCALE) if mask_b64 else None
+        from mtui_mcp.project_store import decode_mask_base64
+
+        mask_raw = img_data.get("mask_raw")
+        mask = decode_mask_base64(mask_raw, inp.shape[:2]) if (mask_raw and inp is not None) else None
         if inp is not None:
             try:
                 _discover_mtui_runtime()
@@ -700,7 +791,7 @@ def cmd_audit(chapter_dir: Path, out_dir: Path) -> None:
             except Exception:
                 pass
 
-        if not mask_b64 or inp is None or mask is None or mask.shape != inp.shape:
+        if inp is None or mask is None or mask.shape != inp.shape:
             continue
 
         num_c, labels, stats, _ = cv2.connectedComponentsWithStats((mask > 0).astype(np.uint8))
@@ -1829,18 +1920,25 @@ def cmd_verify_crops(
     label_font = _load_cjk_font(14)
     sub_font = _load_cjk_font(13)
 
-    page_filter_nums: set[int] = set()
-    page_filter_names: set[str] = set()
+    by_name_or_stem: dict[str, set[int]] = {}
+    for p_idx, pg in enumerate(all_pages, 1):
+        by_name_or_stem.setdefault(pg.source_path.name.lower(), set()).add(p_idx)
+        by_name_or_stem.setdefault(pg.source_path.stem.lower(), set()).add(p_idx)
+
+    matched_page_nums: set[int] = set()
+    has_page_filter = False
     if pages:
         for tok in pages:
             t = str(tok).strip()
             if not t:
                 continue
-            if t.isdigit():
-                page_filter_nums.add(int(t))
-            else:
-                page_filter_names.add(t.lower())
-                page_filter_names.add(Path(t).stem.lower())
+            has_page_filter = True
+            exact_hits = by_name_or_stem.get(t.lower(), set()) | by_name_or_stem.get(Path(t).stem.lower(), set())
+            if exact_hits:
+                # Exact filename/stem match takes priority over 1-based page index (e.g. `--pages 007` -> `007.png`)
+                matched_page_nums.update(exact_hits)
+            elif t.isdigit():
+                matched_page_nums.add(int(t))
 
     cfg_default_align = ""
     try:
@@ -1851,6 +1949,10 @@ def cmd_verify_crops(
 
     ym_caches_by_work: dict[Path, dict] = {}
     pair_cards: list[Image.Image] = []
+    selected_pages: list[str] = []
+    exported_pages: list[str] = []
+    skipped_pages: list[dict] = []
+    missing_artifact_pages: list[dict] = []
     total_bubbles = 0
     frameless_exported = 0
     orphan_mask_exported = 0
@@ -1862,14 +1964,26 @@ def cmd_verify_crops(
     for p_no, p in enumerate(all_pages, 1):
         if p_no < page_start or p_no > page_end:
             continue
-        if pages and (
-            p_no not in page_filter_nums
-            and p.source_path.name.lower() not in page_filter_names
-            and p.source_path.stem.lower() not in page_filter_names
-        ):
+        if has_page_filter and p_no not in matched_page_nums:
             continue
-        if not p.json_exists or not p.display_base_path.is_file() or not p.rendered_output_exists:
+        selected_pages.append(p.source_path.name)
+        missing_parts: list[str] = []
+        if not p.json_exists:
+            missing_parts.append("missing_json")
+        if not p.display_base_path.is_file():
+            missing_parts.append("missing_display_base")
+        if not p.rendered_output_exists:
+            missing_parts.append("missing_rendered_output")
+        if missing_parts:
+            skip_rec = {
+                "page": p.source_path.name,
+                "page_number": p_no,
+                "reason": ",".join(missing_parts),
+            }
+            skipped_pages.append(skip_rec)
+            missing_artifact_pages.append(skip_rec)
             continue
+        cards_before_page = len(pair_cards)
         if p.work_dir not in ym_caches_by_work:
             ym_caches_by_work[p.work_dir] = load_font_detection_cache(p.work_dir)
         page_ym_cache = ((ym_caches_by_work[p.work_dir].get("pages") or {}).get(p.source_path.stem))
@@ -2006,7 +2120,11 @@ def cmd_verify_crops(
                 alignment_flagged += 1
 
             # Resolve cached YuzuMarker 4x prediction for card header visibility & high-conf guard!
-            ym_pred = lookup_cached_region_prediction(page_ym_cache, r, r_i) if page_ym_cache else None
+            ym_pred = (
+                lookup_cached_region_prediction(page_ym_cache, r, r_i, total_regions=len(regs))
+                if page_ym_cache
+                else None
+            )
             ym_line, ym_col, has_ym_hi_mismatch = _format_verify_crop_ym_line(
                 ym_pred,
                 ff=ff,
@@ -2113,6 +2231,17 @@ def cmd_verify_crops(
                 ocard.paste(o_ren, (10 + otw + 12, 56))
                 pair_cards.append(ocard)
 
+        if len(pair_cards) > cards_before_page:
+            exported_pages.append(p.source_path.name)
+        else:
+            skipped_pages.append(
+                {
+                    "page": p.source_path.name,
+                    "page_number": p_no,
+                    "reason": "no_visible_regions" if not ordered else "crops_too_small",
+                }
+            )
+
     per_sheet = max(1, int(cards_per_sheet))
     sheet_paths: list[str] = []
     for s_idx in range(0, len(pair_cards), per_sheet):
@@ -2131,6 +2260,11 @@ def cmd_verify_crops(
     manifest = {
         "page_range": [page_start, page_end],
         "page_filter": sorted(str(x) for x in pages) if pages else None,
+        "selected_page_count": len(selected_pages),
+        "selected_pages": selected_pages,
+        "exported_pages": exported_pages,
+        "skipped_pages": skipped_pages,
+        "missing_artifact_pages": missing_artifact_pages,
         "cards_per_sheet": per_sheet,
         "min_scale_used": round(min_scale_used, 3) if min_scale_used < 999.0 else 1.0,
         "total_bubbles_exported": total_bubbles,
@@ -2306,7 +2440,12 @@ def main() -> None:
     p_vc.add_argument("--out-dir", type=Path, required=True)
     p_vc.add_argument("--page-start", type=int, default=1)
     p_vc.add_argument("--page-end", type=int, default=999999)
-    p_vc.add_argument("--pages", type=str, default="", help="Optional comma-separated 1-based page numbers or stems to export (e.g. 7,13,51,59,60)")
+    p_vc.add_argument(
+        "--pages",
+        type=str,
+        default="",
+        help="Optional comma-separated page stems/filenames or 1-based page numbers (exact stem/filename match takes priority over 1-based page index, e.g. 007,13)",
+    )
     p_vc.add_argument("--cards-per-sheet", type=int, default=3, help="Max region cards stacked per PNG sheet (default 3; use 2 for extra-large bubbles)")
 
     p_qa = sub.add_parser(

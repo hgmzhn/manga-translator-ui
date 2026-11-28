@@ -61,7 +61,7 @@ _OCR_HALLUCINATION_TRAPS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"プチのめ"), "OCR misread 'ブチのめす' (beat up / 揍扁) as 'プチのめ' (causing '小地…' mistranslation)"),
     (re.compile(r"[\d０-９]+秒甸"), "OCR misread '毎' (ごと / 每一秒) as '甸'"),
     (re.compile(r"ヨつの"), "OCR misread '四つの' (四个) as 'ヨつの'"),
-    (re.compile(r"\ufffd"), "OCR output contains corrupted replacement character ''"),
+    (re.compile(r"\ufffd"), "OCR output contains corrupted replacement character '\ufffd'"),
     (re.compile(r"(?:についてし|負けたんじ|こさえるよい)$"), "OCR truncated or garbled the final column characters"),
     (
         re.compile(r"[\u4e00-\u9fff][\u30a0-\u30ff]{4,}[\u4e00-\u9fff]"),
@@ -76,15 +76,15 @@ _CLAUSE_START_UUN_RE = re.compile(r"^[…‥\s]*ううん(?![、…\s]*(?:そう
 _AFFIRMATIVE_START_ZH_RE = re.compile(r"^[︙…\s]*(?:嗯|是啊|对|没错|好)(?![，、\s]*不)")
 
 _JP_TRAILING_PAUSE_OR_CONJ_RE = re.compile(
-    r"(?:[…‥\.・ー―—〜～っッ\?？!！]$|[…‥⋯]{1,}|"
-    r"(?:だが|けど|けれど|けれども|のに|から|し|て|で|ば|たら|なら|ものの|とは|って|とか|たり|やら|かも|かな|かしら|な|ね|よ|ぞ|ぜ|わ|さ)[、。！？!?]*$)"
+    r"(?:[…‥⋯\.・ー―—〜～っッ\?？!！]+[、！？!?」』）\)】\]］]*$|"
+    r"(?:だが|けど|けれど|けれども|のに|から|し|て|で|ば|たら|なら|ものの|とは|って|とか|たり|やら|かも|かな|かしら|な|ね|よ|ぞ|ぜ|わ|さ)[、。！？!?」』）\)】\]］]*$)"
 )
 
 _SMALL_CN_DIGITS = {
     0: "零〇",
     1: "一壹",
-    2: "二两兩双雙俩倆次",
-    3: "三仨叁",
+    2: "二两兩双雙俩倆",
+    3: "三仨叁參",
     4: "四肆",
     5: "五伍",
     6: "六陆陸",
@@ -93,6 +93,8 @@ _SMALL_CN_DIGITS = {
     9: "九玖",
     10: "十拾",
 }
+_LEXICAL_QUANTITY_WORDS = frozenset({"双", "雙", "俩", "倆", "仨"})
+_CN_NUM_BOUNDARY_CHARS = "零〇一二三四五六七八九十百千万亿壹贰貳叁參肆伍陆陸柒捌玖拾佰仟萬億廿卅两兩"
 
 
 @dataclass(frozen=True)
@@ -113,121 +115,205 @@ def _chars_are_ocr_confusable(a: str, b: str) -> bool:
     return any(a in grp and b in grp for grp in _OCR_CONFUSABLE_GROUPS)
 
 
-def _int_to_chinese_forms(n: int) -> set[str]:
-    forms: set[str] = {str(n), unicodedata.normalize("NFKC", str(n))}
-    # Fullwidth Arabic digits
-    forms.add("".join(chr(ord("０") + int(d)) for d in str(n)))
+def _under_100_cn_forms(n: int) -> set[str]:
     if n in _SMALL_CN_DIGITS:
-        forms.update(_SMALL_CN_DIGITS[n])
-    elif 11 <= n <= 99:
+        return set(_SMALL_CN_DIGITS[n])
+    if 11 <= n <= 99:
         tens, ones = divmod(n, 10)
         t_prefix = "" if tens == 1 else "二三四五六七八九"[tens - 2]
         o_suffix = "" if ones == 0 else "一二三四五六七八九"[ones - 1]
-        forms.add(f"{t_prefix}十{o_suffix}")
-        if tens == 2 and ones == 0:
-            forms.add("廿")
-        elif tens == 3 and ones == 0:
-            forms.add("卅")
+        out = {f"{t_prefix}十{o_suffix}"}
+        if tens == 1:
+            out.add(f"一十{o_suffix}")
+        elif tens == 2:
+            out.add("廿" if ones == 0 else f"廿{o_suffix}")
+        elif tens == 3:
+            out.add("卅" if ones == 0 else f"卅{o_suffix}")
+        return out
+    return set()
+
+
+def _int_to_chinese_forms(n: int) -> set[str]:
+    forms: set[str] = {str(n), unicodedata.normalize("NFKC", str(n))}
+    forms.add("".join(chr(ord("０") + int(d)) for d in str(n)))
+    if n <= 99:
+        forms.update(_under_100_cn_forms(n))
     elif n in (100, 1000, 10000):
-        forms.update({100: ("百", "一百"), 1000: ("千", "一千"), 10000: ("万", "一万")}[n])
+        forms.update({100: ("百", "一百"), 1000: ("千", "一千", "1千"), 10000: ("万", "萬", "一万", "一萬", "1万", "1萬")}[n])
+    elif 101 <= n <= 999:
+        hundreds, rem = divmod(n, 100)
+        h_chars = ("一",) if hundreds == 1 else (("二", "两", "兩") if hundreds == 2 else ("三四五六七八九"[hundreds - 3],))
+        for hc in h_chars:
+            if rem == 0:
+                forms.add(f"{hc}百")
+            elif rem < 10:
+                d_ch = "一二三四五六七八九"[rem - 1]
+                forms.add(f"{hc}百零{d_ch}")
+                forms.add(f"{hc}百〇{d_ch}")
+            else:
+                tens, ones = divmod(rem, 10)
+                t_ch = "一二三四五六七八九"[tens - 1]
+                o_ch = "" if ones == 0 else "一二三四五六七八九"[ones - 1]
+                forms.add(f"{hc}百{t_ch}十{o_ch}")
+                if ones == 0:
+                    forms.add(f"{hc}百{t_ch}")
+    elif 1001 <= n <= 9999:
+        thousands, rem = divmod(n, 1000)
+        k_chars = ("一",) if thousands == 1 else (("二", "两", "兩") if thousands == 2 else ("三四五六七八九"[thousands - 3],))
+        for kc in k_chars:
+            if rem == 0:
+                forms.add(f"{kc}千")
+            elif rem < 100:
+                for sub_f in _under_100_cn_forms(rem) - _LEXICAL_QUANTITY_WORDS:
+                    if len(sub_f) == 1 and rem < 10:
+                        forms.add(f"{kc}千零{sub_f}")
+                        forms.add(f"{kc}千〇{sub_f}")
+                    elif rem >= 10:
+                        forms.add(f"{kc}千零{sub_f}")
+                        forms.add(f"{kc}千〇{sub_f}")
+            else:
+                for sub_f in _int_to_chinese_forms(rem):
+                    if not sub_f.isdigit() and not all("０" <= c <= "９" for c in sub_f):
+                        forms.add(f"{kc}千{sub_f}")
     return {f for f in forms if f}
 
 
+def _translation_contains_number(vis_flat: str, n: int) -> bool:
+    """Return True iff ``vis_flat`` contains ``n`` as a complete Arabic or Chinese number."""
+    vis_norm = unicodedata.normalize("NFKC", vis_flat)
+    if re.search(rf"(?<!\d){n}(?!\d)", vis_norm):
+        return True
+    for form in _int_to_chinese_forms(n):
+        f_norm = unicodedata.normalize("NFKC", form)
+        if f_norm.isdigit():
+            continue
+        if f_norm in _LEXICAL_QUANTITY_WORDS:
+            if f_norm in vis_norm:
+                return True
+            continue
+        if re.search(rf"(?<![{_CN_NUM_BOUNDARY_CHARS}\d]){re.escape(f_norm)}(?![{_CN_NUM_BOUNDARY_CHARS}\d])", vis_norm):
+            return True
+    return False
+
+
 @lru_cache(maxsize=16)
-def _load_cached_glossary(path_str: str, mtime_ns: int) -> tuple[GlossaryTerm, ...]:
+def _parse_cached_glossary(path_str: str, mtime_ns: int) -> tuple[GlossaryTerm, ...]:
     _ = mtime_ns
     p = Path(path_str)
     terms: list[GlossaryTerm] = []
-    if not p.is_file():
-        return ()
-    try:
-        if p.suffix.lower() == ".txt":
-            for ln in p.read_text(encoding="utf-8").splitlines():
-                s = ln.strip()
-                if not s or s.startswith(("#", "//")):
-                    continue
-                parts = re.split(r"\t+|\s{2,}|\s+", s, maxsplit=1)
-                if len(parts) == 2 and len(parts[0].strip()) >= 2 and parts[1].strip():
-                    orig = parts[0].strip()
-                    terms.append(
-                        GlossaryTerm(
-                            original=orig,
-                            translations=(parts[1].strip(),),
-                            category="TXT",
-                            is_pure_katakana=bool(_PURE_KATAKANA_RE.match(orig)),
-                        )
+    text = p.read_text(encoding="utf-8")
+    if p.suffix.lower() == ".txt":
+        for ln in text.splitlines():
+            s = ln.strip()
+            if not s or s.startswith(("#", "//")):
+                continue
+            parts = re.split(r"\t+|\s{2,}|\s+", s, maxsplit=1)
+            if len(parts) == 2 and len(parts[0].strip()) >= 2 and parts[1].strip():
+                orig = parts[0].strip()
+                terms.append(
+                    GlossaryTerm(
+                        original=orig,
+                        translations=(parts[1].strip(),),
+                        category="TXT",
+                        is_pure_katakana=bool(_PURE_KATAKANA_RE.match(orig)),
                     )
-        else:
-            data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-            g_dict = data.get("glossary") if isinstance(data, dict) else None
-            if isinstance(g_dict, dict):
-                for cat, items in g_dict.items():
-                    if not isinstance(items, list):
+                )
+    else:
+        raw_data = yaml.safe_load(text)
+        if raw_data is not None and not isinstance(raw_data, dict):
+            raise ValueError(f"Expected YAML mapping in glossary file {p}, got {type(raw_data).__name__}")
+        data = raw_data or {}
+        g_dict = data.get("glossary")
+        if g_dict is not None and not isinstance(g_dict, dict):
+            raise ValueError(f"Expected 'glossary' mapping in {p}, got {type(g_dict).__name__}")
+        if isinstance(g_dict, dict):
+            for cat, items in g_dict.items():
+                if not isinstance(items, list):
+                    continue
+                for entry in items:
+                    if not isinstance(entry, dict):
                         continue
-                    for entry in items:
-                        if not isinstance(entry, dict):
+                    primary_orig = str(entry.get("original") or "").strip()
+                    aliases = entry.get("aliases") if isinstance(entry.get("aliases"), list) else []
+                    zh_cands: list[str] = []
+                    orig_variants: list[str] = [primary_orig] if primary_orig else []
+                    for al in aliases:
+                        if not isinstance(al, dict):
                             continue
-                        primary_orig = str(entry.get("original") or "").strip()
-                        aliases = entry.get("aliases") if isinstance(entry.get("aliases"), list) else []
-                        zh_cands: list[str] = []
-                        orig_variants: list[str] = [primary_orig] if primary_orig else []
-                        for al in aliases:
-                            if not isinstance(al, dict):
-                                continue
-                            al_orig = str(al.get("original") or "").strip()
-                            if al_orig and al_orig not in orig_variants:
-                                orig_variants.append(al_orig)
-                            for tr_item in al.get("translations") or []:
-                                if isinstance(tr_item, dict):
-                                    t_val = str(tr_item.get("text") or "").strip()
-                                    if t_val and t_val not in zh_cands:
-                                        zh_cands.append(t_val)
-                                elif isinstance(tr_item, str) and tr_item.strip():
-                                    if tr_item.strip() not in zh_cands:
-                                        zh_cands.append(tr_item.strip())
-                        if not zh_cands:
+                        al_orig = str(al.get("original") or "").strip()
+                        if al_orig and al_orig not in orig_variants:
+                            orig_variants.append(al_orig)
+                        for tr_item in al.get("translations") or []:
+                            if isinstance(tr_item, dict):
+                                t_val = str(tr_item.get("text") or "").strip()
+                                if t_val and t_val not in zh_cands:
+                                    zh_cands.append(t_val)
+                            elif isinstance(tr_item, str) and tr_item.strip():
+                                if tr_item.strip() not in zh_cands:
+                                    zh_cands.append(tr_item.strip())
+                    if not zh_cands:
+                        continue
+                    for ov in orig_variants:
+                        if len(ov) < 2:
                             continue
-                        for ov in orig_variants:
-                            if len(ov) < 2:
-                                continue
-                            is_kata = bool(_PURE_KATAKANA_RE.match(ov))
-                            # Skip generic 2-kanji common nouns in Item/Skill (e.g. `魔法`, `冒険`) that frequently adapt in context
-                            if cat in ("Item", "Skill") and not is_kata and len(ov) <= 2:
-                                continue
-                            terms.append(
-                                GlossaryTerm(
-                                    original=ov,
-                                    translations=tuple(zh_cands),
-                                    category=str(cat),
-                                    is_pure_katakana=is_kata,
-                                )
+                        is_kata = bool(_PURE_KATAKANA_RE.match(ov))
+                        # Skip generic 2-kanji common nouns in Item/Skill (e.g. `魔法`, `冒険`) that frequently adapt in context
+                        if cat in ("Item", "Skill") and not is_kata and len(ov) <= 2:
+                            continue
+                        terms.append(
+                            GlossaryTerm(
+                                original=ov,
+                                translations=tuple(zh_cands),
+                                category=str(cat),
+                                is_pure_katakana=is_kata,
                             )
-    except Exception:
-        return ()
+                        )
     return tuple(terms)
 
 
-def load_active_glossary_terms(glossary_file: Optional[str | Path] = None) -> tuple[GlossaryTerm, ...]:
-    """Load glossary terms from explicit path or active MTUI `high_quality_prompt_path`."""
-    if glossary_file is None and "PYTEST_CURRENT_TEST" in os.environ:
-        return ()
+def _load_cached_glossary(path_str: str, mtime_ns: int) -> tuple[GlossaryTerm, ...]:
     try:
-        resolved = Path(glossary_file) if glossary_file else resolve_glossary_path(None)
-        if not resolved.is_file():
-            return ()
-        return _load_cached_glossary(str(resolved.resolve()), resolved.stat().st_mtime_ns)
+        return _parse_cached_glossary(path_str, mtime_ns)
     except Exception:
         return ()
 
 
-def _source_contains_term(src_txt: str, term: GlossaryTerm) -> bool:
+def load_active_glossary_terms(glossary_file: Optional[str | Path] = None) -> tuple[GlossaryTerm, ...]:
+    """Load glossary terms from explicit path (raising on missing/invalid file) or active MTUI ``high_quality_prompt_path``."""
+    explicit_given = glossary_file is not None and str(glossary_file).strip() != ""
+    if explicit_given:
+        direct = Path(glossary_file).expanduser()  # type: ignore[arg-type]
+        resolved = direct if direct.is_file() else resolve_glossary_path(str(glossary_file))
+        if not resolved.is_file():
+            raise FileNotFoundError(f"Glossary file not found: {glossary_file}")
+        try:
+            return _parse_cached_glossary(str(resolved.resolve()), resolved.stat().st_mtime_ns)
+        except (yaml.YAMLError, UnicodeDecodeError, ValueError) as exc:
+            raise ValueError(f"Failed to parse glossary file {resolved}: {exc}") from exc
+
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        return ()
+    try:
+        resolved = resolve_glossary_path(None)
+        if not resolved.is_file():
+            return ()
+        return _parse_cached_glossary(str(resolved.resolve()), resolved.stat().st_mtime_ns)
+    except Exception:
+        return ()
+
+
+def _find_term_spans_in_source(src_txt: str, term: GlossaryTerm) -> list[tuple[int, int]]:
     if term.original not in src_txt:
-        return False
+        return []
     if term.is_pure_katakana and len(term.original) <= 3:
         # Enforce katakana word boundary so `シルエット` never matches `シル` and `ベルト` never matches `ベル`!
         pat = rf"(?<![\u30a0-\u30ffー]){re.escape(term.original)}(?![\u30a0-\u30ffー])"
-        return bool(re.search(pat, src_txt))
-    return True
+        return [m.span() for m in re.finditer(pat, src_txt)]
+    return [(m.start(), m.start() + len(term.original)) for m in re.finditer(rf"(?={re.escape(term.original)})", src_txt)]
+
+
+def _source_contains_term(src_txt: str, term: GlossaryTerm) -> bool:
+    return bool(_find_term_spans_in_source(src_txt, term))
 
 
 def audit_region_translation_accuracy(
@@ -251,20 +337,25 @@ def audit_region_translation_accuracy(
     # 1. Active Glossary Exact Match & OCR Confusable Proper-Noun Typo Detection
     if glossary_terms:
         exact_known_kata = {t.original for t in glossary_terms if t.is_pure_katakana}
+        satisfied_spans: list[tuple[int, int, int]] = []
+        for other in glossary_terms:
+            if any(_strip_mid_dots(zt) in vis_nodot for zt in other.translations):
+                for os_i, oe_i in _find_term_spans_in_source(src_txt, other):
+                    satisfied_spans.append((len(other.original), os_i, oe_i))
+
         emitted_exact_origs: set[str] = set()
         for term in glossary_terms:
             if term.original in emitted_exact_origs:
                 continue
-            if _source_contains_term(src_txt, term):
-                # Skip if a longer glossary super-term containing `term.original` is also present and satisfied
-                longer_satisfied = any(
-                    other.original != term.original
-                    and term.original in other.original
-                    and other.original in src_txt
-                    and any(_strip_mid_dots(zt) in vis_nodot for zt in other.translations)
-                    for other in glossary_terms
+            term_spans = _find_term_spans_in_source(src_txt, term)
+            if term_spans:
+                t_len = len(term.original)
+                # Exempt `term` ONLY if every occurrence span `[s, e)` in `src_txt` is covered by a satisfied longer term
+                all_spans_covered = all(
+                    any(olen > t_len and os_i <= s_i and e_i <= oe_i for olen, os_i, oe_i in satisfied_spans)
+                    for s_i, e_i in term_spans
                 )
-                if longer_satisfied:
+                if all_spans_covered:
                     continue
                 if not any(_strip_mid_dots(zt) in vis_nodot for zt in term.translations):
                     emitted_exact_origs.add(term.original)
@@ -283,7 +374,9 @@ def audit_region_translation_accuracy(
 
         # 1b. Fuzzy 1-2 char OCR confusable katakana typo on proper nouns (e.g. `フィシ` -> `フィン`='芬恩' mistranslated as `菲西`!)
         proper_kata_terms = [
-            t for t in glossary_terms if t.is_pure_katakana and len(t.original) >= 3 and t.category in ("Person", "Location", "Org", "Creature", "TXT")
+            t
+            for t in glossary_terms
+            if t.is_pure_katakana and len(t.original) >= 3 and t.category in ("Person", "Location", "Org", "Creature", "TXT")
         ]
         for m in _KATAKANA_RUN_RE.finditer(src_txt):
             tok = m.group(0).strip("・")
@@ -315,7 +408,7 @@ def audit_region_translation_accuracy(
                         )
                     break
 
-    # 2. OCR Corruption Signatures (`Lv.X` vertical TCY garble, `プチのめ`, `1秒甸`, ``, furigana-in-kanji, truncated tails)
+    # 2. OCR Corruption Signatures (`Lv.X` vertical TCY garble, `プチのめ`, `1秒甸`, `\ufffd`, furigana-in-kanji, truncated tails)
     lv_m = _VERT_LV_OCR_CORRUPT_RE.search(src_txt)
     if lv_m and not re.search(r"(?:Lv|lv|LV|级|級)", vis_flat):
         issues.append(
@@ -352,8 +445,7 @@ def audit_region_translation_accuracy(
         n_val = int(nm.group(0))
         if n_val < 2:
             continue
-        accepted_forms = _int_to_chinese_forms(n_val)
-        if not any(f in vis_flat for f in accepted_forms):
+        if not _translation_contains_number(vis_flat, n_val):
             issues.append(
                 {
                     "severity": "warning",

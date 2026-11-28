@@ -19,6 +19,7 @@ logger = logging.getLogger("mtui_mcp.fonts")
 logging.getLogger("fontTools").setLevel(logging.ERROR)
 
 FONT_EXTENSIONS = (".ttf", ".otf", ".ttc", ".otc")
+_DEFAULT_REGULAR_STYLES = frozenset({"regular", "normal", "book", "roman"})
 
 
 def strip_qt_foundry_brackets(family: str) -> str:
@@ -83,12 +84,52 @@ _WHITESPACE_CPS = frozenset(
 )
 
 
-def _extract_face_names_from_ttfont(tt: TTFont, file_path: Path) -> tuple[str, str, str]:
-    """Extract `(qt_family, display_name, style_name)` reading ONLY the lightweight `name` table."""
+def _iter_font_files(base_dir: Path) -> list[tuple[Path, int]]:
+    """Recursively enumerate font files and their ``st_mtime_ns`` under ``base_dir`` in deterministic order."""
+    out: list[tuple[Path, int]] = []
+    visited_dirs: set[str] = set()
+
+    def _walk(cur_dir: Path) -> None:
+        try:
+            real_key = os.path.normcase(os.path.realpath(cur_dir))
+        except OSError:
+            return
+        if real_key in visited_dirs:
+            return
+        visited_dirs.add(real_key)
+
+        try:
+            with os.scandir(cur_dir) as it:
+                entries = sorted(it, key=lambda e: e.name.lower())
+        except OSError:
+            return
+
+        subdirs: list[Path] = []
+        for entry in entries:
+            try:
+                if entry.is_dir(follow_symlinks=True):
+                    subdirs.append(Path(entry.path))
+                elif entry.is_file(follow_symlinks=True) and entry.name.lower().endswith(FONT_EXTENSIONS):
+                    st = entry.stat(follow_symlinks=True)
+                    out.append((Path(entry.path), int(st.st_mtime_ns)))
+            except OSError:
+                continue
+
+        for sub in subdirs:
+            _walk(sub)
+
+    if base_dir.is_dir():
+        _walk(base_dir)
+    return out
+
+
+def _extract_face_names_from_ttfont(tt: TTFont, file_path: Path) -> tuple[str, str, str, str, str]:
+    """Extract ``(qt_family, zh_family, display_name, style_name, selector)`` reading ONLY the ``name`` table."""
     name_table = tt.get("name")
     en_family = ""
     zh_family = ""
-    style_name = "Regular"
+    en_style = ""
+    fallback_style = ""
 
     if name_table is not None:
         for rec in name_table.names:
@@ -108,31 +149,63 @@ def _extract_face_names_from_ttfont(tt: TTFont, file_path: Path) -> tuple[str, s
                     en_family = val
                 elif not en_family:
                     en_family = val
-            elif rec.nameID in (17, 2) and rec.langID == 0x0409:
-                style_name = val
+            elif rec.nameID in (17, 2):
+                if rec.langID == 0x0409 and (rec.nameID == 17 or not en_style):
+                    en_style = val
+                elif not fallback_style:
+                    fallback_style = val
 
+    style_name = en_style or fallback_style or "Regular"
     raw_primary = en_family or zh_family or file_path.stem
     qt_family = strip_qt_foundry_brackets(raw_primary)
+    zh_clean = strip_qt_foundry_brackets(zh_family) if zh_family else ""
     display_name = zh_family or raw_primary
     if zh_family and en_family and zh_family != en_family:
         display_name = f"{zh_family} ({en_family})"
-    return qt_family, display_name, style_name
+
+    selector = qt_family
+    if style_name and style_name.lower() not in _DEFAULT_REGULAR_STYLES:
+        selector = f"{qt_family}::{style_name}"
+
+    return qt_family, zh_clean, display_name, style_name, selector
 
 
-def _extract_faces_from_ttfont(tt: TTFont, file_path: Path, source: str) -> tuple[list[FontEntry], set[int]]:
-    qt_family, display_name, style_name = _extract_face_names_from_ttfont(tt, file_path)
-    codepoints: set[int] = set()
+def _extract_face_from_ttfont(
+    tt: TTFont,
+    file_path: Path,
+    source: str,
+) -> tuple[FontEntry, Optional[frozenset[int]]]:
+    """Extract a single ``FontEntry`` and its isolated codepoint coverage (``None`` if ``cmap`` is unreadable)."""
+    qt_family, _, display_name, style_name, selector = _extract_face_names_from_ttfont(tt, file_path)
+    coverage: Optional[frozenset[int]] = None
+
     try:
         cmap = tt.getBestCmap()
-        if cmap:
-            q_gids = {cmap.get(0x003F), cmap.get(0xFF1F), ".notdef"}
-            q_gids.discard(None)
-            has_glyf = ("loca" in tt) and ("glyf" in tt)
-            locs = tt["loca"].locations if has_glyf else None
-            glyf_tbl = tt["glyf"] if has_glyf else None
-            gname_to_id = {g: i for i, g in enumerate(tt.getGlyphOrder())} if has_glyf else {}
+    except Exception as exc:
+        logger.debug("Unreadable cmap in %s (%s): %s", file_path, selector, exc)
+        cmap = None
 
-            for cp, gname in cmap.items():
+    if cmap is not None:
+        codepoints: set[int] = set()
+        q_gids = {cmap.get(0x003F), cmap.get(0xFF1F), ".notdef"}
+        q_gids.discard(None)
+
+        locs = None
+        glyf_tbl = None
+        gname_to_id: dict[str, int] = {}
+        try:
+            if ("loca" in tt) and ("glyf" in tt):
+                locs = tt["loca"].locations
+                glyf_tbl = tt["glyf"]
+                gname_to_id = {g: i for i, g in enumerate(tt.getGlyphOrder())}
+        except Exception as exc:
+            logger.debug("Skipping loca/glyf table header in %s: %s", file_path, exc)
+            locs = None
+            glyf_tbl = None
+            gname_to_id = {}
+
+        for cp, gname in cmap.items():
+            try:
                 if cp in _WHITESPACE_CPS:
                     codepoints.add(cp)
                     continue
@@ -152,17 +225,18 @@ def _extract_faces_from_ttfont(tt: TTFont, file_path: Path, source: str) -> tupl
                             if g_obj.numberOfContours == 0 and not g_obj.isComposite():
                                 continue
                 codepoints.add(cp)
-    except Exception:
-        pass
+            except Exception as exc:
+                logger.debug("Skipping malformed glyph %r (U+%04X) in %s: %s", gname, cp, file_path, exc)
+                continue
 
-    supports_cjk = any(0x4E00 <= cp <= 0x9FFF for cp in (0x7684, 0x4E00, 0x662F, 0x6211, 0x4F60) if cp in codepoints)
-    if not supports_cjk and codepoints:
-        # Fallback check for Japanese/Traditional CJK range
-        supports_cjk = any(cp in codepoints for cp in (0x3042, 0x6F22, 0x8A9E, 0x6771))
+        coverage = frozenset(codepoints)
 
-    selector = qt_family
-    if style_name and style_name.lower() not in ("regular", "normal", "book", "roman"):
-        selector = f"{qt_family}::{style_name}"
+    supports_cjk = False
+    if coverage:
+        supports_cjk = any(0x4E00 <= cp <= 0x9FFF for cp in (0x7684, 0x4E00, 0x662F, 0x6211, 0x4F60) if cp in coverage)
+        if not supports_cjk:
+            # Fallback check for Japanese/Traditional CJK range
+            supports_cjk = any(cp in coverage for cp in (0x3042, 0x6F22, 0x8A9E, 0x6771))
 
     entry = FontEntry(
         qt_family=qt_family,
@@ -173,124 +247,217 @@ def _extract_faces_from_ttfont(tt: TTFont, file_path: Path, source: str) -> tupl
         source=source,
         supports_cjk=supports_cjk,
     )
-    return [entry], codepoints
+    return entry, coverage
 
 
 @lru_cache(maxsize=4096)
-def _match_font_names_only(file_path_str: str, mtime_ns: int) -> tuple[tuple[str, str], ...]:
-    """Read ONLY the `name` table (never `cmap`/`loca`/`glyf`) for fast font-family matching."""
+def _match_font_names_only(file_path_str: str, mtime_ns: int) -> tuple[tuple[str, str, str, str, str], ...]:
+    """Read ONLY the ``name`` table (never ``cmap``/``loca``/``glyf``) for fast per-face matching."""
     _ = mtime_ns
     fp = Path(file_path_str)
-    pairs: list[tuple[str, str]] = []
+    faces: list[tuple[str, str, str, str, str]] = []
     try:
         if fp.suffix.lower() in (".ttc", ".otc"):
             ttc = TTCollection(fp, lazy=True)
             try:
-                for font in ttc.fonts[:8]:
-                    qt_fam, disp, _ = _extract_face_names_from_ttfont(font, fp)
-                    pairs.append((qt_fam.casefold(), disp.casefold()))
+                for font in ttc.fonts[:64]:
+                    qt_fam, zh_fam, disp, style, sel = _extract_face_names_from_ttfont(font, fp)
+                    faces.append(
+                        (qt_fam.casefold(), zh_fam.casefold(), disp.casefold(), style.casefold(), sel.casefold())
+                    )
             finally:
                 ttc.close()
         else:
             tt = TTFont(fp, lazy=True)
             try:
-                qt_fam, disp, _ = _extract_face_names_from_ttfont(tt, fp)
-                pairs.append((qt_fam.casefold(), disp.casefold()))
+                qt_fam, zh_fam, disp, style, sel = _extract_face_names_from_ttfont(tt, fp)
+                faces.append((qt_fam.casefold(), zh_fam.casefold(), disp.casefold(), style.casefold(), sel.casefold()))
             finally:
                 tt.close()
     except Exception as exc:
         logger.debug("Skipping unreadable font header %s: %s", fp, exc)
-    return tuple(pairs)
+    return tuple(faces)
 
 
 @lru_cache(maxsize=4096)
-def _inspect_font_file(file_path_str: str, mtime_ns: int, source: str) -> tuple[tuple[FontEntry, ...], frozenset[int]]:
+def _inspect_font_file(
+    file_path_str: str,
+    mtime_ns: int,
+    source: str,
+) -> tuple[tuple[FontEntry, Optional[frozenset[int]]], ...]:
+    """Inspect all faces in a font file, preserving isolated per-face glyph coverage."""
     _ = mtime_ns
     fp = Path(file_path_str)
-    entries: list[FontEntry] = []
-    all_cps: set[int] = set()
+    face_records: list[tuple[FontEntry, Optional[frozenset[int]]]] = []
     try:
         if fp.suffix.lower() in (".ttc", ".otc"):
             ttc = TTCollection(fp, lazy=True)
             try:
-                for font in ttc.fonts[:8]:
-                    sub_entries, cps = _extract_faces_from_ttfont(font, fp, source)
-                    entries.extend(sub_entries)
-                    all_cps.update(cps)
+                for font in ttc.fonts[:64]:
+                    try:
+                        face_records.append(_extract_face_from_ttfont(font, fp, source))
+                    except Exception as exc:
+                        logger.debug("Skipping unreadable collection face in %s: %s", fp, exc)
             finally:
                 ttc.close()
         else:
             tt = TTFont(fp, lazy=True)
             try:
-                sub_entries, cps = _extract_faces_from_ttfont(tt, fp, source)
-                entries.extend(sub_entries)
-                all_cps.update(cps)
+                face_records.append(_extract_face_from_ttfont(tt, fp, source))
             finally:
                 tt.close()
     except Exception as exc:
         logger.debug("Skipping unreadable font %s: %s", fp, exc)
-    return tuple(entries), frozenset(all_cps)
+    return tuple(face_records)
 
 
-def _project_fonts_signature(fonts_dir: Optional[Path]) -> tuple[str, int, int]:
-    if fonts_dir is None or not fonts_dir.is_dir():
-        return ("", 0, 0)
-    count = 0
-    mtime_xor = 0
-    try:
-        for root, _, files in os.walk(fonts_dir):
-            for fname in files:
-                if fname.lower().endswith(FONT_EXTENSIONS):
-                    count += 1
-                    try:
-                        mtime_xor ^= (Path(root) / fname).stat().st_mtime_ns
-                    except OSError:
-                        pass
-    except OSError:
-        pass
-    return (str(fonts_dir), count, mtime_xor)
+def _fonts_dirs_signature(dirs: Iterable[Path]) -> tuple[tuple[str, int, int], ...]:
+    sigs: list[tuple[str, int, int]] = []
+    for d in dirs:
+        if d is None or not d.is_dir():
+            continue
+        files = _iter_font_files(d)
+        mtime_xor = 0
+        for _, mtime_ns in files:
+            mtime_xor ^= mtime_ns
+        sigs.append((str(d), len(files), mtime_xor))
+    return tuple(sigs)
+
+
+def _parse_font_spec(font_family_or_selector: str) -> tuple[str, Optional[str]]:
+    raw = (font_family_or_selector or "").strip()
+    if not raw:
+        return "", None
+    if "::" in raw:
+        fam_part, style_part = raw.split("::", 1)
+        explicit_style = style_part.strip().casefold() or None
+    else:
+        fam_part = raw
+        explicit_style = None
+    target_fam = strip_qt_foundry_brackets(fam_part.strip()).casefold()
+    return target_fam, explicit_style
+
+
+def _face_match_rank(
+    *,
+    qt_cf: str,
+    zh_cf: str,
+    disp_cf: str,
+    style_cf: str,
+    sel_cf: str,
+    stem_cf: str,
+    source_rank: int,
+    target_fam: str,
+    explicit_style: Optional[str],
+) -> Optional[tuple[int, int, int]]:
+    if explicit_style is not None:
+        full_sel = f"{target_fam}::{explicit_style}"
+        if style_cf == explicit_style or sel_cf == full_sel:
+            style_rank = 0
+        elif explicit_style in _DEFAULT_REGULAR_STYLES and style_cf in _DEFAULT_REGULAR_STYLES:
+            style_rank = 1
+        else:
+            return None
+    else:
+        style_rank = 0 if style_cf in _DEFAULT_REGULAR_STYLES else 1
+
+    if qt_cf == target_fam or disp_cf == target_fam or (zh_cf and zh_cf == target_fam):
+        name_tier = 0
+    elif stem_cf == target_fam:
+        name_tier = 1
+    elif target_fam in disp_cf:
+        name_tier = 2
+    else:
+        return None
+
+    return (name_tier, source_rank, style_rank)
 
 
 @lru_cache(maxsize=2048)
 def _resolve_target_font_codepoints(
-    fonts_dir_str: str,
-    project_count: int,
-    project_mtime_xor: int,
+    project_sig: tuple[tuple[str, int, int], ...],
+    system_sig: tuple[tuple[str, int, int], ...],
     include_system: bool,
-    target_norm: str,
+    target_fam: str,
+    explicit_style: Optional[str],
 ) -> Optional[frozenset[int]]:
-    _ = (project_count, project_mtime_xor)
-    search_dirs: list[tuple[Path, str]] = []
-    if fonts_dir_str:
-        p_dir = Path(fonts_dir_str)
-        if p_dir.is_dir():
-            search_dirs.append((p_dir, "project"))
-    if include_system:
-        for sdir in _system_font_dirs():
-            search_dirs.append((sdir, "system"))
+    if not target_fam:
+        return None
 
-    for base_dir, src_kind in search_dirs:
-        try:
-            candidates = list(base_dir.rglob("*")) if src_kind == "project" else list(base_dir.iterdir())
-        except OSError:
-            continue
-        for fp in candidates:
-            if not fp.is_file() or not fp.name.lower().endswith(FONT_EXTENSIONS):
-                continue
-            try:
-                st = fp.stat()
-            except OSError:
-                continue
-            matched_file = fp.stem.casefold() == target_norm
-            if not matched_file:
-                for qt_cf, disp_cf in _match_font_names_only(str(fp), st.st_mtime_ns):
-                    if qt_cf == target_norm or target_norm in disp_cf:
-                        matched_file = True
-                        break
-            if matched_file:
-                _, cps = _inspect_font_file(str(fp), st.st_mtime_ns, src_kind)
-                return cps
+    candidates: list[tuple[tuple[int, int, int], int, str, int, str, int]] = []
+    order_seq = 0
+
+    def _collect_from_dirs(dir_sigs: tuple[tuple[str, int, int], ...], src_kind: str, src_rank: int) -> bool:
+        nonlocal order_seq
+        for dir_str, _, _ in dir_sigs:
+            base_dir = Path(dir_str)
+            for fp, mtime_ns in _iter_font_files(base_dir):
+                stem_cf = fp.stem.casefold()
+                face_names = _match_font_names_only(str(fp), mtime_ns)
+                for face_idx, (qt_cf, zh_cf, disp_cf, style_cf, sel_cf) in enumerate(face_names):
+                    rank = _face_match_rank(
+                        qt_cf=qt_cf,
+                        zh_cf=zh_cf,
+                        disp_cf=disp_cf,
+                        style_cf=style_cf,
+                        sel_cf=sel_cf,
+                        stem_cf=stem_cf,
+                        source_rank=src_rank,
+                        target_fam=target_fam,
+                        explicit_style=explicit_style,
+                    )
+                    if rank is not None:
+                        candidates.append((rank, order_seq, str(fp), mtime_ns, src_kind, face_idx))
+                        order_seq += 1
+                        if rank == (0, 0, 0):
+                            return True
+        return False
+
+    found_best_project = _collect_from_dirs(project_sig, "project", 0)
+    if include_system and not found_best_project:
+        _collect_from_dirs(system_sig, "system", 1)
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda item: (item[0], item[1]))
+    _, _, best_fp_str, best_mtime_ns, best_src_kind, best_face_idx = candidates[0]
+    inspected_faces = _inspect_font_file(best_fp_str, best_mtime_ns, best_src_kind)
+    if 0 <= best_face_idx < len(inspected_faces):
+        _, face_cps = inspected_faces[best_face_idx]
+        return face_cps
     return None
+
+
+def _lookup_font_codepoints(
+    font_family_or_selector: str,
+    *,
+    include_system: Optional[bool] = None,
+) -> Optional[frozenset[int]]:
+    target_fam, explicit_style = _parse_font_spec(font_family_or_selector)
+    if not target_fam:
+        return None
+
+    if include_system is None:
+        include_system = not bool(os.environ.get("PYTEST_CURRENT_TEST"))
+
+    settings = get_runtime_settings()
+    project_dirs = [settings.fonts_dir] if (settings.fonts_dir is not None and settings.fonts_dir.is_dir()) else []
+    project_sig = _fonts_dirs_signature(project_dirs)
+    system_sig = _fonts_dirs_signature(_system_font_dirs()) if include_system else ()
+
+    return _resolve_target_font_codepoints(
+        project_sig,
+        system_sig,
+        bool(include_system),
+        target_fam,
+        explicit_style,
+    )
+
+
+def has_font(font_family: str, *, include_system: Optional[bool] = None) -> bool:
+    """Return ``True`` iff ``font_family`` or ``Family::Style`` resolves to an installed font face with readable coverage."""
+    return _lookup_font_codepoints(font_family, include_system=include_system) is not None
 
 
 def list_available_fonts(
@@ -300,40 +467,30 @@ def list_available_fonts(
     query: str = "",
     limit: int = 100,
 ) -> list[dict[str, Any]]:
-    """List fonts in `MTUI_ROOT/fonts/` and optionally system fonts."""
+    """List fonts in ``MTUI_ROOT/fonts/`` and optionally system fonts (including subdirectories)."""
     settings = get_runtime_settings()
     results: list[FontEntry] = []
+    q_norm = unicodedata.normalize("NFKC", query or "").casefold().strip()
+
+    def _scan_dir(base_dir: Path, source_kind: str) -> None:
+        for fpath, mtime_ns in _iter_font_files(base_dir):
+            if q_norm:
+                face_names = _match_font_names_only(str(fpath), mtime_ns)
+                if face_names and not any(
+                    q_norm in unicodedata.normalize("NFKC", f"{qt_cf} {disp_cf} {fpath.name}").casefold()
+                    for qt_cf, _, disp_cf, _, _ in face_names
+                ):
+                    continue
+            for entry, _ in _inspect_font_file(str(fpath), mtime_ns, source_kind):
+                results.append(entry)
 
     if settings.fonts_dir is not None and settings.fonts_dir.is_dir():
-        for root, _, files in os.walk(settings.fonts_dir):
-            for fname in sorted(files):
-                if not fname.lower().endswith(FONT_EXTENSIONS):
-                    continue
-                fpath = Path(root) / fname
-                try:
-                    st = fpath.stat()
-                except OSError:
-                    continue
-                entries, _ = _inspect_font_file(str(fpath), st.st_mtime_ns, "project")
-                results.extend(entries)
+        _scan_dir(settings.fonts_dir, "project")
 
     if include_system:
         for sys_dir in _system_font_dirs():
-            try:
-                dir_entries = sorted(sys_dir.iterdir(), key=lambda p: p.name.lower())
-            except OSError:
-                continue
-            for fpath in dir_entries:
-                if not fpath.is_file() or not fpath.name.lower().endswith(FONT_EXTENSIONS):
-                    continue
-                try:
-                    st = fpath.stat()
-                except OSError:
-                    continue
-                entries, _ = _inspect_font_file(str(fpath), st.st_mtime_ns, "system")
-                results.extend(entries)
+            _scan_dir(sys_dir, "system")
 
-    q_norm = unicodedata.normalize("NFKC", query or "").casefold().strip()
     dedup: dict[str, FontEntry] = {}
     for item in results:
         if cjk_only and not item.supports_cjk:
@@ -374,27 +531,8 @@ def check_missing_glyphs(
     *,
     include_system: Optional[bool] = None,
 ) -> list[str]:
-    """Return sorted unique printable characters in ``texts`` missing from the target font's cmap."""
-    if not font_family_or_selector:
-        return []
-    family_only = font_family_or_selector.split("::")[0].strip()
-    target_norm = strip_qt_foundry_brackets(family_only).casefold()
-    if not target_norm:
-        return []
-
-    if include_system is None:
-        include_system = not bool(os.environ.get("PYTEST_CURRENT_TEST"))
-
-    settings = get_runtime_settings()
-    f_dir_str, f_count, f_mtime_xor = _project_fonts_signature(settings.fonts_dir)
-    matched_cps = _resolve_target_font_codepoints(
-        f_dir_str,
-        f_count,
-        f_mtime_xor,
-        include_system,
-        target_norm,
-    )
-
+    """Return sorted unique printable characters in ``texts`` missing from the target font face's cmap."""
+    matched_cps = _lookup_font_codepoints(font_family_or_selector, include_system=include_system)
     if matched_cps is None:
         return []
 
@@ -410,36 +548,69 @@ def check_missing_glyphs(
     return sorted(missing)
 
 
-def check_region_missing_glyphs(region: dict, default_font_family: str = "") -> list[str]:
-    """Check missing glyphs in `region`, honoring per-inline `style.fontFamily` overrides in `translation_rich`."""
+def check_region_missing_glyphs_by_font(
+    region: dict[str, Any],
+    default_font_family: str = "",
+    *,
+    include_system: Optional[bool] = None,
+) -> dict[str, list[str]]:
+    """Return ``{font_selector: sorted_missing_chars}`` across ``region``, honoring inline ``style.fontFamily`` spans."""
     base_ff = str(region.get("font_family") or default_font_family).strip()
     rich = region.get("translation_rich")
     if isinstance(rich, dict) and isinstance(rich.get("blocks"), list):
-        missing: set[str] = set()
+        by_font: dict[str, set[str]] = {}
 
-        def _walk_inlines(nodes: list) -> None:
+        def _walk_inlines(nodes: Any, inherited_ff: str) -> None:
+            if not isinstance(nodes, list):
+                return
             for node in nodes:
                 if not isinstance(node, dict):
                     continue
-                ntype = node.get("type")
+                ntype = node.get("type", "text")
+                st = node.get("style") if isinstance(node.get("style"), dict) else {}
+                run_ff = str(st.get("fontFamily") or inherited_ff).strip()
                 if ntype == "text":
                     txt = str(node.get("text") or "")
-                    st = node.get("style") if isinstance(node.get("style"), dict) else {}
-                    run_ff = str(st.get("fontFamily") or base_ff).strip()
                     if run_ff and txt:
-                        missing.update(check_missing_glyphs(run_ff, txt))
+                        miss = check_missing_glyphs(run_ff, txt, include_system=include_system)
+                        if miss:
+                            by_font.setdefault(run_ff, set()).update(miss)
                 elif ntype == "tcy":
-                    _walk_inlines(node.get("content") or [])
+                    _walk_inlines(node.get("content") or [], run_ff)
                 elif ntype == "ruby":
-                    _walk_inlines(node.get("base") or [])
-                    _walk_inlines(node.get("text") or [])
+                    rt_st = node.get("ruby_style") if isinstance(node.get("ruby_style"), dict) else {}
+                    rt_ff = str(rt_st.get("fontFamily") or run_ff).strip()
+                    _walk_inlines(node.get("base") or [], run_ff)
+                    _walk_inlines(node.get("text") or [], rt_ff)
 
         for blk in rich.get("blocks") or []:
             if isinstance(blk, dict):
-                _walk_inlines(blk.get("inlines") or [])
-        return sorted(missing)
+                _walk_inlines(blk.get("inlines") or [], base_ff)
+        return {ff: sorted(chars) for ff, chars in by_font.items() if chars}
 
     from .richtext_builder import visible_text_of_region
 
     vis = visible_text_of_region(region)
-    return check_missing_glyphs(base_ff, vis) if (base_ff and vis) else []
+    if base_ff and vis:
+        miss = check_missing_glyphs(base_ff, vis, include_system=include_system)
+        if miss:
+            return {base_ff: miss}
+    return {}
+
+
+def check_region_missing_glyphs(
+    region: dict[str, Any],
+    default_font_family: str = "",
+    *,
+    include_system: Optional[bool] = None,
+) -> list[str]:
+    """Check missing glyphs in ``region``, honoring per-inline ``style.fontFamily`` overrides in ``translation_rich``."""
+    by_font = check_region_missing_glyphs_by_font(
+        region,
+        default_font_family,
+        include_system=include_system,
+    )
+    missing: set[str] = set()
+    for chars in by_font.values():
+        missing.update(chars)
+    return sorted(missing)

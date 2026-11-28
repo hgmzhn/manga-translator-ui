@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import atexit
 import collections
+import http.client
 import json
 import logging
 import os
+import queue
 import secrets
 import subprocess
 import sys
@@ -21,6 +23,9 @@ from ..config import get_runtime_settings
 
 logger = logging.getLogger("mtui_mcp.worker_client")
 
+_LOOPBACK_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+_SHUTDOWN_DRAIN_WAIT_SEC = 12.0
+
 
 class MtuiWorkerClient:
     """Manages lifecycle, health checks, and RPC calls to `engine_worker.py`."""
@@ -31,6 +36,7 @@ class MtuiWorkerClient:
         self._port: Optional[int] = None
         self._token: str = ""
         self._bound_root: Optional[Path] = None
+        self._bound_python: Optional[Path] = None
         self._stderr_ring: collections.deque[str] = collections.deque(maxlen=120)
         atexit.register(self.shutdown)
 
@@ -47,7 +53,10 @@ class MtuiWorkerClient:
         except Exception:
             pass
 
-    def ensure_started(self, startup_timeout_sec: float = 45.0) -> int:
+    def _ensure_started_instance(
+        self,
+        startup_timeout_sec: float = 45.0,
+    ) -> tuple[subprocess.Popen[str], int, str]:
         settings = get_runtime_settings()
         if not settings.is_engine_available or settings.mtui_root is None or settings.mtui_python is None:
             raise RuntimeError(
@@ -56,13 +65,19 @@ class MtuiWorkerClient:
             )
 
         with self._lock:
-            if self.is_running and self._bound_root == settings.mtui_root:
-                return int(self._port)  # type: ignore[arg-type]
+            if (
+                self.is_running
+                and self._proc is not None
+                and self._port is not None
+                and self._bound_root == settings.mtui_root
+                and self._bound_python == settings.mtui_python
+            ):
+                return self._proc, int(self._port), self._token
 
             self.shutdown()
 
             worker_script = Path(__file__).resolve().parent / "engine_worker.py"
-            self._token = secrets.token_hex(32)
+            token = secrets.token_hex(32)
             self._stderr_ring.clear()
 
             env = os.environ.copy()
@@ -77,17 +92,35 @@ class MtuiWorkerClient:
             if sys.platform == "win32":
                 creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
-            cmd = [
-                str(settings.mtui_python),
-                "-u",
-                str(worker_script),
-                "--mtui-root",
-                str(settings.mtui_root),
-                "--port",
-                "0",
-                "--token",
-                self._token,
-            ]
+            is_frozen_self = bool(
+                getattr(sys, "frozen", False)
+                and sys.executable
+                and os.path.normcase(os.path.abspath(str(settings.mtui_python)))
+                == os.path.normcase(os.path.abspath(sys.executable))
+            )
+            if is_frozen_self:
+                cmd = [
+                    str(settings.mtui_python),
+                    "--mtui-engine-worker",
+                    "--mtui-root",
+                    str(settings.mtui_root),
+                    "--port",
+                    "0",
+                    "--token",
+                    token,
+                ]
+            else:
+                cmd = [
+                    str(settings.mtui_python),
+                    "-u",
+                    str(worker_script),
+                    "--mtui-root",
+                    str(settings.mtui_root),
+                    "--port",
+                    "0",
+                    "--token",
+                    token,
+                ]
 
             proc = subprocess.Popen(
                 cmd,
@@ -102,39 +135,107 @@ class MtuiWorkerClient:
                 creationflags=creationflags,
             )
             self._proc = proc
+            self._token = token
             self._bound_root = settings.mtui_root
+            self._bound_python = settings.mtui_python
 
             if proc.stderr is not None:
                 threading.Thread(target=self._drain_stderr, args=(proc.stderr,), daemon=True).start()
 
-            deadline = time.monotonic() + startup_timeout_sec
-            ready_port: Optional[int] = None
-            while time.monotonic() < deadline:
-                if proc.poll() is not None:
-                    err_tail = "\n".join(self._stderr_ring)
-                    raise RuntimeError(
-                        f"MTUI Engine Worker exited prematurely (code {proc.returncode}):\n{err_tail}"
-                    )
-                line = proc.stdout.readline() if proc.stdout is not None else ""
-                if line and "MTUI_WORKER_READY" in line:
-                    json_part = line.split("MTUI_WORKER_READY", 1)[1].strip()
-                    info = json.loads(json_part)
-                    ready_port = int(info["port"])
-                    break
+            handshake_q: queue.Queue[Optional[str]] = queue.Queue()
 
-            if ready_port is None:
-                self.shutdown()
-                err_tail = "\n".join(self._stderr_ring)
-                raise TimeoutError(f"Timed out starting MTUI Engine Worker:\n{err_tail}")
+            def _read_stdout(pipe: Any) -> None:
+                handshake_done = False
+                try:
+                    for raw_line in iter(pipe.readline, ""):
+                        if not raw_line:
+                            break
+                        stripped = raw_line.rstrip("\r\n")
+                        if not handshake_done:
+                            handshake_q.put(stripped)
+                            if "MTUI_WORKER_READY" in stripped:
+                                handshake_done = True
+                        else:
+                            self._stderr_ring.append(stripped)
+                except Exception:
+                    pass
+                finally:
+                    if not handshake_done:
+                        handshake_q.put(None)
 
             if proc.stdout is not None:
-                threading.Thread(target=self._drain_stderr, args=(proc.stdout,), daemon=True).start()
+                threading.Thread(target=_read_stdout, args=(proc.stdout,), daemon=True).start()
+            else:
+                handshake_q.put(None)
+
+            deadline = time.monotonic() + max(0.1, float(startup_timeout_sec))
+            ready_port: Optional[int] = None
+            try:
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        err_tail = "\n".join(self._stderr_ring)
+                        raise TimeoutError(f"Timed out starting MTUI Engine Worker:\n{err_tail}")
+
+                    try:
+                        line = handshake_q.get(timeout=min(0.25, remaining))
+                    except queue.Empty:
+                        if proc.poll() is not None:
+                            err_tail = "\n".join(self._stderr_ring)
+                            raise RuntimeError(
+                                f"MTUI Engine Worker exited prematurely (code {proc.returncode}):\n{err_tail}"
+                            )
+                        continue
+
+                    if line is None:
+                        try:
+                            proc.wait(timeout=1.0)
+                        except Exception:
+                            pass
+                        err_tail = "\n".join(self._stderr_ring)
+                        raise RuntimeError(
+                            f"MTUI Engine Worker exited prematurely (code {proc.returncode}):\n{err_tail}"
+                        )
+
+                    if "MTUI_WORKER_READY" in line:
+                        json_part = line.split("MTUI_WORKER_READY", 1)[1].strip()
+                        try:
+                            info = json.loads(json_part)
+                            if not isinstance(info, dict):
+                                raise ValueError("READY payload must be a JSON object")
+                            parsed_port = int(info["port"])
+                            if not (1 <= parsed_port <= 65535):
+                                raise ValueError(f"Port out of valid range 1..65535: {parsed_port}")
+                        except Exception as parse_exc:
+                            err_tail = "\n".join(self._stderr_ring)
+                            raise RuntimeError(
+                                f"Invalid MTUI Engine Worker READY handshake ({line!r}): {parse_exc}\n{err_tail}"
+                            ) from parse_exc
+                        ready_port = parsed_port
+                        break
+                    else:
+                        self._stderr_ring.append(line)
+            except BaseException:
+                self.shutdown(expected_proc=proc)
+                raise
 
             self._port = ready_port
-            return ready_port
+            return proc, ready_port, token
 
-    def call(self, action: str, params: Optional[dict[str, Any]] = None, timeout_sec: float = 300.0) -> dict[str, Any]:
-        port = self.ensure_started()
+    def ensure_started(self, startup_timeout_sec: float = 45.0) -> int:
+        _, port, _ = self._ensure_started_instance(startup_timeout_sec=startup_timeout_sec)
+        return port
+
+    def _send_rpc(
+        self,
+        *,
+        proc: subprocess.Popen[str],
+        port: int,
+        token: str,
+        action: str,
+        params: Optional[dict[str, Any]],
+        timeout_sec: float,
+    ) -> dict[str, Any]:
         url = f"http://127.0.0.1:{port}/rpc"
         payload = json.dumps({"action": action, "params": params or {}}, ensure_ascii=False).encode("utf-8")
         req = urllib.request.Request(
@@ -142,12 +243,12 @@ class MtuiWorkerClient:
             data=payload,
             headers={
                 "Content-Type": "application/json; charset=utf-8",
-                "X-MTUI-Worker-Token": self._token,
+                "X-MTUI-Worker-Token": token,
             },
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+            with _LOOPBACK_OPENER.open(req, timeout=timeout_sec) as resp:
                 raw = resp.read().decode("utf-8")
                 parsed = json.loads(raw)
         except urllib.error.HTTPError as http_err:
@@ -158,14 +259,25 @@ class MtuiWorkerClient:
             except Exception:
                 msg = err_body
             raise RuntimeError(f"MTUI Worker error ({action}): {msg}") from http_err
-        except urllib.error.URLError as url_err:
+        except (urllib.error.URLError, http.client.HTTPException, ConnectionError, TimeoutError) as conn_err:
             err_tail = "\n".join(self._stderr_ring)
-            self.shutdown()
-            raise RuntimeError(f"MTUI Worker connection lost during {action}: {url_err}\n{err_tail}") from url_err
+            self.shutdown(expected_proc=proc)
+            raise RuntimeError(f"MTUI Worker connection lost during {action}: {conn_err}\n{err_tail}") from conn_err
 
         if not parsed.get("ok"):
             raise RuntimeError(parsed.get("error") or f"Worker action {action} failed")
         return parsed.get("data") or {}
+
+    def call(self, action: str, params: Optional[dict[str, Any]] = None, timeout_sec: float = 300.0) -> dict[str, Any]:
+        proc, port, token = self._ensure_started_instance()
+        return self._send_rpc(
+            proc=proc,
+            port=port,
+            token=token,
+            action=action,
+            params=params,
+            timeout_sec=timeout_sec,
+        )
 
     def detect_fonts(
         self,
@@ -182,44 +294,113 @@ class MtuiWorkerClient:
 
     def release_vram(self) -> dict[str, Any]:
         """Release cached GPU models inside the warm worker if running (no-op if worker is not started)."""
-        if not self.is_running:
-            return {"status": "idle", "worker_running": False, "unloaded": []}
-        return self.call("release_vram", {}, timeout_sec=30.0)
-
-    def shutdown(self) -> None:
         with self._lock:
+            if not self.is_running or self._proc is None or self._port is None or not self._token:
+                return {"status": "idle", "worker_running": False, "unloaded": []}
+            proc = self._proc
+            port = int(self._port)
+            token = self._token
+
+        url = f"http://127.0.0.1:{port}/rpc"
+        payload = b'{"action":"release_vram","params":{}}'
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={
+                "Content-Type": "application/json; charset=utf-8",
+                "X-MTUI-Worker-Token": token,
+            },
+            method="POST",
+        )
+        try:
+            with _LOOPBACK_OPENER.open(req, timeout=30.0) as resp:
+                raw = resp.read().decode("utf-8")
+                parsed = json.loads(raw)
+        except urllib.error.HTTPError as http_err:
+            if http_err.code == 503:
+                return {"status": "idle", "worker_running": False, "unloaded": []}
+            err_body = http_err.read().decode("utf-8", errors="replace")
+            try:
+                err_json = json.loads(err_body)
+                msg = err_json.get("error") or err_body
+            except Exception:
+                msg = err_body
+            raise RuntimeError(f"MTUI Worker error (release_vram): {msg}") from http_err
+        except (urllib.error.URLError, http.client.HTTPException, ConnectionError):
+            if proc.poll() is not None:
+                self.shutdown(expected_proc=proc)
+                return {"status": "idle", "worker_running": False, "unloaded": []}
+            self.shutdown(expected_proc=proc)
+            return {"status": "idle", "worker_running": False, "unloaded": []}
+
+        if not parsed.get("ok"):
+            raise RuntimeError(parsed.get("error") or "Worker action release_vram failed")
+        return parsed.get("data") or {}
+
+    def shutdown(self, expected_proc: Optional[subprocess.Popen[str]] = None) -> None:
+        with self._lock:
+            if expected_proc is not None and self._proc is not expected_proc:
+                return
             proc = self._proc
             port = self._port
             token = self._token
             self._proc = None
             self._port = None
             self._token = ""
+            self._bound_root = None
+            self._bound_python = None
 
         if proc is None:
             return
 
-        if proc.poll() is None and port is not None and token:
-            try:
-                req = urllib.request.Request(
-                    f"http://127.0.0.1:{port}/rpc",
-                    data=b'{"action":"shutdown"}',
-                    headers={
-                        "Content-Type": "application/json",
-                        "X-MTUI-Worker-Token": token,
-                    },
-                    method="POST",
-                )
-                urllib.request.urlopen(req, timeout=2.0).read()
-            except Exception:
-                pass
-
         try:
-            proc.wait(timeout=3.0)
-        except Exception:
-            try:
-                proc.kill()
-            except Exception:
-                pass
+            sent_shutdown = False
+            if proc.poll() is None and port is not None and token:
+                try:
+                    req = urllib.request.Request(
+                        f"http://127.0.0.1:{port}/rpc",
+                        data=b'{"action":"shutdown"}',
+                        headers={
+                            "Content-Type": "application/json",
+                            "X-MTUI-Worker-Token": token,
+                        },
+                        method="POST",
+                    )
+                    with _LOOPBACK_OPENER.open(req, timeout=3.0) as resp:
+                        resp.read()
+                    sent_shutdown = True
+                except Exception:
+                    pass
+
+            if sent_shutdown:
+                try:
+                    proc.wait(timeout=_SHUTDOWN_DRAIN_WAIT_SEC)
+                except Exception:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+                    try:
+                        proc.wait(timeout=2.0)
+                    except Exception:
+                        pass
+            else:
+                if proc.poll() is None:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+                try:
+                    proc.wait(timeout=2.0)
+                except Exception:
+                    pass
+        finally:
+            for pipe in (proc.stdout, proc.stderr, proc.stdin):
+                if pipe is not None:
+                    try:
+                        pipe.close()
+                    except Exception:
+                        pass
 
 
 _WORKER_CLIENT: Optional[MtuiWorkerClient] = None

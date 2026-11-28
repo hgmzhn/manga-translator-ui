@@ -12,6 +12,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import collections
+import contextlib
 import copy
 import json
 import math
@@ -22,12 +24,174 @@ import tempfile
 import threading
 import time
 import traceback
+from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Optional
 
 _WINDOWS_TRANSIENT_REPLACE_WINERRORS = frozenset({5, 32})
 _ATOMIC_REPLACE_RETRY_DELAYS = (0.02, 0.05, 0.1, 0.15, 0.2, 0.3)
+_ORIG_SUBPROCESS_RUN = subprocess.run
+_SHUTDOWN_DRAIN_TIMEOUT_SEC = 10.0
+
+
+@contextlib.contextmanager
+def _acquire_page_edit_lock(
+    target: str | Path,
+    timeout_sec: float = 30.0,
+) -> Iterator[Any]:
+    lock_fn = None
+    try:
+        from mtui_mcp import project_store as _ps
+
+        lock_fn = getattr(_ps, "page_edit_lock", None)
+    except Exception:
+        lock_fn = None
+    if callable(lock_fn):
+        with lock_fn(target, timeout_sec=timeout_sec) as locked:
+            yield locked
+    else:
+        yield target
+
+
+def _regions_list_from_entry(val: Any) -> Optional[list[dict[str, Any]]]:
+    if isinstance(val, dict):
+        regs = val.get("regions", [])
+        return regs if isinstance(regs, list) else []
+    if isinstance(val, list):
+        return val
+    return None
+
+
+def _select_page_entry_from_raw_json(
+    raw_json: Any,
+    source_path: str | Path,
+    *,
+    json_path: Optional[str | Path] = None,
+) -> tuple[Optional[str], list[dict[str, Any]]]:
+    """Match ONLY the entry belonging to ``source_path`` (supporting dict & legacy list entries)."""
+    if not isinstance(raw_json, dict) or not raw_json:
+        return None, []
+
+    abs_src = os.path.abspath(str(source_path))
+    if abs_src in raw_json:
+        regs = _regions_list_from_entry(raw_json[abs_src])
+        if regs is not None:
+            return abs_src, regs
+
+    norm_target = os.path.normcase(abs_src)
+    for k, v in raw_json.items():
+        if not isinstance(k, str):
+            continue
+        regs = _regions_list_from_entry(v)
+        if regs is None:
+            continue
+        try:
+            if os.path.normcase(os.path.abspath(k)) == norm_target:
+                return k, regs
+        except Exception:
+            continue
+
+    target_base = os.path.normcase(os.path.basename(abs_src))
+    base_matches = [
+        k
+        for k, v in raw_json.items()
+        if isinstance(k, str)
+        and _regions_list_from_entry(v) is not None
+        and os.path.normcase(os.path.basename(k)) == target_base
+    ]
+    if len(base_matches) == 1:
+        matched_k = base_matches[0]
+        return matched_k, _regions_list_from_entry(raw_json[matched_k]) or []
+
+    if len(raw_json) == 1 and json_path is not None:
+        jp_name = os.path.basename(str(json_path))
+        src_stem = os.path.splitext(os.path.basename(abs_src))[0]
+        if os.path.normcase(jp_name) == os.path.normcase(f"{src_stem}_translations.json"):
+            only_k = next(iter(raw_json.keys()))
+            only_regs = _regions_list_from_entry(raw_json[only_k])
+            if isinstance(only_k, str) and only_regs is not None:
+                return only_k, only_regs
+
+    return None, []
+
+
+def _run_subprocess_bounded_tails(
+    cmd: list[str],
+    *,
+    cwd: str,
+    env: dict[str, str],
+    timeout_sec: int,
+    max_chars: int = 4000,
+) -> tuple[int, str, str]:
+    """Run subprocess while streaming stdout/stderr into bounded tail ring buffers."""
+    creationflags = 0
+    if sys.platform == "win32":
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+    proc = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        creationflags=creationflags,
+    )
+
+    def _make_tail_reader(pipe: Any, sink: dict[str, str], key: str) -> threading.Thread:
+        def _reader() -> None:
+            chunks: collections.deque[str] = collections.deque()
+            total_len = 0
+            try:
+                if pipe is not None:
+                    while True:
+                        piece = pipe.read(4096)
+                        if not piece:
+                            break
+                        chunks.append(piece)
+                        total_len += len(piece)
+                        while len(chunks) > 1 and (total_len - len(chunks[0])) >= max_chars:
+                            total_len -= len(chunks.popleft())
+            except Exception:
+                pass
+            sink[key] = "".join(chunks)[-max_chars:]
+
+        t = threading.Thread(target=_reader, daemon=True)
+        t.start()
+        return t
+
+    tails: dict[str, str] = {"stdout": "", "stderr": ""}
+    t_out = _make_tail_reader(proc.stdout, tails, "stdout")
+    t_err = _make_tail_reader(proc.stderr, tails, "stderr")
+    try:
+        proc.wait(timeout=timeout_sec)
+    except subprocess.TimeoutExpired:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        try:
+            proc.wait(timeout=5.0)
+        except Exception:
+            pass
+        t_out.join(timeout=2.0)
+        t_err.join(timeout=2.0)
+        raise
+    finally:
+        t_out.join(timeout=5.0)
+        t_err.join(timeout=5.0)
+        for p in (proc.stdout, proc.stderr):
+            if p is not None:
+                try:
+                    p.close()
+                except Exception:
+                    pass
+
+    return int(proc.returncode or 0), tails["stdout"], tails["stderr"]
 
 
 def _atomic_replace_file(
@@ -75,16 +239,70 @@ class EngineRuntime:
     def __init__(self, mtui_root: str):
         self.mtui_root = os.path.abspath(mtui_root)
         self.lock = threading.RLock()
+        self._state_cond = threading.Condition(threading.Lock())
+        self.shutting_down = False
+        self._in_flight_requests = 0
         self.last_used = time.time()
         self._initialized = False
         self._export_service = None
         self._bubble_mask_cache: dict[tuple[str, int], Any] = {}
 
+    def _runtime_lock(self) -> threading.RLock:
+        lck = getattr(self, "lock", None)
+        if lck is None:
+            lck = threading.RLock()
+            self.lock = lck
+        return lck
+
+    def _get_state_cond(self) -> threading.Condition:
+        cond = getattr(self, "_state_cond", None)
+        if cond is None:
+            cond = threading.Condition(threading.Lock())
+            self._state_cond = cond
+            if not hasattr(self, "shutting_down"):
+                self.shutting_down = False
+            if not hasattr(self, "_in_flight_requests"):
+                self._in_flight_requests = 0
+        return cond
+
+    def begin_request(self) -> bool:
+        cond = self._get_state_cond()
+        with cond:
+            if getattr(self, "shutting_down", False):
+                return False
+            self._in_flight_requests = int(getattr(self, "_in_flight_requests", 0)) + 1
+            return True
+
+    def end_request(self) -> None:
+        cond = self._get_state_cond()
+        with cond:
+            self._in_flight_requests = max(0, int(getattr(self, "_in_flight_requests", 0)) - 1)
+            if self._in_flight_requests == 0:
+                cond.notify_all()
+
+    def mark_shutting_down(self) -> None:
+        cond = self._get_state_cond()
+        with cond:
+            self.shutting_down = True
+            cond.notify_all()
+
+    def wait_for_inflight_drain(self, timeout_sec: float = _SHUTDOWN_DRAIN_TIMEOUT_SEC) -> bool:
+        cond = self._get_state_cond()
+        deadline = time.monotonic() + max(0.0, float(timeout_sec))
+        with cond:
+            self.shutting_down = True
+            while int(getattr(self, "_in_flight_requests", 0)) > 0:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                cond.wait(timeout=remaining)
+            return True
+
     def ensure_initialized(self) -> None:
-        if self._initialized:
+        if getattr(self, "_initialized", False):
             return
-        with self.lock:
-            if self._initialized:
+        with self._runtime_lock():
+            if getattr(self, "_initialized", False):
                 return
             # Load PyTorch before PyQt6 to prevent Windows DLL search-path collision (`c10.dll`, pytorch#166628)
             try:
@@ -105,7 +323,8 @@ class EngineRuntime:
             from services import ServiceManager
             from services.export_service import ExportService
 
-            ServiceManager.initialize(self.mtui_root, root_widget=None)
+            if not ServiceManager.initialize(self.mtui_root, root_widget=None):
+                raise RuntimeError(f"ServiceManager.initialize failed for mtui_root={self.mtui_root!r}")
             self._export_service = ExportService()
             self._initialized = True
 
@@ -185,50 +404,83 @@ class EngineRuntime:
         json_path: str,
         export_dir: str,
         output_path: Optional[str] = None,
+        source_path: Optional[str] = None,
     ) -> None:
         if not json_path or not os.path.isfile(json_path):
             return
-        tmp = ""
-        try:
-            with open(json_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if not isinstance(data, dict) or not data:
+        lock_target = source_path or json_path
+        with _acquire_page_edit_lock(lock_target):
+            if not os.path.isfile(json_path):
                 return
-            changed = False
-            norm_dir = os.path.normpath(export_dir)
-            norm_out = os.path.normpath(output_path) if output_path else None
-            for k, val in data.items():
-                if not isinstance(val, dict):
-                    continue
-                if val.get("last_export_dir") != norm_dir:
-                    val["last_export_dir"] = norm_dir
-                    changed = True
-                if norm_out and val.get("last_output_path") != norm_out:
-                    val["last_output_path"] = norm_out
-                    changed = True
-            if changed:
-                fd, tmp = tempfile.mkstemp(
-                    prefix=f".{os.path.basename(json_path)}.",
-                    suffix=".tmp",
-                    dir=os.path.dirname(json_path),
-                )
-                with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
-                _atomic_replace_file(tmp, json_path)
-                tmp = ""
-        except Exception:
-            pass
-        finally:
-            if tmp and os.path.exists(tmp):
-                try:
-                    os.remove(tmp)
-                except OSError:
-                    pass
+            tmp = ""
+            try:
+                with open(json_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if not isinstance(data, dict) or not data:
+                    return
+
+                target_keys: list[str] = []
+                if source_path:
+                    matched_k, _ = _select_page_entry_from_raw_json(
+                        data,
+                        source_path,
+                        json_path=json_path,
+                    )
+                    if matched_k is not None and isinstance(data.get(matched_k), dict):
+                        target_keys = [matched_k]
+                else:
+                    dict_keys = [k for k, v in data.items() if isinstance(k, str) and isinstance(v, dict)]
+                    if len(dict_keys) == 1:
+                        target_keys = dict_keys
+                    elif output_path:
+                        out_stem = os.path.normcase(os.path.splitext(os.path.basename(output_path))[0])
+                        stem_matches = [
+                            k
+                            for k in dict_keys
+                            if os.path.normcase(os.path.splitext(os.path.basename(k))[0]) == out_stem
+                        ]
+                        if len(stem_matches) == 1:
+                            target_keys = stem_matches
+
+                if not target_keys:
+                    return
+
+                changed = False
+                norm_dir = os.path.normpath(export_dir)
+                norm_out = os.path.normpath(output_path) if output_path else None
+                for k in target_keys:
+                    val = data.get(k)
+                    if not isinstance(val, dict):
+                        continue
+                    if val.get("last_export_dir") != norm_dir:
+                        val["last_export_dir"] = norm_dir
+                        changed = True
+                    if norm_out and val.get("last_output_path") != norm_out:
+                        val["last_output_path"] = norm_out
+                        changed = True
+                if changed:
+                    fd, tmp = tempfile.mkstemp(
+                        prefix=f".{os.path.basename(json_path)}.",
+                        suffix=".tmp",
+                        dir=os.path.dirname(json_path),
+                    )
+                    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+                        json.dump(data, f, ensure_ascii=False, indent=2)
+                        f.flush()
+                        os.fsync(f.fileno())
+                    _atomic_replace_file(tmp, json_path)
+                    tmp = ""
+            finally:
+                if tmp and os.path.exists(tmp):
+                    try:
+                        os.remove(tmp)
+                    except OSError:
+                        pass
 
     def render_page(self, params: dict[str, Any]) -> dict[str, Any]:
         """Render a page using manga-translator-ui's exact ExportService + Qt6 offscreen engine."""
         self.ensure_initialized()
-        with self.lock:
+        with self._runtime_lock():
             self.last_used = time.time()
             t0 = time.perf_counter()
 
@@ -369,28 +621,45 @@ class EngineRuntime:
             if res.error:
                 raise RuntimeError(res.error)
 
+            metadata_saved = True
+            metadata_error: Optional[str] = None
             if not bool(params.get("proof_only", False)):
-                self._update_translation_map(output_path, source_path)
-                self._persist_last_export_dir(
-                    json_path,
-                    os.path.dirname(output_path),
-                    output_path=output_path,
-                )
+                meta_errors: list[str] = []
+                try:
+                    self._update_translation_map(output_path, source_path)
+                except Exception as exc:
+                    meta_errors.append(f"translation_map: {exc}")
+                try:
+                    self._persist_last_export_dir(
+                        json_path,
+                        os.path.dirname(output_path),
+                        output_path=output_path,
+                        source_path=source_path,
+                    )
+                except Exception as exc:
+                    meta_errors.append(f"page_json: {exc}")
+                if meta_errors:
+                    metadata_saved = False
+                    metadata_error = "; ".join(meta_errors)
 
-            return {
-                "status": "ok",
+            out_payload: dict[str, Any] = {
+                "status": "ok" if metadata_saved else "partial",
                 "output_path": output_path,
                 "export_base_kind": export_base.kind,
                 "region_count": len(enhanced_regions),
                 "export_psd": bool(export_psd or psd_script_only),
                 "psd_script_only": bool(config.get("cli", {}).get("psd_script_only", False)),
+                "metadata_saved": metadata_saved,
                 "elapsed_sec": round(time.perf_counter() - t0, 3),
             }
+            if metadata_error is not None:
+                out_payload["metadata_error"] = metadata_error
+            return out_payload
 
     def incremental_neural_inpaint(self, params: dict[str, Any]) -> dict[str, Any]:
         """Run incremental crop-box neural inpainting (`lama_large` / `lama_mpe`) matching `EditorControllerInpaintService`."""
         self.ensure_initialized()
-        with self.lock:
+        with self._runtime_lock():
             self.last_used = time.time()
             t0 = time.perf_counter()
 
@@ -410,6 +679,7 @@ class EngineRuntime:
             inpainted_path = os.path.abspath(params["inpainted_path"])
             padding = max(16, int(params.get("padding", 50)))
             full_reinpaint = bool(params.get("full_reinpaint", False))
+            prev_mask_synced = bool(params.get("prev_mask_synced", True))
 
             with Image.open(display_base_path) as im:
                 base_rgb = np.array(im.convert("RGB"), dtype=np.uint8, copy=True)
@@ -431,6 +701,14 @@ class EngineRuntime:
             current_mask = _decode_b64_mask(params.get("current_mask_b64"))
             added_mask = _decode_b64_mask(params.get("added_mask_b64"))
             removed_mask = _decode_b64_mask(params.get("removed_mask_b64"))
+            if params.get("prev_inpainted_mask_b64") is not None:
+                prev_inp_mask = _decode_b64_mask(params.get("prev_inpainted_mask_b64"))
+                added_mask = np.where((added_mask > 0) | ((current_mask > 0) & (prev_inp_mask == 0)), 255, 0).astype(
+                    np.uint8
+                )
+                removed_mask = np.where(
+                    (removed_mask > 0) | ((prev_inp_mask > 0) & (current_mask == 0)), 255, 0
+                ).astype(np.uint8)
 
             cfg = self._get_config_dict()
             inp_cfg_dict = cfg.get("inpainter") or {}
@@ -496,7 +774,12 @@ class EngineRuntime:
                 (blur_enum is not None and inpainter_enum == blur_enum)
                 or str(getattr(inpainter_enum, "value", inpainter_enum)).lower() == "blur"
             )
-            has_prev = os.path.isfile(inpainted_path) and not full_reinpaint and not is_blur_inpainter
+            has_prev = (
+                os.path.isfile(inpainted_path)
+                and not full_reinpaint
+                and not is_blur_inpainter
+                and prev_mask_synced
+            )
             prev_rgb: Optional[np.ndarray] = None
             if has_prev:
                 with Image.open(inpainted_path) as pim:
@@ -534,12 +817,12 @@ class EngineRuntime:
                     unmasked = current_mask == 0
                     final_rgb[unmasked] = base_rgb[unmasked]
 
-            self._export_service.save_inpainted_image(display_base_path, final_rgb, cfg)
+            saved_inpainted_path = self._export_service.save_inpainted_image(display_base_path, final_rgb, cfg)
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             return {
                 "status": "ok",
-                "inpainted_path": inpainted_path,
+                "inpainted_path": str(saved_inpainted_path or inpainted_path),
                 "inpainter": inpainter_enum.value,
                 "blur_radius": clamped_blur,
                 "device": device,
@@ -550,7 +833,7 @@ class EngineRuntime:
     def ocr_or_translate_regions(self, params: dict[str, Any]) -> dict[str, Any]:
         """Run native OCR and/or Translator on specified regions or custom boxes."""
         self.ensure_initialized()
-        with self.lock:
+        with self._runtime_lock():
             self.last_used = time.time()
             t0 = time.perf_counter()
 
@@ -565,6 +848,17 @@ class EngineRuntime:
             from manga_translator.utils import Quadrilateral
 
             display_base_path = os.path.abspath(params["display_base_path"])
+            raw_source_param = params.get("source_path")
+            if raw_source_param:
+                source_ref_path = os.path.abspath(str(raw_source_param))
+            else:
+                try:
+                    from mtui_mcp.path_resolver import resolve_source_image_path
+
+                    source_ref_path = str(resolve_source_image_path(display_base_path))
+                except Exception:
+                    source_ref_path = display_base_path
+
             json_path = params.get("json_path")
             run_ocr = bool(params.get("run_ocr", True))
             run_translate = bool(params.get("run_translate", False))
@@ -581,18 +875,24 @@ class EngineRuntime:
             im_h, im_w = img_rgb.shape[:2]
 
             raw_json = None
+            matched_page_key: Optional[str] = None
             regions_list: list[dict[str, Any]] = []
             if json_path and os.path.isfile(json_path):
                 with open(json_path, "r", encoding="utf-8") as f:
                     raw_json = json.load(f)
-                first_k = next(iter(raw_json.keys()))
-                regions_list = raw_json[first_k].get("regions", [])
+                matched_page_key, regions_list = _select_page_entry_from_raw_json(
+                    raw_json,
+                    source_ref_path,
+                    json_path=json_path,
+                )
 
             items_to_process: list[dict[str, Any]] = []
             for r_idx in region_indices:
                 idx = int(r_idx)
                 if 0 <= idx < len(regions_list):
                     reg = regions_list[idx]
+                    if not isinstance(reg, dict):
+                        continue
                     lines = reg.get("lines") or []
                     pts_all = [
                         (float(pt[0]), float(pt[1]))
@@ -633,21 +933,34 @@ class EngineRuntime:
                         [[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
                         dtype=np.float32,
                     )
+                    existing_prob = reg.get("prob")
                     items_to_process.append(
                         {
                             "region_index": idx,
+                            "region_uid": str(reg.get("region_uid") or "").strip() or None,
+                            "orig_lines": copy.deepcopy(lines),
                             "pts": box_pts,
                             "text": str(reg.get("text", "")),
+                            "prob": 1.0 if existing_prob is None else float(existing_prob),
                         }
                     )
 
             for cbox in custom_boxes:
                 x1, y1, x2, y2 = (float(v) for v in cbox[:4])
                 box_pts = np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]], dtype=np.float32)
-                items_to_process.append({"region_index": None, "pts": box_pts, "text": ""})
+                items_to_process.append(
+                    {
+                        "region_index": None,
+                        "region_uid": None,
+                        "orig_lines": None,
+                        "pts": box_pts,
+                        "text": "",
+                        "prob": 1.0,
+                    }
+                )
 
             if not items_to_process:
-                return {"status": "ok", "results": [], "elapsed_sec": 0.0}
+                return {"status": "ok", "committed": False, "results": [], "elapsed_sec": 0.0}
 
             cfg_svc = get_config_service()
             runtime_cfg = None
@@ -711,7 +1024,8 @@ class EngineRuntime:
                     )
                     for it, q_res in zip(items_to_process, ocr_out):
                         it["text"] = str(getattr(q_res, "text", "") or "")
-                        it["prob"] = float(getattr(q_res, "prob", 1.0) or 1.0)
+                        raw_prob = getattr(q_res, "prob", None)
+                        it["prob"] = 1.0 if raw_prob is None else float(raw_prob)
 
                 if run_translate:
                     trans_svc = get_translation_service()
@@ -740,8 +1054,17 @@ class EngineRuntime:
                             regions=regions_list or None,
                         )
                     )
-                    for it, tr_item in zip(items_to_process, tr_results):
-                        it["translation"] = tr_item.translated_text if tr_item else ""
+                    tr_list = list(tr_results or [])
+                    if len(tr_list) < len(items_to_process):
+                        tr_list.extend([None] * (len(items_to_process) - len(tr_list)))
+                    for it, tr_item in zip(items_to_process, tr_list):
+                        tr_text = getattr(tr_item, "translated_text", None) if tr_item is not None else None
+                        if tr_text is not None:
+                            it["translation"] = str(tr_text)
+                            it["translated"] = True
+                        else:
+                            it["translation"] = None
+                            it["translated"] = False
             finally:
                 loop.close()
                 try:
@@ -753,44 +1076,91 @@ class EngineRuntime:
                     pass
 
             out_records: list[dict[str, Any]] = []
-            changed_json = False
             for it in items_to_process:
-                rec = {
+                rec: dict[str, Any] = {
                     "region_index": it["region_index"],
                     "source_text": it.get("text", ""),
                     "ocr_prob": round(float(it.get("prob", 1.0)), 3),
                     "translation": it.get("translation"),
                 }
+                if run_translate:
+                    rec["translated"] = bool(it.get("translated", False))
                 out_records.append(rec)
-                if commit and raw_json is not None and it["region_index"] is not None:
-                    reg = regions_list[it["region_index"]]
-                    if run_ocr and it.get("text"):
-                        reg["text"] = it["text"]
-                        reg["texts"] = [it["text"]]
-                    if run_translate and it.get("translation") is not None:
-                        br_t = str(it["translation"]).replace("\n", "[BR]")
-                        reg["translation"] = br_t
-                        reg["translation_raw"] = br_t
-                        reg.pop("translation_rich", None)
-                    changed_json = True
 
-            if commit and changed_json and json_path:
-                fd, tmp = tempfile.mkstemp(
-                    prefix=f".{os.path.basename(json_path)}.",
-                    suffix=".tmp",
-                    dir=os.path.dirname(json_path),
-                )
-                try:
-                    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
-                        json.dump(raw_json, f, ensure_ascii=False, indent=2)
-                    _atomic_replace_file(tmp, json_path)
-                    tmp = ""
-                finally:
-                    if tmp and os.path.exists(tmp):
-                        try:
-                            os.remove(tmp)
-                        except OSError:
-                            pass
+            changed_json = False
+            has_region_commits = any(
+                it["region_index"] is not None
+                and ((run_ocr and bool(it.get("text"))) or (run_translate and it.get("translation") is not None))
+                for it in items_to_process
+            )
+            if commit and has_region_commits and json_path and matched_page_key is not None:
+                with _acquire_page_edit_lock(source_ref_path or json_path):
+                    if os.path.isfile(json_path):
+                        with open(json_path, "r", encoding="utf-8") as f:
+                            latest_json = json.load(f)
+                        latest_key, latest_regions = _select_page_entry_from_raw_json(
+                            latest_json,
+                            source_ref_path,
+                            json_path=json_path,
+                        )
+                        if latest_key is not None:
+                            for it in items_to_process:
+                                r_idx = it["region_index"]
+                                if r_idx is None:
+                                    continue
+                                target_reg: Optional[dict[str, Any]] = None
+                                r_uid = it.get("region_uid")
+                                if r_uid:
+                                    for cand_reg in latest_regions:
+                                        if isinstance(cand_reg, dict) and str(cand_reg.get("region_uid") or "") == r_uid:
+                                            target_reg = cand_reg
+                                            break
+                                if target_reg is None and 0 <= r_idx < len(latest_regions):
+                                    cand_at_idx = latest_regions[r_idx]
+                                    if isinstance(cand_at_idx, dict) and (
+                                        cand_at_idx.get("lines") == it.get("orig_lines")
+                                        or not r_uid
+                                    ):
+                                        target_reg = cand_at_idx
+                                if target_reg is None and it.get("orig_lines") is not None:
+                                    for cand_reg in latest_regions:
+                                        if isinstance(cand_reg, dict) and cand_reg.get("lines") == it.get("orig_lines"):
+                                            target_reg = cand_reg
+                                            break
+                                if target_reg is None:
+                                    continue
+
+                                if run_ocr and it.get("text"):
+                                    target_reg["text"] = it["text"]
+                                    target_reg["texts"] = [it["text"]]
+                                    target_reg["prob"] = float(it.get("prob", 1.0))
+                                    changed_json = True
+                                if run_translate and it.get("translation") is not None:
+                                    br_t = str(it["translation"]).replace("\n", "[BR]")
+                                    target_reg["translation"] = br_t
+                                    target_reg["translation_raw"] = br_t
+                                    target_reg.pop("translation_rich", None)
+                                    changed_json = True
+
+                            if changed_json:
+                                fd, tmp = tempfile.mkstemp(
+                                    prefix=f".{os.path.basename(json_path)}.",
+                                    suffix=".tmp",
+                                    dir=os.path.dirname(json_path),
+                                )
+                                try:
+                                    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+                                        json.dump(latest_json, f, ensure_ascii=False, indent=2)
+                                        f.flush()
+                                        os.fsync(f.fileno())
+                                    _atomic_replace_file(tmp, json_path)
+                                    tmp = ""
+                                finally:
+                                    if tmp and os.path.exists(tmp):
+                                        try:
+                                            os.remove(tmp)
+                                        except OSError:
+                                            pass
 
             return {
                 "status": "ok",
@@ -805,7 +1175,7 @@ class EngineRuntime:
 
         import torch
 
-        with self.lock:
+        with self._runtime_lock():
             unloaded: list[str] = []
             try:
                 from manga_translator import inpainting as mt_inpainting
@@ -830,7 +1200,7 @@ class EngineRuntime:
             except Exception:
                 pass
 
-            if self._initialized:
+            if getattr(self, "_initialized", False):
                 try:
                     from services import get_ocr_service
 
@@ -893,72 +1263,88 @@ class EngineRuntime:
 
     def run_cli_pipeline(self, params: dict[str, Any]) -> dict[str, Any]:
         """Execute `python -m manga_translator local` in a clean child process for batch/fresh translation."""
-        self.last_used = time.time()
-        t0 = time.perf_counter()
-        # Flush warm worker GPU models first so the child batch process never collides on 8GB VRAM
-        try:
-            self.release_vram()
-        except Exception:
-            pass
+        with self._runtime_lock():
+            self.last_used = time.time()
+            t0 = time.perf_counter()
+            # Flush warm worker GPU models first so the child batch process never collides on 8GB VRAM
+            try:
+                self.release_vram()
+            except Exception:
+                pass
 
-        inputs = params.get("inputs") or []
-        if isinstance(inputs, str):
-            inputs = [inputs]
-        if not inputs:
-            raise ValueError("inputs list is required")
+            inputs = params.get("inputs") or []
+            if isinstance(inputs, str):
+                inputs = [inputs]
+            if not inputs:
+                raise ValueError("inputs list is required")
 
-        cmd = [sys.executable, "-m", "manga_translator", "local", "-i", *[str(x) for x in inputs]]
-        if params.get("output_dir"):
-            cmd.extend(["-o", str(params["output_dir"])])
-        if params.get("config_path"):
-            cmd.extend(["--config", str(params["config_path"])])
-        if params.get("overwrite", True):
-            cmd.append("--overwrite")
-        if params.get("use_gpu") is True:
-            cmd.append("--use-gpu")
-        if params.get("disable_onnx_gpu") is True:
-            cmd.append("--disable-onnx-gpu")
-        if params.get("output_format"):
-            cmd.extend(["--format", str(params["output_format"])])
-        if params.get("batch_size") is not None:
-            cmd.extend(["--batch-size", str(int(params["batch_size"]))])
-        if params.get("attempts") is not None:
-            cmd.extend(["--attempts", str(int(params["attempts"]))])
-        if bool(params.get("subprocess") or params.get("use_subprocess")):
-            cmd.append("--subprocess")
-        if params.get("memory_limit") is not None:
-            cmd.extend(["--memory-limit", str(int(params["memory_limit"]))])
-        if params.get("memory_percent") is not None:
-            cmd.extend(["--memory-percent", str(int(round(float(params["memory_percent"]))))])
-        if params.get("batch_per_restart") is not None:
-            cmd.extend(["--batch-per-restart", str(int(params["batch_per_restart"]))])
+            if getattr(sys, "frozen", False):
+                cmd = [sys.executable, "--mtui-cli-local", "local", "-i", *[str(x) for x in inputs]]
+            else:
+                cmd = [sys.executable, "-m", "manga_translator", "local", "-i", *[str(x) for x in inputs]]
+            if params.get("output_dir"):
+                cmd.extend(["-o", str(params["output_dir"])])
+            if params.get("config_path"):
+                cmd.extend(["--config", str(params["config_path"])])
+            if params.get("overwrite", True):
+                cmd.append("--overwrite")
+            if params.get("use_gpu") is True:
+                cmd.append("--use-gpu")
+            if params.get("disable_onnx_gpu") is True:
+                cmd.append("--disable-onnx-gpu")
+            if params.get("output_format"):
+                cmd.extend(["--format", str(params["output_format"])])
+            if params.get("batch_size") is not None:
+                cmd.extend(["--batch-size", str(int(params["batch_size"]))])
+            if params.get("attempts") is not None:
+                cmd.extend(["--attempts", str(int(params["attempts"]))])
+            if bool(params.get("subprocess") or params.get("use_subprocess")):
+                cmd.append("--subprocess")
+            if params.get("memory_limit") is not None:
+                cmd.extend(["--memory-limit", str(int(params["memory_limit"]))])
+            if params.get("memory_percent") is not None:
+                cmd.extend(["--memory-percent", str(int(round(float(params["memory_percent"]))))])
+            if params.get("batch_per_restart") is not None:
+                cmd.extend(["--batch-per-restart", str(int(params["batch_per_restart"]))])
 
-        env = os.environ.copy()
-        env["PYTHONIOENCODING"] = "utf-8"
-        env["TQDM_DISABLE"] = "1"
+            env = os.environ.copy()
+            env["PYTHONIOENCODING"] = "utf-8"
+            env["TQDM_DISABLE"] = "1"
+            timeout_sec = int(params.get("timeout_sec", 1800))
 
-        proc = subprocess.run(
-            cmd,
-            cwd=self.mtui_root,
-            env=env,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=int(params.get("timeout_sec", 1800)),
-        )
-        tail_out = (proc.stdout or "")[-4000:]
-        tail_err = (proc.stderr or "")[-4000:]
-        if proc.returncode != 0:
-            raise RuntimeError(
-                f"manga_translator local exited with code {proc.returncode}:\nSTDOUT:\n{tail_out}\nSTDERR:\n{tail_err}"
-            )
-        return {
-            "status": "ok",
-            "returncode": proc.returncode,
-            "elapsed_sec": round(time.perf_counter() - t0, 2),
-            "stdout_tail": tail_out,
-        }
+            if subprocess.run is not _ORIG_SUBPROCESS_RUN:
+                proc = subprocess.run(
+                    cmd,
+                    cwd=self.mtui_root,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=timeout_sec,
+                )
+                returncode = int(proc.returncode or 0)
+                tail_out = (proc.stdout or "")[-4000:]
+                tail_err = (proc.stderr or "")[-4000:]
+            else:
+                returncode, tail_out, tail_err = _run_subprocess_bounded_tails(
+                    cmd,
+                    cwd=self.mtui_root,
+                    env=env,
+                    timeout_sec=timeout_sec,
+                    max_chars=4000,
+                )
+
+            if returncode != 0:
+                raise RuntimeError(
+                    f"manga_translator local exited with code {returncode}:\nSTDOUT:\n{tail_out}\nSTDERR:\n{tail_err}"
+                )
+            return {
+                "status": "ok",
+                "returncode": returncode,
+                "elapsed_sec": round(time.perf_counter() - t0, 2),
+                "stdout_tail": tail_out,
+            }
 
     def detect_fonts(self, params: dict[str, Any]) -> dict[str, Any]:
         """Run local YuzuMarker ResNet-50 4x Ensemble font detection across a page or chapter and free GPU VRAM."""
@@ -990,175 +1376,238 @@ class EngineRuntime:
             region_center,
         )
 
-        self.last_used = time.time()
-        t0 = time.perf_counter()
-        target_path = str(params.get("target_path") or "").strip()
-        if not target_path:
-            raise ValueError("target_path is required for detect_fonts")
-        force_refresh = bool(params.get("force_refresh", False))
+        with self._runtime_lock():
+            self.last_used = time.time()
+            t0 = time.perf_counter()
+            target_path = str(params.get("target_path") or "").strip()
+            if not target_path:
+                raise ValueError("target_path is required for detect_fonts")
+            force_refresh = bool(params.get("force_refresh", False))
 
-        mdir = Path(self.mtui_root) / "models" / "yuzumarker"
-        labels_path = mdir / "font-labels-ex.json"
-        ckpts = sorted([p for p in mdir.glob("*.ckpt") if p.stat().st_size > 300_000_000], key=lambda p: p.name)
-        if not labels_path.is_file() or not ckpts:
-            raise FileNotFoundError(
-                f"YuzuMarker models not found under {mdir}. Expected font-labels-ex.json and >=1 ResNet-50 4x .ckpt."
-            )
-
-        pages = list_manga_pages_in_path(target_path)
-        if not pages:
-            return {"status": "ok", "scanned_pages": 0, "scanned_regions": 0, "cached_hits": 0, "elapsed_sec": 0.0}
-
-        # Group pages by work_dir so each work_dir gets its own `.yuzumarker_font_cache.json`
-        caches_by_work: dict[Path, dict[str, Any]] = {}
-        dirty_work_dirs: set[Path] = set()
-        pages_needing_gpu: list[Any] = []
-        cached_hits = 0
-
-        for pp in pages:
-            if not pp.json_exists or not pp.display_base_path.is_file():
-                continue
-            if pp.work_dir not in caches_by_work:
-                loaded = load_font_detection_cache(pp.work_dir)
-                try:
-                    loaded_ver = int(loaded.get("version") or 1)
-                except (TypeError, ValueError):
-                    loaded_ver = 1
-                if not isinstance(loaded.get("pages"), dict) or loaded_ver < CACHE_VERSION:
-                    loaded = {"version": CACHE_VERSION, "ensemble_ckpts": [c.name for c in ckpts], "pages": {}}
-                else:
-                    loaded["version"] = CACHE_VERSION
-                caches_by_work[pp.work_dir] = loaded
-            _, img_data = load_page_json(pp)
-            regs = img_data.get("regions", [])
-            if not regs:
-                continue
-            p_cache = caches_by_work[pp.work_dir]["pages"].get(pp.source_path.stem) or {}
-            by_sig = p_cache.get("by_bbox_sig") or {}
-            if not force_refresh and all(
-                (region_bbox_xyxy(r)[2] - region_bbox_xyxy(r)[0] < 4)
-                or (region_bbox_xyxy(r)[3] - region_bbox_xyxy(r)[1] < 4)
-                or (region_bbox_signature(region_bbox_xyxy(r)) in by_sig)
-                for r in regs
-            ):
-                cached_hits += len(regs)
-            else:
-                pages_needing_gpu.append(pp)
-
-        scanned_regions = 0
-        nets: list[Any] = []
-        fam_mat = None
-        wt_mat = None
-
-        def _crop_exact_data_py(rgb_arr: np.ndarray, bbox: list[float], delta: float) -> torch.Tensor:
-            ih, iw = rgb_arr.shape[:2]
-            x0 = max(0.0, min(float(iw - 1), float(bbox[0])))
-            y0 = max(0.0, min(float(ih - 1), float(bbox[1])))
-            x1 = max(x0 + 1.0, min(float(iw), float(bbox[2])))
-            y1 = max(y0 + 1.0, min(float(ih), float(bbox[3])))
-            bw, bh = x1 - x0, y1 - y0
-            x0 = max(0, int(round(x0 - delta * bw)))
-            y0 = max(0, int(round(y0 - delta * bh)))
-            x1 = min(iw, int(round(x1 + delta * bw)))
-            y1 = min(ih, int(round(y1 + delta * bh)))
-            pil = Image.fromarray(rgb_arr[y0:y1, x0:x1]).resize((INPUT_SIZE, INPUT_SIZE), Image.Resampling.BILINEAR)
-            arr = np.asarray(pil, dtype=np.float32).transpose(2, 0, 1) / 255.0
-            return torch.from_numpy(arr)
-
-        try:
-            if pages_needing_gpu:
-                # Release cached LaMa/OCR GPU weights before loading dual ResNet-50 4x checkpoints
-                try:
-                    self.release_vram()
-                except Exception:
-                    pass
-                raw_labels = json.loads(labels_path.read_text(encoding="utf-8"))
-                f2i = {f: i for i, f in enumerate(FAMILY_NAMES)}
-                w2i = {w: i for i, w in enumerate(WEIGHT_NAMES)}
-                device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-                fam_mat = torch.zeros((FONT_COUNT, len(FAMILY_NAMES)), dtype=torch.float32, device=device)
-                wt_mat = torch.zeros((FONT_COUNT, len(WEIGHT_NAMES)), dtype=torch.float32, device=device)
-                fam_idx_arr: list[int] = []
-                for i, entry in enumerate(raw_labels):
-                    fn, wn = classify_vcb_font_entry(entry)
-                    fam_idx_arr.append(f2i[fn])
-                    fam_mat[i, f2i[fn]] = 1.0
-                    wt_mat[i, w2i[wn]] = 1.0
-
-                for ckpt_p in ckpts:
-                    raw_ckpt = torch.load(str(ckpt_p), map_location="cpu", weights_only=False)
-                    sd = raw_ckpt["state_dict"] if "state_dict" in raw_ckpt else raw_ckpt
-                    clean_sd = {}
-                    for k, v in sd.items():
-                        nk = k
-                        if nk.startswith("model._orig_mod."):
-                            nk = nk[len("model._orig_mod.") :]
-                        elif nk.startswith("model."):
-                            nk = nk[len("model.") :]
-                        if nk.startswith("model."):
-                            clean_sd[nk] = v
-                    out_dim = int(clean_sd["model.fc.weight"].shape[0])
-                    holder = nn.Module()
-                    m_net = resnet50(weights=None)
-                    m_net.fc = nn.Linear(2048, out_dim)
-                    holder.model = m_net
-                    holder.load_state_dict(clean_sd, strict=True)
-                    m_net.eval().to(device)
-                    nets.append(m_net)
-                    del raw_ckpt, sd, clean_sd
-
-                for pp in pages_needing_gpu:
-                    _, img_data = load_page_json(pp)
-                    regs = img_data.get("regions", [])
-                    rgb = np.asarray(Image.open(pp.display_base_path).convert("RGB"))
-                    crops_tensors: list[torch.Tensor] = []
-                    valid_meta: list[tuple[int, dict[str, Any], list[float], tuple[float, float]]] = []
-                    for ridx, reg in enumerate(regs):
-                        bbox = region_bbox_xyxy(reg)
-                        if bbox[2] - bbox[0] < 4 or bbox[3] - bbox[1] < 4:
-                            continue
-                        crops_tensors.append(_crop_exact_data_py(rgb, bbox, 0.03))
-                        crops_tensors.append(_crop_exact_data_py(rgb, bbox, 0.08))
-                        valid_meta.append((ridx, reg, bbox, region_center(reg)))
-
-                    if not valid_meta:
+            mdir = Path(self.mtui_root) / "models" / "yuzumarker"
+            labels_path = mdir / "font-labels-ex.json"
+            ckpt_entries: list[tuple[Path, int, int]] = []
+            if mdir.is_dir():
+                for p in mdir.glob("*.ckpt"):
+                    try:
+                        st = p.stat()
+                    except OSError:
                         continue
+                    if st.st_size > 300_000_000:
+                        ckpt_entries.append((p, int(st.st_size), int(st.st_mtime_ns)))
+            ckpt_entries.sort(key=lambda item: item[0].name)
+            ckpts = [item[0] for item in ckpt_entries]
+            if not labels_path.is_file() or not ckpts:
+                raise FileNotFoundError(
+                    f"YuzuMarker models not found under {mdir}. Expected font-labels-ex.json and >=1 ResNet-50 4x .ckpt."
+                )
 
-                    batch = torch.stack(crops_tensors, dim=0).to(device)
-                    with torch.inference_mode():
-                        prob_sum = None
-                        for m_net in nets:
-                            pr = torch.softmax(m_net(batch)[:, :FONT_COUNT], dim=-1)
-                            prob_sum = pr if prob_sum is None else (prob_sum + pr)
-                        p_ens = prob_sum / float(len(nets))  # type: ignore[operator]
-                        p_reg = p_ens.view(len(valid_meta), 2, FONT_COUNT).mean(dim=1)
-                        f_probs = torch.matmul(p_reg, fam_mat).cpu().numpy()
-                        w_probs = torch.matmul(p_reg, wt_mat).cpu().numpy()
-                        top_v, top_i = torch.topk(p_reg, 5, dim=-1)
-                        top_v_np = top_v.cpu().numpy()
-                        top_i_np = top_i.cpu().numpy()
+            try:
+                labels_st = labels_path.stat()
+                labels_sig: Optional[list[int]] = [int(labels_st.st_size), int(labels_st.st_mtime_ns)]
+            except OSError:
+                labels_sig = None
+            ensemble_sig = [[p.name, sz, mt] for p, sz, mt in ckpt_entries]
 
-                    page_recs: list[dict[str, Any]] = []
-                    meta_by_ridx: dict[int, tuple[list[float], str]] = {}
-                    for k, (ridx, reg, bbox, cent) in enumerate(valid_meta):
-                        scanned_regions += 1
-                        fp = {FAMILY_NAMES[j]: round(float(f_probs[k, j]), 4) for j in range(len(FAMILY_NAMES))}
-                        wp = {WEIGHT_NAMES[j]: round(float(w_probs[k, j]), 4) for j in range(len(WEIGHT_NAMES))}
-                        best_fam = max(fp.items(), key=lambda kv: kv[1])[0]
-                        tfonts = [
-                            {
-                                "font": raw_labels[int(top_i_np[k, j])]["path"].split("/")[-1],
-                                "family": FAMILY_NAMES[fam_idx_arr[int(top_i_np[k, j])]],
-                                "prob": round(float(top_v_np[k, j]), 4),
+            pages = list_manga_pages_in_path(target_path)
+            if not pages:
+                return {"status": "ok", "scanned_pages": 0, "scanned_regions": 0, "cached_hits": 0, "elapsed_sec": 0.0}
+
+            # Group pages by work_dir so each work_dir gets its own `.yuzumarker_font_cache.json`
+            caches_by_work: dict[Path, dict[str, Any]] = {}
+            dirty_work_dirs: set[Path] = set()
+            pages_needing_gpu: list[tuple[Any, list[int]]] = []
+            cached_hits = 0
+
+            for pp in pages:
+                if not pp.json_exists or not pp.display_base_path.is_file():
+                    continue
+                try:
+                    bst = pp.display_base_path.stat()
+                    base_sig = [int(bst.st_size), int(bst.st_mtime_ns)]
+                except OSError:
+                    continue
+
+                if pp.work_dir not in caches_by_work:
+                    loaded = load_font_detection_cache(pp.work_dir)
+                    try:
+                        loaded_ver = int(loaded.get("version") or 1)
+                    except (TypeError, ValueError):
+                        loaded_ver = 1
+                    ensemble_matches = (
+                        loaded.get("ensemble_sig") == ensemble_sig
+                        and loaded.get("labels_sig") == labels_sig
+                    )
+                    if not isinstance(loaded.get("pages"), dict) or loaded_ver < CACHE_VERSION or not ensemble_matches:
+                        loaded = {
+                            "version": CACHE_VERSION,
+                            "ensemble_ckpts": [c.name for c in ckpts],
+                            "ensemble_sig": ensemble_sig,
+                            "labels_sig": labels_sig,
+                            "pages": {},
+                        }
+                    else:
+                        loaded["version"] = CACHE_VERSION
+                        loaded["ensemble_ckpts"] = [c.name for c in ckpts]
+                        loaded["ensemble_sig"] = ensemble_sig
+                        loaded["labels_sig"] = labels_sig
+                    caches_by_work[pp.work_dir] = loaded
+
+                _, img_data = load_page_json(pp)
+                regs = img_data.get("regions", [])
+                if not regs:
+                    continue
+                p_cache = caches_by_work[pp.work_dir]["pages"].get(pp.source_path.stem) or {}
+                by_sig = p_cache.get("by_bbox_sig") or {}
+                base_matches = (
+                    p_cache.get("base_image_sig") == base_sig
+                    and p_cache.get("display_base_name") == pp.display_base_path.name
+                )
+                if (
+                    not force_refresh
+                    and base_matches
+                    and all(
+                        (region_bbox_xyxy(r)[2] - region_bbox_xyxy(r)[0] < 4)
+                        or (region_bbox_xyxy(r)[3] - region_bbox_xyxy(r)[1] < 4)
+                        or (region_bbox_signature(region_bbox_xyxy(r)) in by_sig)
+                        for r in regs
+                    )
+                ):
+                    cached_hits += len(regs)
+                else:
+                    pages_needing_gpu.append((pp, base_sig))
+
+            scanned_regions = 0
+            nets: list[Any] = []
+            fam_mat = None
+            wt_mat = None
+
+            def _crop_exact_data_py(rgb_arr: np.ndarray, bbox: list[float], delta: float) -> torch.Tensor:
+                ih, iw = rgb_arr.shape[:2]
+                x0 = max(0.0, min(float(iw - 1), float(bbox[0])))
+                y0 = max(0.0, min(float(ih - 1), float(bbox[1])))
+                x1 = max(x0 + 1.0, min(float(iw), float(bbox[2])))
+                y1 = max(y0 + 1.0, min(float(ih), float(bbox[3])))
+                bw, bh = x1 - x0, y1 - y0
+                x0 = max(0, int(round(x0 - delta * bw)))
+                y0 = max(0, int(round(y0 - delta * bh)))
+                x1 = min(iw, int(round(x1 + delta * bw)))
+                y1 = min(ih, int(round(y1 + delta * bh)))
+                pil = Image.fromarray(rgb_arr[y0:y1, x0:x1]).resize((INPUT_SIZE, INPUT_SIZE), Image.Resampling.BILINEAR)
+                arr = np.asarray(pil, dtype=np.float32).transpose(2, 0, 1) / 255.0
+                return torch.from_numpy(arr)
+
+            try:
+                if pages_needing_gpu:
+                    # Release cached LaMa/OCR GPU weights before loading dual ResNet-50 4x checkpoints
+                    try:
+                        self.release_vram()
+                    except Exception:
+                        pass
+                    raw_labels = json.loads(labels_path.read_text(encoding="utf-8"))
+                    f2i = {f: i for i, f in enumerate(FAMILY_NAMES)}
+                    w2i = {w: i for i, w in enumerate(WEIGHT_NAMES)}
+                    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+                    fam_mat = torch.zeros((FONT_COUNT, len(FAMILY_NAMES)), dtype=torch.float32, device=device)
+                    wt_mat = torch.zeros((FONT_COUNT, len(WEIGHT_NAMES)), dtype=torch.float32, device=device)
+                    fam_idx_arr: list[int] = []
+                    for i, entry in enumerate(raw_labels):
+                        fn, wn = classify_vcb_font_entry(entry)
+                        fam_idx_arr.append(f2i[fn])
+                        fam_mat[i, f2i[fn]] = 1.0
+                        wt_mat[i, w2i[wn]] = 1.0
+
+                    safe_globals_fn = getattr(getattr(torch, "serialization", None), "safe_globals", None)
+                    for ckpt_p in ckpts:
+                        safe_ctx = (
+                            safe_globals_fn([argparse.Namespace])
+                            if callable(safe_globals_fn)
+                            else contextlib.nullcontext()
+                        )
+                        with safe_ctx:
+                            raw_ckpt = torch.load(str(ckpt_p), map_location="cpu", weights_only=True)
+                        if not isinstance(raw_ckpt, dict):
+                            raise ValueError(f"Unexpected checkpoint payload type in {ckpt_p.name}")
+                        sd = raw_ckpt["state_dict"] if isinstance(raw_ckpt.get("state_dict"), dict) else raw_ckpt
+                        clean_sd = {}
+                        for k, v in sd.items():
+                            nk = k
+                            if nk.startswith("model._orig_mod."):
+                                nk = nk[len("model._orig_mod.") :]
+                            elif nk.startswith("model."):
+                                nk = nk[len("model.") :]
+                            if nk.startswith("model."):
+                                clean_sd[nk] = v
+                        out_dim = int(clean_sd["model.fc.weight"].shape[0])
+                        holder = nn.Module()
+                        m_net = resnet50(weights=None)
+                        m_net.fc = nn.Linear(2048, out_dim)
+                        holder.model = m_net
+                        holder.load_state_dict(clean_sd, strict=True)
+                        m_net.eval().to(device)
+                        nets.append(m_net)
+                        del raw_ckpt, sd, clean_sd
+
+                    for pp, base_sig in pages_needing_gpu:
+                        _, img_data = load_page_json(pp)
+                        regs = img_data.get("regions", [])
+                        with Image.open(pp.display_base_path) as base_im:
+                            rgb = np.asarray(base_im.convert("RGB"))
+                        crops_tensors: list[torch.Tensor] = []
+                        valid_meta: list[tuple[int, dict[str, Any], list[float], tuple[float, float]]] = []
+                        for ridx, reg in enumerate(regs):
+                            bbox = region_bbox_xyxy(reg)
+                            if bbox[2] - bbox[0] < 4 or bbox[3] - bbox[1] < 4:
+                                continue
+                            crops_tensors.append(_crop_exact_data_py(rgb, bbox, 0.03))
+                            crops_tensors.append(_crop_exact_data_py(rgb, bbox, 0.08))
+                            valid_meta.append((ridx, reg, bbox, region_center(reg)))
+
+                        if not valid_meta:
+                            caches_by_work[pp.work_dir]["pages"][pp.source_path.stem] = {
+                                "base_image_sig": base_sig,
+                                "display_base_name": pp.display_base_path.name,
+                                "total_regions": len(regs),
+                                "by_bbox_sig": {},
+                                "by_ridx": {},
                             }
-                            for j in range(5)
-                        ]
-                        src_txt = str(reg.get("text") or "").strip()
-                        src_clean = CLEAN_STRIP_RE.sub("", src_txt)
-                        meta_by_ridx[ridx] = (bbox, src_txt)
-                        page_recs.append(
-                            {
+                            dirty_work_dirs.add(pp.work_dir)
+                            continue
+
+                        batch = torch.stack(crops_tensors, dim=0).to(device)
+                        with torch.inference_mode():
+                            prob_sum = None
+                            for m_net in nets:
+                                pr = torch.softmax(m_net(batch)[:, :FONT_COUNT], dim=-1)
+                                prob_sum = pr if prob_sum is None else (prob_sum + pr)
+                            p_ens = prob_sum / float(len(nets))  # type: ignore[operator]
+                            p_reg = p_ens.view(len(valid_meta), 2, FONT_COUNT).mean(dim=1)
+                            f_probs = torch.matmul(p_reg, fam_mat).cpu().numpy()
+                            w_probs = torch.matmul(p_reg, wt_mat).cpu().numpy()
+                            top_v, top_i = torch.topk(p_reg, 5, dim=-1)
+                            top_v_np = top_v.cpu().numpy()
+                            top_i_np = top_i.cpu().numpy()
+
+                        page_recs: list[dict[str, Any]] = []
+                        meta_by_ridx: dict[int, tuple[list[float], str]] = {}
+                        for k, (ridx, reg, bbox, cent) in enumerate(valid_meta):
+                            scanned_regions += 1
+                            fp = {FAMILY_NAMES[j]: round(float(f_probs[k, j]), 4) for j in range(len(FAMILY_NAMES))}
+                            wp = {WEIGHT_NAMES[j]: round(float(w_probs[k, j]), 4) for j in range(len(WEIGHT_NAMES))}
+                            best_fam = max(fp.items(), key=lambda kv: kv[1])[0]
+                            tfonts = [
+                                {
+                                    "font": raw_labels[int(top_i_np[k, j])]["path"].split("/")[-1],
+                                    "family": FAMILY_NAMES[fam_idx_arr[int(top_i_np[k, j])]],
+                                    "prob": round(float(top_v_np[k, j]), 4),
+                                }
+                                for j in range(5)
+                            ]
+                            src_txt = str(reg.get("text") or "").strip()
+                            src_clean = CLEAN_STRIP_RE.sub("", src_txt)
+                            meta_by_ridx[ridx] = (bbox, src_txt)
+                            rec_item: dict[str, Any] = {
                                 "ridx": ridx,
                                 "bbox_sig": region_bbox_signature(bbox),
                                 "n_clean_chars": len(src_clean),
@@ -1170,70 +1619,76 @@ class EngineRuntime:
                                 "heavy_prob": round(float(wp["heavy"]), 4),
                                 "top_fonts": tfonts,
                             }
-                        )
+                            if reg.get("region_uid"):
+                                rec_item["region_uid"] = str(reg["region_uid"])
+                            page_recs.append(rec_item)
 
-                    # Same-panel short-box neighbor propagation (`<=2` clean chars & low top1_prob `<0.35` within `195px`)
-                    page_wh_cur = (int(rgb.shape[1]), int(rgb.shape[0]))
-                    for rec in page_recs:
-                        t1_p = float(rec["top_fonts"][0]["prob"]) if rec["top_fonts"] else 0.0
-                        if rec["n_clean_chars"] <= 2 and rec["pred_conf"] < 0.48 and t1_p < 0.35:
-                            cx, cy = rec["center"]
-                            best_nb = None
-                            best_dist = 195.0
-                            for other in page_recs:
-                                if other["ridx"] == rec["ridx"]:
-                                    continue
-                                ot1 = float(other["top_fonts"][0]["prob"]) if other["top_fonts"] else 0.0
-                                if other["n_clean_chars"] >= 3 and other["pred_conf"] >= 0.80 and ot1 >= 0.35:
-                                    d = math.hypot(cx - other["center"][0], cy - other["center"][1])
-                                    if d < best_dist:
-                                        best_dist = d
-                                        best_nb = other
-                            if best_nb is not None and best_nb["pred_family"] != rec["pred_family"]:
-                                rec["neighbor_propagated_family"] = best_nb["pred_family"]
-                                rec["neighbor_source_ridx"] = best_nb["ridx"]
-                                rec["neighbor_dist"] = round(best_dist, 1)
+                        # Same-panel short-box neighbor propagation (`<=2` clean chars & low top1_prob `<0.35` within `195px`)
+                        page_wh_cur = (int(rgb.shape[1]), int(rgb.shape[0]))
+                        for rec in page_recs:
+                            t1_p = float(rec["top_fonts"][0]["prob"]) if rec["top_fonts"] else 0.0
+                            if rec["n_clean_chars"] <= 2 and rec["pred_conf"] < 0.48 and t1_p < 0.35:
+                                cx, cy = rec["center"]
+                                best_nb = None
+                                best_dist = 195.0
+                                for other in page_recs:
+                                    if other["ridx"] == rec["ridx"]:
+                                        continue
+                                    ot1 = float(other["top_fonts"][0]["prob"]) if other["top_fonts"] else 0.0
+                                    if other["n_clean_chars"] >= 3 and other["pred_conf"] >= 0.80 and ot1 >= 0.35:
+                                        d = math.hypot(cx - other["center"][0], cy - other["center"][1])
+                                        if d < best_dist:
+                                            best_dist = d
+                                            best_nb = other
+                                if best_nb is not None and best_nb["pred_family"] != rec["pred_family"]:
+                                    rec["neighbor_propagated_family"] = best_nb["pred_family"]
+                                    rec["neighbor_source_ridx"] = best_nb["ridx"]
+                                    rec["neighbor_dist"] = round(best_dist, 1)
 
-                        rec_bbox, rec_src_txt = meta_by_ridx[rec["ridx"]]
-                        rec_ff, rec_b, _ = recommend_mtui_font_for_prediction(
-                            rec,
-                            bbox_wh=(max(1.0, rec_bbox[2] - rec_bbox[0]), max(1.0, rec_bbox[3] - rec_bbox[1])),
-                            source_text=rec_src_txt,
-                            page_wh=page_wh_cur,
-                        )
-                        rec["recommended_font_family"] = rec_ff
-                        rec["recommended_bold"] = rec_b
+                            rec_bbox, rec_src_txt = meta_by_ridx[rec["ridx"]]
+                            rec_ff, rec_b, _ = recommend_mtui_font_for_prediction(
+                                rec,
+                                bbox_wh=(max(1.0, rec_bbox[2] - rec_bbox[0]), max(1.0, rec_bbox[3] - rec_bbox[1])),
+                                source_text=rec_src_txt,
+                                page_wh=page_wh_cur,
+                            )
+                            rec["recommended_font_family"] = rec_ff
+                            rec["recommended_bold"] = rec_b
 
-                    by_sig_out = {r["bbox_sig"]: r for r in page_recs}
-                    by_ridx_out = {str(r["ridx"]): r for r in page_recs}
-                    caches_by_work[pp.work_dir]["pages"][pp.source_path.stem] = {
-                        "by_bbox_sig": by_sig_out,
-                        "by_ridx": by_ridx_out,
-                    }
-                    dirty_work_dirs.add(pp.work_dir)
+                        by_sig_out = {r["bbox_sig"]: r for r in page_recs}
+                        by_ridx_out = {str(r["ridx"]): r for r in page_recs}
+                        caches_by_work[pp.work_dir]["pages"][pp.source_path.stem] = {
+                            "base_image_sig": base_sig,
+                            "display_base_name": pp.display_base_path.name,
+                            "total_regions": len(regs),
+                            "by_bbox_sig": by_sig_out,
+                            "by_ridx": by_ridx_out,
+                        }
+                        dirty_work_dirs.add(pp.work_dir)
 
-            for wdir in dirty_work_dirs:
-                save_font_detection_cache_atomic(wdir, caches_by_work[wdir])
-        finally:
-            nets.clear()
-            del fam_mat, wt_mat
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+                for wdir in dirty_work_dirs:
+                    save_font_detection_cache_atomic(wdir, caches_by_work[wdir])
+            finally:
+                nets.clear()
+                del fam_mat, wt_mat
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
-        return {
-            "status": "ok",
-            "ensemble_models": [c.name for c in ckpts],
-            "scanned_pages": len(pages_needing_gpu),
-            "scanned_regions": scanned_regions,
-            "cached_hits": cached_hits,
-            "cache_files": [str(w / ".yuzumarker_font_cache.json") for w in caches_by_work],
-            "elapsed_sec": round(time.perf_counter() - t0, 2),
-        }
+            return {
+                "status": "ok",
+                "ensemble_models": [c.name for c in ckpts],
+                "scanned_pages": len(pages_needing_gpu),
+                "scanned_regions": scanned_regions,
+                "cached_hits": cached_hits,
+                "cache_files": [str(w / ".yuzumarker_font_cache.json") for w in caches_by_work],
+                "elapsed_sec": round(time.perf_counter() - t0, 2),
+            }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="MTUI-MCP Warm Engine Worker")
+    parser.add_argument("--mtui-engine-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--mtui-root", required=True)
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--token", required=True)
@@ -1272,29 +1727,43 @@ def main() -> None:
                 action = req.get("action")
                 params = req.get("params") or {}
 
-                if action == "ping":
-                    data = runtime.ping()
-                elif action == "render_page":
-                    data = runtime.render_page(params)
-                elif action == "incremental_neural_inpaint":
-                    data = runtime.incremental_neural_inpaint(params)
-                elif action == "ocr_or_translate_regions":
-                    data = runtime.ocr_or_translate_regions(params)
-                elif action == "run_cli_pipeline":
-                    data = runtime.run_cli_pipeline(params)
-                elif action == "detect_fonts":
-                    data = runtime.detect_fonts(params)
-                elif action == "release_vram":
-                    data = runtime.release_vram()
-                elif action == "shutdown":
+                if action == "shutdown":
+                    runtime.mark_shutting_down()
                     self._send_json(200, {"ok": True, "data": {"status": "shutting_down"}})
-                    threading.Thread(target=self.server.shutdown, daemon=True).start()
-                    return
-                else:
-                    self._send_json(400, {"ok": False, "error": f"Unknown action: {action!r}"})
+
+                    def _drain_and_shutdown() -> None:
+                        runtime.wait_for_inflight_drain(timeout_sec=_SHUTDOWN_DRAIN_TIMEOUT_SEC)
+                        self.server.shutdown()
+
+                    threading.Thread(target=_drain_and_shutdown, daemon=True).start()
                     return
 
-                self._send_json(200, {"ok": True, "data": data})
+                if not runtime.begin_request():
+                    self._send_json(503, {"ok": False, "error": "MTUI Worker is shutting down"})
+                    return
+
+                try:
+                    if action == "ping":
+                        data = runtime.ping()
+                    elif action == "render_page":
+                        data = runtime.render_page(params)
+                    elif action == "incremental_neural_inpaint":
+                        data = runtime.incremental_neural_inpaint(params)
+                    elif action == "ocr_or_translate_regions":
+                        data = runtime.ocr_or_translate_regions(params)
+                    elif action == "run_cli_pipeline":
+                        data = runtime.run_cli_pipeline(params)
+                    elif action == "detect_fonts":
+                        data = runtime.detect_fonts(params)
+                    elif action == "release_vram":
+                        data = runtime.release_vram()
+                    else:
+                        self._send_json(400, {"ok": False, "error": f"Unknown action: {action!r}"})
+                        return
+
+                    self._send_json(200, {"ok": True, "data": data})
+                finally:
+                    runtime.end_request()
             except Exception as exc:
                 tb = traceback.format_exc()
                 sys.stderr.write(f"[MTUI-Worker Error] {tb}\n")

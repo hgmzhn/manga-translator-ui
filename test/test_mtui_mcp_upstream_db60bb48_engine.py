@@ -2,6 +2,7 @@
 
 import _bootstrap  # noqa: F401, I001
 
+import io
 import json
 import os
 import sys
@@ -242,27 +243,66 @@ def test_client_error_message_and_gui_bridge_missing_session(tmp_path: Path, mon
 
 
 def test_setup_environment_and_run_cli_pipeline_flags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    for env_key in (
+        "QT_QPA_PLATFORM",
+        "TQDM_DISABLE",
+        "QT_QPA_FONTDIR",
+        "PYTHONIOENCODING",
+    ):
+        prev_val = os.environ.get(env_key)
+        if prev_val is None:
+            monkeypatch.delenv(env_key, raising=False)
+        else:
+            monkeypatch.setenv(env_key, prev_val)
     monkeypatch.delenv("PYTORCH_ALLOC_CONF", raising=False)
     monkeypatch.delenv("QT_IMAGEIO_MAXALLOC", raising=False)
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    (tmp_path / "fonts").mkdir(exist_ok=True)
     prev_cwd = os.getcwd()
-    prev_sys_path = list(sys.path)
     try:
         engine_worker._setup_environment(str(tmp_path))
         assert os.environ.get("PYTORCH_ALLOC_CONF") == "expandable_segments:True"
         assert os.environ.get("QT_IMAGEIO_MAXALLOC") == "1024"
+        assert os.environ.get("QT_QPA_PLATFORM") is not None
+        assert os.environ.get("TQDM_DISABLE") is not None
     finally:
         os.chdir(prev_cwd)
-        sys.path[:] = prev_sys_path
 
     rt = engine_worker.EngineRuntime(str(tmp_path))
     monkeypatch.setattr(rt, "release_vram", lambda: {"status": "ok"})
     captured: dict[str, Any] = {}
 
     def fake_run(cmd: list[str], **kwargs: Any) -> Any:
-        captured["cmd"] = cmd
+        captured["cmd"] = list(cmd)
         return types.SimpleNamespace(returncode=0, stdout="done\n", stderr="")
 
+    class FakePopen:
+        def __init__(self, cmd: list[str], **kwargs: Any) -> None:
+            captured["cmd"] = list(cmd)
+            self.stdout = io.StringIO("done\n")
+            self.stderr = io.StringIO("")
+            self.returncode = 0
+
+        def wait(self, timeout: float | None = None) -> int:
+            return 0
+
+        def poll(self) -> int:
+            return 0
+
+        def communicate(self, timeout: float | None = None) -> tuple[str, str]:
+            return "done\n", ""
+
+        def kill(self) -> None:
+            pass
+
+        def __enter__(self) -> "FakePopen":
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            pass
+
     monkeypatch.setattr(engine_worker.subprocess, "run", fake_run)
+    monkeypatch.setattr(engine_worker.subprocess, "Popen", FakePopen)
     res = rt.run_cli_pipeline(
         {
             "inputs": [str(tmp_path / "raw")],

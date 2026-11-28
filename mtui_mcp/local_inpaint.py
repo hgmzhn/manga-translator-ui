@@ -6,6 +6,9 @@ import base64
 import copy
 import logging
 import math
+import os
+import shutil
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any, Optional
@@ -13,16 +16,21 @@ from typing import Any, Optional
 import cv2
 import numpy as np
 
+from .config import get_runtime_settings
 from .path_resolver import PagePaths, resolve_page_paths
 from .project_store import (
+    _atomic_replace_with_retry,
     decode_mask_base64,
     encode_mask_base64,
+    ensure_initial_snapshot,
     ensure_region_uids,
     format_region_summary,
     load_page_json,
     open_rgb_image,
+    page_edit_lock,
     region_bbox_xyxy,
     region_center,
+    resolve_region_target_index,
     save_page_json_atomic,
     save_rgb_image_atomic,
 )
@@ -277,8 +285,7 @@ def auto_detect_ink_mask_in_rect(
             cleaned[labels == lbl] = 255
 
     if not np.any(cleaned):
-        # Fallback: fill inner rectangle with slight inset
-        cleaned[:, :] = 255
+        return full_mask
 
     if dilate_px > 0:
         k = int(dilate_px) * 2 + 1
@@ -651,6 +658,56 @@ def apply_incremental_local_repair(
 # ---------------------------------------------------------------------------
 
 
+def _commit_inpainted_and_json_atomic(
+    paths: PagePaths,
+    image_key: str,
+    image_data: dict[str, Any],
+    new_inpainted_rgb: Optional[np.ndarray],
+) -> Path:
+    """Capture `initial_before_mcp` BEFORE touching `inpainted_path`, and roll back `inpainted_path` if JSON save fails."""
+    if get_runtime_settings().auto_backup_on_first_edit:
+        ensure_initial_snapshot(paths)
+
+    if new_inpainted_rgb is None:
+        return save_page_json_atomic(paths, image_key, image_data, auto_initial_snapshot=False)
+
+    had_prev_inpainted = paths.inpainted_exists and paths.inpainted_path.is_file()
+    backup_tmp_path: Optional[Path] = None
+    wrote_inpainted = False
+    try:
+        if had_prev_inpainted:
+            paths.inpainted_path.parent.mkdir(parents=True, exist_ok=True)
+            fd, tmp_bak = tempfile.mkstemp(
+                prefix=f".rollback_{paths.inpainted_path.name}.",
+                suffix=paths.inpainted_path.suffix or ".png",
+                dir=str(paths.inpainted_path.parent),
+            )
+            os.close(fd)
+            backup_tmp_path = Path(tmp_bak)
+            shutil.copy2(paths.inpainted_path, backup_tmp_path)
+
+        save_rgb_image_atomic(new_inpainted_rgb, paths.inpainted_path)
+        wrote_inpainted = True
+        return save_page_json_atomic(paths, image_key, image_data, auto_initial_snapshot=False)
+    except BaseException:
+        if wrote_inpainted:
+            try:
+                if had_prev_inpainted and backup_tmp_path is not None and backup_tmp_path.is_file():
+                    _atomic_replace_with_retry(backup_tmp_path, paths.inpainted_path)
+                    backup_tmp_path = None
+                elif not had_prev_inpainted and paths.inpainted_path.exists():
+                    paths.inpainted_path.unlink()
+            except OSError as rb_exc:
+                logger.warning("Failed to roll back %s after JSON save error: %s", paths.inpainted_path, rb_exc)
+        raise
+    finally:
+        if backup_tmp_path is not None and backup_tmp_path.exists():
+            try:
+                backup_tmp_path.unlink()
+            except OSError:
+                pass
+
+
 def add_region_to_page(
     page_path: str | Path,
     *,
@@ -671,10 +728,6 @@ def add_region_to_page(
     local_inpaint_method: Optional[str] = "solid_fill",
 ) -> tuple[PagePaths, dict[str, Any]]:
     """Add a new text region to a page, optionally auto-masking and repairing the underlying ink."""
-    paths = resolve_page_paths(page_path)
-    image_key, image_data = load_page_json(paths)
-    regions = image_data.setdefault("regions", [])
-
     if polygon is not None and len(polygon) >= 4:
         pts = [[float(p[0]), float(p[1])] for p in polygon[:4]]
         xs = [p[0] for p in pts]
@@ -687,87 +740,100 @@ def add_region_to_page(
     else:
         raise ValueError("Either bbox_xyxy=[x1, y1, x2, y2] or a 4-point polygon is required")
 
-    w_box = max(1.0, rect[2] - rect[0])
-    h_box = max(1.0, rect[3] - rect[1])
-    if font_size is None:
-        short_side = min(w_box, h_box)
-        font_size = max(12, min(72, int(round(short_side * 0.45))))
+    with page_edit_lock(page_path):
+        paths = resolve_page_paths(page_path)
+        image_key, image_data = load_page_json(paths)
+        regions = image_data.setdefault("regions", [])
 
-    d_norm = {"h": "horizontal", "v": "vertical"}.get(direction.lower(), direction.lower())
-    fg_hex = normalize_hex_color(font_color) or "#000000"
-    bg_hex = normalize_hex_color(stroke_color) or "#ffffff"
-    bg_rgb = [int(bg_hex[1:3], 16), int(bg_hex[3:5], 16), int(bg_hex[5:7], 16)]
-    storage_trans = plain_to_storage_br(translation)
-
-    mtui_cfg = {}
-    try:
-        from .config import get_runtime_settings
-
-        mtui_cfg = get_runtime_settings().load_mtui_config_dict()
-    except Exception:
-        pass
-    target_lang = (mtui_cfg.get("translator") or {}).get("target_lang", "CHS")
-    default_font = font_family or (mtui_cfg.get("render") or {}).get("font_family", "")
-    eff_align = (alignment or "").strip().lower()
-    if not eff_align or eff_align == "auto":
-        cfg_align = str((mtui_cfg.get("render") or {}).get("alignment") or "").strip().lower()
-        eff_align = cfg_align if cfg_align in ("left", "center", "right", "auto") else "auto"
-
-    new_reg: dict[str, Any] = {
-        "lines": [pts],
-        "texts": [source_text],
-        "text": source_text,
-        "translation": storage_trans,
-        "translation_raw": storage_trans,
-        "font_size": int(font_size),
-        "font_family": default_font,
-        "font_color": fg_hex,
-        "bg_colors": bg_rgb,
-        "stroke_width": float(stroke_width),
-        "default_stroke_width": float(stroke_width),
-        "direction": d_norm,
-        "alignment": eff_align,
-        "line_spacing": 1.0,
-        "letter_spacing": 1.0,
-        "angle": float(angle),
-        "center": [(rect[0] + rect[2]) / 2.0, (rect[1] + rect[3]) / 2.0],
-        "target_lang": target_lang,
-        "language": "unknown",
-        "prob": 1.0,
-    }
-    if bold:
-        set_region_whole_bold(new_reg, True)
-    regions.append(new_reg)
-    ensure_region_uids(regions)
-    new_idx = len(regions) - 1
-
-    if auto_mask_ink and paths.display_base_path.is_file():
-        base_rgb = open_rgb_image(paths.display_base_path)
-        prev_mask = decode_mask_base64(image_data.get("mask_raw"), base_rgb.shape[:2])
-        new_mask, added, removed = apply_mask_operations(
-            prev_mask,
-            base_rgb,
-            regions,
-            auto_detect_ink_rects=[rect],
+        w_box = max(1.0, rect[2] - rect[0])
+        h_box = max(1.0, rect[3] - rect[1])
+        eff_font_size = (
+            max(12, min(72, int(round(min(w_box, h_box) * 0.45))))
+            if font_size is None
+            else int(font_size)
         )
-        image_data["mask_raw"] = encode_mask_base64(new_mask)
-        image_data["mask_is_refined"] = True
 
-        if local_inpaint_method in ("solid_fill", "telea", "ns", "blur"):
-            prev_inpaint = open_rgb_image(paths.inpainted_path) if paths.inpainted_exists else None
-            repaired = apply_incremental_local_repair(
+        d_norm = {"h": "horizontal", "v": "vertical"}.get(direction.lower(), direction.lower())
+        fg_hex = normalize_hex_color(font_color) or "#000000"
+        bg_hex = normalize_hex_color(stroke_color) or "#ffffff"
+        bg_rgb = [int(bg_hex[1:3], 16), int(bg_hex[3:5], 16), int(bg_hex[5:7], 16)]
+        storage_trans = plain_to_storage_br(translation)
+
+        mtui_cfg: dict[str, Any] = {}
+        try:
+            mtui_cfg = get_runtime_settings().load_mtui_config_dict()
+        except Exception:
+            pass
+        target_lang = (mtui_cfg.get("translator") or {}).get("target_lang", "CHS")
+        default_font = font_family or (mtui_cfg.get("render") or {}).get("font_family", "")
+        eff_align = (alignment or "").strip().lower()
+        if not eff_align or eff_align == "auto":
+            cfg_align = str((mtui_cfg.get("render") or {}).get("alignment") or "").strip().lower()
+            eff_align = cfg_align if cfg_align in ("left", "center", "right", "auto") else "auto"
+
+        new_reg: dict[str, Any] = {
+            "lines": [pts],
+            "texts": [source_text],
+            "text": source_text,
+            "translation": storage_trans,
+            "translation_raw": storage_trans,
+            "font_size": int(eff_font_size),
+            "font_family": default_font,
+            "font_color": fg_hex,
+            "bg_colors": bg_rgb,
+            "stroke_width": float(stroke_width),
+            "default_stroke_width": float(stroke_width),
+            "direction": d_norm,
+            "alignment": eff_align,
+            "line_spacing": 1.0,
+            "letter_spacing": 1.0,
+            "angle": float(angle),
+            "center": [(rect[0] + rect[2]) / 2.0, (rect[1] + rect[3]) / 2.0],
+            "target_lang": target_lang,
+            "language": "unknown",
+            "prob": 1.0,
+        }
+        if bold:
+            set_region_whole_bold(new_reg, True)
+        regions.append(new_reg)
+        ensure_region_uids(regions)
+        new_idx = len(regions) - 1
+        new_uid = str(new_reg.get("region_uid") or "")
+
+        repaired_rgb: Optional[np.ndarray] = None
+        if auto_mask_ink and paths.display_base_path.is_file():
+            base_rgb = open_rgb_image(paths.display_base_path)
+            prev_mask = decode_mask_base64(image_data.get("mask_raw"), base_rgb.shape[:2])
+            new_mask, added, removed = apply_mask_operations(
+                prev_mask,
                 base_rgb,
-                prev_inpaint,
-                new_mask,
-                added,
-                removed,
-                method=local_inpaint_method,
+                regions,
+                auto_detect_ink_rects=[rect],
             )
-            save_rgb_image_atomic(repaired, paths.inpainted_path)
+            image_data["mask_raw"] = encode_mask_base64(new_mask)
+            image_data["mask_is_refined"] = True
 
-    saved_json = save_page_json_atomic(paths, image_key, image_data)
-    refreshed = resolve_page_paths(saved_json)
-    return refreshed, format_region_summary(new_idx, new_reg)
+            if local_inpaint_method in ("solid_fill", "telea", "ns", "blur"):
+                prev_inpaint = open_rgb_image(paths.inpainted_path) if paths.inpainted_exists else None
+                repaired_rgb = apply_incremental_local_repair(
+                    base_rgb,
+                    prev_inpaint,
+                    new_mask,
+                    added,
+                    removed,
+                    method=local_inpaint_method,
+                )
+
+        saved_json = _commit_inpainted_and_json_atomic(paths, image_key, image_data, repaired_rgb)
+        refreshed = resolve_page_paths(saved_json)
+        _, saved_data = load_page_json(refreshed)
+        saved_regions = saved_data.get("regions", [])
+        try:
+            s_idx = resolve_region_target_index(saved_regions, region_uid=new_uid) if new_uid else new_idx
+            summary = format_region_summary(s_idx, saved_regions[s_idx])
+        except (KeyError, IndexError):
+            summary = format_region_summary(new_idx, new_reg)
+        return refreshed, summary
 
 
 def delete_regions_from_page(
@@ -778,55 +844,83 @@ def delete_regions_from_page(
     expand_clear_px: int = 12,
 ) -> tuple[PagePaths, dict[str, Any]]:
     """Delete region(s) by index and optionally clear their mask & restore original artwork pixels in `inpainted`."""
-    paths = resolve_page_paths(page_path)
-    image_key, image_data = load_page_json(paths)
-    regions = image_data.get("regions", [])
+    with page_edit_lock(page_path):
+        paths = resolve_page_paths(page_path)
+        image_key, image_data = load_page_json(paths)
+        regions = image_data.get("regions", [])
 
-    to_remove = sorted({int(i) for i in region_indices if 0 <= int(i) < len(regions)}, reverse=True)
-    if not to_remove:
-        raise ValueError("No valid region_indices to delete")
+        to_remove = sorted({int(i) for i in region_indices if 0 <= int(i) < len(regions)}, reverse=True)
+        if not to_remove:
+            raise ValueError("No valid region_indices to delete")
 
-    removed_regions = [copy.deepcopy(regions[i]) for i in to_remove]
+        to_remove_set = set(to_remove)
+        removed_regions = [copy.deepcopy(regions[i]) for i in to_remove]
+        surviving_regions = [regions[i] for i in range(len(regions)) if i not in to_remove_set]
 
-    if restore_artwork and paths.display_base_path.is_file():
-        base_rgb = open_rgb_image(paths.display_base_path)
-        h, w = base_rgb.shape[:2]
-        prev_mask = decode_mask_base64(image_data.get("mask_raw"), (h, w))
-        if prev_mask is not None:
-            clear_union = np.zeros((h, w), dtype=np.uint8)
-            for reg in removed_regions:
-                rm = build_region_polygon_mask(reg, (h, w), expand_px=max(0, int(expand_clear_px)))
-                # Expand to whole connected mask components touched by this region so no half-erased halo remains!
+        repaired_inpainted: Optional[np.ndarray] = None
+        actually_restored = False
+        mask_cleared = False
+
+        if restore_artwork and paths.display_base_path.is_file():
+            base_rgb = open_rgb_image(paths.display_base_path)
+            h, w = base_rgb.shape[:2]
+            prev_mask = decode_mask_base64(image_data.get("mask_raw"), (h, w))
+            if prev_mask is not None:
+                prot_expand = max(2, max(0, int(expand_clear_px)) // 2)
+                protected_mask = np.zeros((h, w), dtype=np.uint8)
+                for s_reg in surviving_regions:
+                    if isinstance(s_reg, dict):
+                        s_rm = build_region_polygon_mask(s_reg, (h, w), expand_px=prot_expand)
+                        protected_mask = cv2.bitwise_or(protected_mask, s_rm)
+
                 num_lbl, labels = cv2.connectedComponents((prev_mask > 0).astype(np.uint8), connectivity=8)
-                if num_lbl > 1:
-                    touched = np.unique(labels[rm > 0])
-                    touched = touched[touched != 0]
-                    comp_mask = np.where(np.isin(labels, touched), 255, 0).astype(np.uint8)
-                    clear_union = cv2.bitwise_or(clear_union, cv2.bitwise_or(rm, comp_mask))
-                else:
-                    clear_union = cv2.bitwise_or(clear_union, rm)
+                protected_labels = (
+                    set(np.unique(labels[(protected_mask > 0) & (labels > 0)]).tolist())
+                    if num_lbl > 1
+                    else set()
+                )
 
-            new_mask = cv2.bitwise_and(prev_mask, cv2.bitwise_not(clear_union))
-            image_data["mask_raw"] = encode_mask_base64(new_mask)
-            image_data["mask_is_refined"] = True
+                clear_union = np.zeros((h, w), dtype=np.uint8)
+                for reg in removed_regions:
+                    rm = build_region_polygon_mask(reg, (h, w), expand_px=max(0, int(expand_clear_px)))
+                    rm_safe = cv2.bitwise_and(rm, cv2.bitwise_not(protected_mask))
+                    clear_union = cv2.bitwise_or(clear_union, rm_safe)
+                    # Expand to whole connected mask components ONLY when not shared with surviving regions
+                    if num_lbl > 1:
+                        touched = [
+                            int(lbl)
+                            for lbl in np.unique(labels[rm > 0])
+                            if int(lbl) != 0 and int(lbl) not in protected_labels
+                        ]
+                        if touched:
+                            comp_mask = np.where(np.isin(labels, touched), 255, 0).astype(np.uint8)
+                            comp_safe = cv2.bitwise_and(comp_mask, cv2.bitwise_not(protected_mask))
+                            clear_union = cv2.bitwise_or(clear_union, comp_safe)
 
-            if paths.inpainted_exists:
-                inpainted_rgb = open_rgb_image(paths.inpainted_path)
-                if inpainted_rgb.shape[:2] == (h, w):
-                    restored_pixels = (prev_mask > 0) & (new_mask == 0)
-                    inpainted_rgb[restored_pixels] = base_rgb[restored_pixels]
-                    save_rgb_image_atomic(inpainted_rgb, paths.inpainted_path)
+                new_mask = cv2.bitwise_and(prev_mask, cv2.bitwise_not(clear_union))
+                restored_pixels = (prev_mask > 0) & (new_mask == 0)
+                mask_cleared = bool(np.any(restored_pixels))
+                image_data["mask_raw"] = encode_mask_base64(new_mask)
+                image_data["mask_is_refined"] = True
 
-    for idx in to_remove:
-        regions.pop(idx)
+                if paths.inpainted_exists and paths.inpainted_path.is_file() and mask_cleared:
+                    inpainted_rgb = open_rgb_image(paths.inpainted_path)
+                    if inpainted_rgb.shape[:2] == (h, w):
+                        inpainted_rgb[restored_pixels] = base_rgb[restored_pixels]
+                        repaired_inpainted = inpainted_rgb
+                        actually_restored = True
 
-    saved_json = save_page_json_atomic(paths, image_key, image_data)
-    refreshed = resolve_page_paths(saved_json)
-    return refreshed, {
-        "deleted_indices": sorted(to_remove),
-        "remaining_region_count": len(regions),
-        "artwork_restored": restore_artwork,
-    }
+        for idx in to_remove:
+            regions.pop(idx)
+
+        saved_json = _commit_inpainted_and_json_atomic(paths, image_key, image_data, repaired_inpainted)
+        refreshed = resolve_page_paths(saved_json)
+        return refreshed, {
+            "deleted_indices": sorted(to_remove),
+            "remaining_region_count": len(regions),
+            "artwork_restored": actually_restored,
+            "mask_cleared": mask_cleared,
+        }
 
 
 def merge_regions_on_page(
@@ -837,139 +931,163 @@ def merge_regions_on_page(
     force_merge: bool = False,
 ) -> tuple[PagePaths, dict[str, Any]]:
     """Merge 2+ split regions into one combined region (refusing to merge across connected multi-lobe cusps unless `force_merge=True`)."""
-    paths = resolve_page_paths(page_path)
-    image_key, image_data = load_page_json(paths)
-    regions = image_data.get("regions", [])
+    with page_edit_lock(page_path):
+        paths = resolve_page_paths(page_path)
+        image_key, image_data = load_page_json(paths)
+        regions = image_data.get("regions", [])
 
-    ordered = sorted({int(i) for i in region_indices if 0 <= int(i) < len(regions)})
-    if len(ordered) < 2:
-        raise ValueError("merge_regions requires at least 2 valid region_indices")
+        ordered = sorted({int(i) for i in region_indices if 0 <= int(i) < len(regions)})
+        if len(ordered) < 2:
+            raise ValueError("merge_regions requires at least 2 valid region_indices")
 
-    # Safety Guard (`图2 & 图3`): Refuse to merge separate chambers of a connected multi-lobe bubble divided by inward border cusps!
-    if not force_merge and paths.inpainted_exists:
-        inp_gray = cv2.cvtColor(open_rgb_image(paths.inpainted_path), cv2.COLOR_RGB2GRAY)
-        ih, iw = inp_gray.shape[:2]
-        bright = cv2.erode((inp_gray >= 236).astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)))
-        _, cc_lbls, cc_stats, _ = cv2.connectedComponentsWithStats(bright, connectivity=4)
-        for idx_i_pos in range(len(ordered)):
-            for idx_j_pos in range(idx_i_pos + 1, len(ordered)):
-                ia, ib = ordered[idx_i_pos], ordered[idx_j_pos]
-                ca, cb = region_center(regions[ia]), region_center(regions[ib])
-                box_a, box_b = region_bbox_xyxy(regions[ia]), region_bbox_xyxy(regions[ib])
-                wa, ha = max(1.0, box_a[2] - box_a[0]), max(1.0, box_a[3] - box_a[1])
-                wb, hb = max(1.0, box_b[2] - box_b[0]), max(1.0, box_b[3] - box_b[1])
-                v_ov = max(0.0, min(box_a[3], box_b[3]) - max(box_a[1], box_b[1])) / min(ha, hb)
-                h_ov = max(0.0, min(box_a[2], box_b[2]) - max(box_a[0], box_b[0])) / min(wa, wb)
-                ixa = max(0, min(iw - 1, int(round(ca[0]))))
-                iya = max(0, min(ih - 1, int(round(ca[1]))))
-                ixb = max(0, min(iw - 1, int(round(cb[0]))))
-                iyb = max(0, min(ih - 1, int(round(cb[1]))))
-                lba, lbb = int(cc_lbls[iya, ixa]), int(cc_lbls[iyb, ixb])
-                if lba > 0 and lba == lbb:
-                    if v_ov < 0.55 and h_ov < 0.40 and abs(ca[1] - cb[1]) >= 48.0:
-                        raise ValueError(
-                            f"Refusing to merge Regions #{ia} and #{ib}: they occupy diagonally stepped chambers of a "
-                            "connected multi-lobe bubble! Keep each chamber as an independent region (pass force_merge=True only to override)."
+        # Safety Guard (`图2 & 图3`): Refuse to merge separate chambers of a connected multi-lobe bubble divided by inward border cusps!
+        if not force_merge and paths.inpainted_exists:
+            inp_gray = cv2.cvtColor(open_rgb_image(paths.inpainted_path), cv2.COLOR_RGB2GRAY)
+            ih, iw = inp_gray.shape[:2]
+            bright = cv2.erode((inp_gray >= 236).astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)))
+            _, cc_lbls, cc_stats, _ = cv2.connectedComponentsWithStats(bright, connectivity=4)
+            for idx_i_pos in range(len(ordered)):
+                for idx_j_pos in range(idx_i_pos + 1, len(ordered)):
+                    ia, ib = ordered[idx_i_pos], ordered[idx_j_pos]
+                    ca, cb = region_center(regions[ia]), region_center(regions[ib])
+                    box_a, box_b = region_bbox_xyxy(regions[ia]), region_bbox_xyxy(regions[ib])
+                    wa, ha = max(1.0, box_a[2] - box_a[0]), max(1.0, box_a[3] - box_a[1])
+                    wb, hb = max(1.0, box_b[2] - box_b[0]), max(1.0, box_b[3] - box_b[1])
+                    v_ov = max(0.0, min(box_a[3], box_b[3]) - max(box_a[1], box_b[1])) / min(ha, hb)
+                    h_ov = max(0.0, min(box_a[2], box_b[2]) - max(box_a[0], box_b[0])) / min(wa, wb)
+                    ixa = max(0, min(iw - 1, int(round(ca[0]))))
+                    iya = max(0, min(ih - 1, int(round(ca[1]))))
+                    ixb = max(0, min(iw - 1, int(round(cb[0]))))
+                    iyb = max(0, min(ih - 1, int(round(cb[1]))))
+                    lba, lbb = int(cc_lbls[iya, ixa]), int(cc_lbls[iyb, ixb])
+                    if lba > 0 and lba == lbb:
+                        x0, y0, bw0, bh0, area0 = cc_stats[lba]
+                        edges = (
+                            int(x0 <= 2)
+                            + int(y0 <= 2)
+                            + int(x0 + bw0 >= iw - 2)
+                            + int(y0 + bh0 >= ih - 2)
                         )
-                    x0, y0, bw0, bh0, area0 = cc_stats[lba]
-                    if area0 <= 0.48 * iw * ih:
-                        pad_c = 6
-                        sub_u8 = np.pad((cc_lbls[y0 : y0 + bh0, x0 : x0 + bw0] == lba).astype(np.uint8) * 255, pad_c, constant_values=0)
-                        cusps = detect_inward_bubble_cusps(sub_u8)
-                        if pair_divided_by_bubble_cusps(cusps, (ca[0] - x0 + pad_c, ca[1] - y0 + pad_c), (cb[0] - x0 + pad_c, cb[1] - y0 + pad_c)):
-                            raise ValueError(
-                                f"Refusing to merge Regions #{ia} and #{ib}: OpenCV contour analysis detected inward chamber-dividing "
-                                "border cusps/spikes between them (2-chamber connected bubble)! Keep one region per chamber!"
+                        if area0 <= 0.48 * iw * ih and edges < 3:
+                            if v_ov < 0.55 and h_ov < 0.40 and abs(ca[1] - cb[1]) >= 48.0:
+                                raise ValueError(
+                                    f"Refusing to merge Regions #{ia} and #{ib}: they occupy diagonally stepped chambers of a "
+                                    "connected multi-lobe bubble! Keep each chamber as an independent region (pass force_merge=True only to override)."
+                                )
+                            pad_c = 6
+                            sub_u8 = np.pad(
+                                (cc_lbls[y0 : y0 + bh0, x0 : x0 + bw0] == lba).astype(np.uint8) * 255,
+                                pad_c,
+                                constant_values=0,
                             )
+                            cusps = detect_inward_bubble_cusps(sub_u8)
+                            if pair_divided_by_bubble_cusps(
+                                cusps,
+                                (ca[0] - x0 + pad_c, ca[1] - y0 + pad_c),
+                                (cb[0] - x0 + pad_c, cb[1] - y0 + pad_c),
+                            ):
+                                raise ValueError(
+                                    f"Refusing to merge Regions #{ia} and #{ib}: OpenCV contour analysis detected inward chamber-dividing "
+                                    "border cusps/spikes between them (2-chamber connected bubble)! Keep one region per chamber!"
+                                )
 
-    primary = copy.deepcopy(regions[ordered[0]])
-    was_bold = region_is_bold(primary)
-    world_polys: list[list[list[float]]] = []
-    combined_texts: list[str] = []
-    combined_trans: list[str] = []
-    angles: list[float] = []
+        primary = copy.deepcopy(regions[ordered[0]])
+        was_bold = region_is_bold(primary)
+        world_polys: list[list[list[float]]] = []
+        combined_texts: list[str] = []
+        combined_trans: list[str] = []
+        angles: list[float] = []
 
-    for idx in ordered:
-        r = regions[idx]
-        ang = float(r.get("angle", 0.0) or 0.0)
-        angles.append(ang)
-        rcx, rcy = region_center(r)
-        rad = math.radians(ang)
-        ca, sa = math.cos(rad), math.sin(rad)
-        for poly in r.get("lines") or []:
-            w_poly: list[list[float]] = []
-            for pt in poly:
-                dx, dy = float(pt[0]) - rcx, float(pt[1]) - rcy
-                # Re-project stored unrotated lines back to world coordinates (+angle)
-                wx = rcx + dx * ca - dy * sa
-                wy = rcy + dx * sa + dy * ca
-                w_poly.append([wx, wy])
-            if w_poly:
-                world_polys.append(w_poly)
-        if r.get("texts"):
-            combined_texts.extend(str(t) for t in r["texts"])
-        elif r.get("text"):
-            combined_texts.append(str(r["text"]))
-        vis = storage_br_to_plain(str(r.get("translation", "") or "")).strip()
-        if vis:
-            combined_trans.append(vis)
+        for idx in ordered:
+            r = regions[idx]
+            ang = float(r.get("angle", 0.0) or 0.0)
+            angles.append(ang)
+            rcx, rcy = region_center(r)
+            rad = math.radians(ang)
+            ca, sa = math.cos(rad), math.sin(rad)
+            for poly in r.get("lines") or []:
+                w_poly: list[list[float]] = []
+                for pt in poly:
+                    dx, dy = float(pt[0]) - rcx, float(pt[1]) - rcy
+                    # Re-project stored unrotated lines back to world coordinates (+angle)
+                    wx = rcx + dx * ca - dy * sa
+                    wy = rcy + dx * sa + dy * ca
+                    w_poly.append([wx, wy])
+                if w_poly:
+                    world_polys.append(w_poly)
+            if r.get("texts"):
+                combined_texts.extend(str(t) for t in r["texts"])
+            elif r.get("text"):
+                combined_texts.append(str(r["text"]))
+            vis = storage_br_to_plain(str(r.get("translation", "") or "")).strip()
+            if vis:
+                combined_trans.append(vis)
 
-    # Preserve intentional common tilt when all merged lines slant in the same direction (>= 2 deg)
-    if angles and (all(a >= 2.0 for a in angles) or all(a <= -2.0 for a in angles)):
-        merged_angle = round(sum(angles) / len(angles), 2)
-    else:
-        merged_angle = 0.0
+        # Preserve intentional common tilt when all merged lines slant in the same direction (>= 2 deg)
+        if angles and (all(a >= 2.0 for a in angles) or all(a <= -2.0 for a in angles)):
+            merged_angle = round(sum(angles) / len(angles), 2)
+        else:
+            merged_angle = 0.0
 
-    all_pts = np.array([pt for poly in world_polys for pt in poly], dtype=np.float32)
-    if len(all_pts) >= 3:
-        (mcx, mcy), _, _ = cv2.minAreaRect(all_pts)
-        new_cx, new_cy = float(mcx), float(mcy)
-    elif len(all_pts) > 0:
-        new_cx, new_cy = float(np.mean(all_pts[:, 0])), float(np.mean(all_pts[:, 1]))
-    else:
-        bbox0 = region_bbox_xyxy(primary)
-        new_cx, new_cy = (bbox0[0] + bbox0[2]) / 2.0, (bbox0[1] + bbox0[3]) / 2.0
+        all_pts = np.array([pt for poly in world_polys for pt in poly], dtype=np.float32)
+        if len(all_pts) >= 3:
+            (mcx, mcy), _, _ = cv2.minAreaRect(all_pts)
+            new_cx, new_cy = float(mcx), float(mcy)
+        elif len(all_pts) > 0:
+            new_cx, new_cy = float(np.mean(all_pts[:, 0])), float(np.mean(all_pts[:, 1]))
+        else:
+            bbox0 = region_bbox_xyxy(primary)
+            new_cx, new_cy = (bbox0[0] + bbox0[2]) / 2.0, (bbox0[1] + bbox0[3]) / 2.0
 
-    # Store `lines` unrotated (-merged_angle) around `new_center`, matching TextBlock.to_dict() convention
-    urad = -math.radians(merged_angle)
-    uca, usa = math.cos(urad), math.sin(urad)
-    combined_lines = [
-        [
+        # Store `lines` unrotated (-merged_angle) around `new_center`, matching TextBlock.to_dict() convention
+        urad = -math.radians(merged_angle)
+        uca, usa = math.cos(urad), math.sin(urad)
+        combined_lines = [
             [
-                new_cx + (pt[0] - new_cx) * uca - (pt[1] - new_cy) * usa,
-                new_cy + (pt[0] - new_cx) * usa + (pt[1] - new_cy) * uca,
+                [
+                    new_cx + (pt[0] - new_cx) * uca - (pt[1] - new_cy) * usa,
+                    new_cy + (pt[0] - new_cx) * usa + (pt[1] - new_cy) * uca,
+                ]
+                for pt in poly
             ]
-            for pt in poly
+            for poly in world_polys
         ]
-        for poly in world_polys
-    ]
 
-    primary["lines"] = combined_lines
-    primary["angle"] = merged_angle
-    primary["center"] = [new_cx, new_cy]
-    primary["texts"] = combined_texts
-    primary["text"] = "".join(combined_texts)
-    final_trans = merged_translation if merged_translation is not None else "\n".join(combined_trans)
-    primary["translation"] = plain_to_storage_br(final_trans)
-    primary["translation_raw"] = primary["translation"]
-    primary.pop("translation_rich", None)
-    if was_bold:
-        set_region_whole_bold(primary, True)
-    else:
-        primary.pop("bold", None)
-    primary.pop("white_frame_rect_local", None)
-    primary.pop("white_frame_quad_local", None)
-    primary.pop("render_box_rect_local", None)
-    primary.pop("render_box_quad_local", None)
-    primary["has_custom_white_frame"] = False
+        primary["lines"] = combined_lines
+        primary["angle"] = merged_angle
+        primary["center"] = [new_cx, new_cy]
+        primary["texts"] = combined_texts
+        primary["text"] = "".join(combined_texts)
+        final_trans = merged_translation if merged_translation is not None else "\n".join(combined_trans)
+        primary["translation"] = plain_to_storage_br(final_trans)
+        primary["translation_raw"] = primary["translation"]
+        primary.pop("translation_rich", None)
+        if was_bold:
+            set_region_whole_bold(primary, True)
+        else:
+            primary.pop("bold", None)
+        primary.pop("white_frame_rect_local", None)
+        primary.pop("white_frame_quad_local", None)
+        primary.pop("render_box_rect_local", None)
+        primary.pop("render_box_quad_local", None)
+        primary["has_custom_white_frame"] = False
 
-    regions[ordered[0]] = primary
-    for idx in reversed(ordered[1:]):
-        regions.pop(idx)
+        regions[ordered[0]] = primary
+        for idx in reversed(ordered[1:]):
+            regions.pop(idx)
+        ensure_region_uids(regions)
+        merged_uid = str(primary.get("region_uid") or "")
 
-    saved_json = save_page_json_atomic(paths, image_key, image_data)
-    refreshed = resolve_page_paths(saved_json)
-    return refreshed, format_region_summary(ordered[0], primary)
+        saved_json = save_page_json_atomic(paths, image_key, image_data)
+        refreshed = resolve_page_paths(saved_json)
+        _, saved_data = load_page_json(refreshed)
+        saved_regions = saved_data.get("regions", [])
+        try:
+            s_idx = resolve_region_target_index(saved_regions, region_uid=merged_uid) if merged_uid else ordered[0]
+            summary = format_region_summary(s_idx, saved_regions[s_idx])
+        except (KeyError, IndexError):
+            summary = format_region_summary(ordered[0], primary)
+        return refreshed, summary
 
 
 # ---------------------------------------------------------------------------
@@ -996,11 +1114,10 @@ def manage_page_paste_overlays(
     flip_v: bool = False,
 ) -> tuple[PagePaths, dict[str, Any]]:
     """Manage `paste_overlays` (compatible with `desktop_qt_ui/editor/paste_overlay_state.py`), including clone-stamp patches!"""
-    paths = resolve_page_paths(page_path)
-    image_key, image_data = load_page_json(paths)
-    overlays: list[dict[str, Any]] = list(image_data.get("paste_overlays") or [])
-
     if action == "list":
+        paths = resolve_page_paths(page_path)
+        _, image_data = load_page_json(paths)
+        overlays = list(image_data.get("paste_overlays") or [])
         return paths, {
             "count": len(overlays),
             "overlays": [
@@ -1010,81 +1127,86 @@ def manage_page_paste_overlays(
             ],
         }
 
-    if action == "clear":
-        image_data.pop("paste_overlays", None)
-        saved = save_page_json_atomic(paths, image_key, image_data)
-        return resolve_page_paths(saved), {"cleared": len(overlays), "count": 0}
+    with page_edit_lock(page_path):
+        paths = resolve_page_paths(page_path)
+        image_key, image_data = load_page_json(paths)
+        overlays = list(image_data.get("paste_overlays") or [])
 
-    if action == "remove":
-        if not overlay_id:
-            raise ValueError("overlay_id is required for action='remove'")
-        before = len(overlays)
-        overlays = [item for item in overlays if str(item.get("id")) != str(overlay_id)]
+        if action == "clear":
+            image_data.pop("paste_overlays", None)
+            saved = save_page_json_atomic(paths, image_key, image_data)
+            return resolve_page_paths(saved), {"cleared": len(overlays), "count": 0}
+
+        if action == "remove":
+            if not overlay_id:
+                raise ValueError("overlay_id is required for action='remove'")
+            before = len(overlays)
+            overlays = [item for item in overlays if str(item.get("id")) != str(overlay_id)]
+            image_data["paste_overlays"] = overlays
+            saved = save_page_json_atomic(paths, image_key, image_data)
+            return resolve_page_paths(saved), {"removed": before - len(overlays), "count": len(overlays)}
+
+        if action == "add_clone_patch":
+            if not source_rect_xyxy or len(source_rect_xyxy) < 4 or not target_center_xy or len(target_center_xy) < 2:
+                raise ValueError("source_rect_xyxy=[sx1, sy1, sx2, sy2] and target_center_xy=[tx, ty] are required")
+            # Prefer cloning from clean inpainted or base image
+            src_img_path = paths.inpainted_path if paths.inpainted_exists else paths.display_base_path
+            src_rgb = open_rgb_image(src_img_path)
+            h, w = src_rgb.shape[:2]
+            sx1 = max(0, min(w - 1, int(round(source_rect_xyxy[0]))))
+            sy1 = max(0, min(h - 1, int(round(source_rect_xyxy[1]))))
+            sx2 = max(sx1 + 1, min(w, int(round(source_rect_xyxy[2]))))
+            sy2 = max(sy1 + 1, min(h, int(round(source_rect_xyxy[3]))))
+            patch_rgb = src_rgb[sy1:sy2, sx1:sx2]
+            ph, pw = patch_rgb.shape[:2]
+            alpha = np.full((ph, pw), 255, dtype=np.uint8)
+            if feather_px > 0 and min(ph, pw) > feather_px * 3:
+                dist = np.minimum(
+                    np.minimum(np.arange(ph)[:, None], np.arange(ph - 1, -1, -1)[:, None]),
+                    np.minimum(np.arange(pw)[None, :], np.arange(pw - 1, -1, -1)[None, :]),
+                )
+                alpha = np.clip((dist + 1) / float(feather_px + 1) * 255.0, 0, 255).astype(np.uint8)
+            rgba = np.dstack([patch_rgb, alpha])
+            target_w = float(width if width is not None else pw)
+            target_h = float(height if height is not None else ph)
+        elif action == "add_image_file":
+            if not image_file_path or not target_center_xy or len(target_center_xy) < 2:
+                raise ValueError("image_file_path and target_center_xy=[tx, ty] are required")
+            from PIL import Image
+
+            with Image.open(image_file_path) as im:
+                rgba = np.array(im.convert("RGBA"), dtype=np.uint8, copy=True)
+            ph, pw = rgba.shape[:2]
+            target_w = float(width if width is not None else pw)
+            target_h = float(height if height is not None else ph)
+        else:
+            raise ValueError(f"Unsupported paste_overlay action: {action!r}")
+
+        bgra = cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGRA)
+        ok, encoded = cv2.imencode(".png", bgra)
+        if not ok:
+            raise RuntimeError("Failed to encode paste overlay PNG")
+        b64_png = base64.b64encode(encoded).decode("ascii")
+
+        new_item = {
+            "id": uuid.uuid4().hex,
+            "name": name,
+            "z": int(z),
+            "visible": True,
+            "opacity": max(0.0, min(1.0, float(opacity))),
+            "center_x": float(target_center_xy[0]),
+            "center_y": float(target_center_xy[1]),
+            "width": target_w,
+            "height": target_h,
+            "rotation": float(rotation),
+            "flip_h": bool(flip_h),
+            "flip_v": bool(flip_v),
+            "image": b64_png,
+        }
+        overlays.append(new_item)
         image_data["paste_overlays"] = overlays
         saved = save_page_json_atomic(paths, image_key, image_data)
-        return resolve_page_paths(saved), {"removed": before - len(overlays), "count": len(overlays)}
-
-    if action == "add_clone_patch":
-        if not source_rect_xyxy or len(source_rect_xyxy) < 4 or not target_center_xy or len(target_center_xy) < 2:
-            raise ValueError("source_rect_xyxy=[sx1, sy1, sx2, sy2] and target_center_xy=[tx, ty] are required")
-        # Prefer cloning from clean inpainted or base image
-        src_img_path = paths.inpainted_path if paths.inpainted_exists else paths.display_base_path
-        src_rgb = open_rgb_image(src_img_path)
-        h, w = src_rgb.shape[:2]
-        sx1 = max(0, min(w - 1, int(round(source_rect_xyxy[0]))))
-        sy1 = max(0, min(h - 1, int(round(source_rect_xyxy[1]))))
-        sx2 = max(sx1 + 1, min(w, int(round(source_rect_xyxy[2]))))
-        sy2 = max(sy1 + 1, min(h, int(round(source_rect_xyxy[3]))))
-        patch_rgb = src_rgb[sy1:sy2, sx1:sx2]
-        ph, pw = patch_rgb.shape[:2]
-        alpha = np.full((ph, pw), 255, dtype=np.uint8)
-        if feather_px > 0 and min(ph, pw) > feather_px * 3:
-            dist = np.minimum(
-                np.minimum(np.arange(ph)[:, None], np.arange(ph - 1, -1, -1)[:, None]),
-                np.minimum(np.arange(pw)[None, :], np.arange(pw - 1, -1, -1)[None, :]),
-            )
-            alpha = np.clip((dist + 1) / float(feather_px + 1) * 255.0, 0, 255).astype(np.uint8)
-        rgba = np.dstack([patch_rgb, alpha])
-        target_w = float(width if width is not None else pw)
-        target_h = float(height if height is not None else ph)
-    elif action == "add_image_file":
-        if not image_file_path or not target_center_xy or len(target_center_xy) < 2:
-            raise ValueError("image_file_path and target_center_xy=[tx, ty] are required")
-        from PIL import Image
-
-        with Image.open(image_file_path) as im:
-            rgba = np.array(im.convert("RGBA"), dtype=np.uint8, copy=True)
-        ph, pw = rgba.shape[:2]
-        target_w = float(width if width is not None else pw)
-        target_h = float(height if height is not None else ph)
-    else:
-        raise ValueError(f"Unsupported paste_overlay action: {action!r}")
-
-    bgra = cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGRA)
-    ok, encoded = cv2.imencode(".png", bgra)
-    if not ok:
-        raise RuntimeError("Failed to encode paste overlay PNG")
-    b64_png = base64.b64encode(encoded).decode("ascii")
-
-    new_item = {
-        "id": uuid.uuid4().hex,
-        "name": name,
-        "z": int(z),
-        "visible": True,
-        "opacity": max(0.0, min(1.0, float(opacity))),
-        "center_x": float(target_center_xy[0]),
-        "center_y": float(target_center_xy[1]),
-        "width": target_w,
-        "height": target_h,
-        "rotation": float(rotation),
-        "flip_h": bool(flip_h),
-        "flip_v": bool(flip_v),
-        "image": b64_png,
-    }
-    overlays.append(new_item)
-    image_data["paste_overlays"] = overlays
-    saved = save_page_json_atomic(paths, image_key, image_data)
-    return resolve_page_paths(saved), {
-        "added_overlay": {k: v for k, v in new_item.items() if k != "image"},
-        "count": len(overlays),
-    }
+        return resolve_page_paths(saved), {
+            "added_overlay": {k: v for k, v in new_item.items() if k != "image"},
+            "count": len(overlays),
+        }

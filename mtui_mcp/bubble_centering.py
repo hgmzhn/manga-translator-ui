@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -12,6 +13,8 @@ from PIL import Image
 from .path_resolver import PagePaths, list_manga_pages_in_path, resolve_page_paths
 from .project_store import (
     apply_region_updates_to_page,
+    compute_page_revision,
+    ensure_region_uids,
     load_page_json,
     region_has_perspective_quad,
 )
@@ -432,7 +435,9 @@ def partition_page_white_bubbles(inp_gray: np.ndarray, regs: list[dict[str, Any]
             continue
         if region_has_perspective_quad(r):
             continue
-        cx, cy = float(r["center"][0]), float(r["center"][1])
+        raw_cx, raw_cy = float(r["center"][0]), float(r["center"][1])
+        cx = max(0.0, min(float(max(0, w - 1)), raw_cx))
+        cy = max(0.0, min(float(max(0, h - 1)), raw_cy))
         ix, iy = max(0, min(w - 1, int(round(cx)))), max(0, min(h - 1, int(round(cy))))
         if inp_gray[iy, ix] < 235:
             continue
@@ -456,7 +461,9 @@ def partition_page_white_bubbles(inp_gray: np.ndarray, regs: list[dict[str, Any]
             groups: dict[int, list[int]] = {}
             for ri in ridxs:
                 cx, cy = rc_map[ri]
-                k = int(sl[int(round(cy)), int(round(cx))])
+                sx = max(0, min(w - 1, int(round(cx))))
+                sy = max(0, min(h - 1, int(round(cy))))
+                k = int(sl[sy, sx])
                 if k > 0:
                     groups.setdefault(k, []).append(ri)
             for k, sub in groups.items():
@@ -584,53 +591,101 @@ def compute_chapter_optical_centers(target_path: str | Path) -> dict[str, list[d
     return report
 
 
+def _rendered_artifact_fingerprint(paths: PagePaths) -> Optional[tuple[int, int, str]]:
+    if not (paths.rendered_output_exists and paths.rendered_output_path and paths.rendered_output_path.is_file()):
+        return None
+    try:
+        st = paths.rendered_output_path.stat()
+        digest = hashlib.sha1(paths.rendered_output_path.read_bytes()).hexdigest()
+        return (st.st_mtime_ns, st.st_size, digest)
+    except OSError:
+        return None
+
+
+def _partition_lobes_by_uid(
+    inp_g: np.ndarray,
+    regs: list[dict[str, Any]],
+) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    ensure_region_uids(regs)
+    by_ri = partition_page_white_bubbles(inp_g, regs)
+    out: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for ri, masks in by_ri.items():
+        if 0 <= ri < len(regs) and isinstance(regs[ri], dict):
+            uid = str(regs[ri].get("region_uid") or "").strip()
+            if uid:
+                out[uid] = masks
+    return out
+
+
 def run_closed_loop_bubble_centering(
     target_path: str | Path,
     *,
     passes: int = 2,
     render_page_fn: Optional[Callable[[PagePaths], Any]] = None,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Run closed-loop optical centering + re-rendering directly in-process (zero extra MCP server subprocess)."""
+    """Run closed-loop optical centering + re-rendering page-by-page (freeing per-page masks immediately)."""
     pages = [p for p in list_manga_pages_in_path(target_path) if p.json_exists and p.inpainted_exists]
-    frozen_lobes: dict[str, dict[int, tuple[np.ndarray, np.ndarray]]] = {}
-    inp_cache: dict[str, np.ndarray] = {}
+    eff_passes = 1 if render_page_fn is None else max(1, int(passes))
+    report: dict[str, list[dict[str, Any]]] = {}
 
     for p in pages:
-        _, img_data = load_page_json(p)
-        regs = img_data.get("regions") or []
-        if not regs:
+        p_init = resolve_page_paths(p.source_path)
+        if not (p_init.json_exists and p_init.inpainted_exists and p_init.inpainted_path.is_file()):
             continue
-        with Image.open(p.inpainted_path) as im:
-            inp_g = np.array(im.convert("L"))
-        inp_cache[p.source_path.name] = inp_g
-        lobes = partition_page_white_bubbles(inp_g, regs)
-        if lobes:
-            frozen_lobes[p.source_path.name] = lobes
+        _, init_data = load_page_json(p_init)
+        init_regs = init_data.get("regions") or []
+        if not init_regs:
+            continue
 
-    report: dict[str, list[dict[str, Any]]] = {}
-    for _ in range(max(1, int(passes))):
-        for p in pages:
-            lobes = frozen_lobes.get(p.source_path.name)
-            if not lobes:
-                continue
+        inp_stat = (p_init.inpainted_path.stat().st_size, p_init.inpainted_path.stat().st_mtime_ns)
+        with Image.open(p_init.inpainted_path) as im:
+            inp_g = np.array(im.convert("L"))
+        lobes_by_uid = _partition_lobes_by_uid(inp_g, init_regs)
+        if not lobes_by_uid:
+            continue
+        cached_uids = [str(r.get("region_uid") or "") for r in init_regs if isinstance(r, dict)]
+
+        for pass_idx in range(eff_passes):
             p_fresh = resolve_page_paths(p.source_path)
-            inp_g = inp_cache[p.source_path.name]
+            if not (p_fresh.json_exists and p_fresh.inpainted_exists and p_fresh.inpainted_path.is_file()):
+                break
+            page_rev = compute_page_revision(p_fresh)
+            _, img_data = load_page_json(p_fresh)
+            regs = img_data.get("regions") or []
+            if not regs:
+                break
+            ensure_region_uids(regs)
+            cur_uids = [str(r.get("region_uid") or "") for r in regs if isinstance(r, dict)]
+            cur_inp_stat = (p_fresh.inpainted_path.stat().st_size, p_fresh.inpainted_path.stat().st_mtime_ns)
+            if cur_inp_stat != inp_stat:
+                inp_stat = cur_inp_stat
+                with Image.open(p_fresh.inpainted_path) as im:
+                    inp_g = np.array(im.convert("L"))
+                lobes_by_uid = _partition_lobes_by_uid(inp_g, regs)
+                cached_uids = cur_uids
+            elif cur_uids != cached_uids:
+                lobes_by_uid = _partition_lobes_by_uid(inp_g, regs)
+                cached_uids = cur_uids
+
+            if not lobes_by_uid:
+                break
+
             res_g: Optional[np.ndarray] = None
             if p_fresh.rendered_output_exists and p_fresh.rendered_output_path and p_fresh.rendered_output_path.is_file():
                 with Image.open(p_fresh.rendered_output_path) as rim:
                     res_g = np.array(rim.convert("L"))
 
-            _, img_data = load_page_json(p_fresh)
-            regs = img_data.get("regions") or []
             excl_inks = _extract_page_exclusive_inks(inp_g, res_g, regs)
             upds: list[dict[str, Any]] = []
             page_items: list[dict[str, Any]] = []
-            for ri, (lobe_m, real_m) in sorted(lobes.items()):
-                if ri >= len(regs):
+            for ri, r in enumerate(regs):
+                if not isinstance(r, dict) or not r.get("center"):
                     continue
-                r = regs[ri]
-                if not r.get("center"):
+                uid = str(r.get("region_uid") or "").strip()
+                masks = lobes_by_uid.get(uid)
+                if masks is None:
                     continue
+                lobe_m, real_m = masks
                 cx, cy = float(r["center"][0]), float(r["center"][1])
                 tr = str(r.get("translation", ""))
                 fs = float(r.get("font_size") or 26)
@@ -638,19 +693,44 @@ def run_closed_loop_bubble_centering(
                 res_pt = None
                 if ri in excl_inks:
                     hard_safe = build_region_hard_safe_mask(real_m, excl_inks, ri, gap_px=15)
-                    res_pt = compute_orthogonal_equal_margin_center(lobe_m, real_m, hard_safe, excl_inks[ri], cx, cy, fs, light_tail)
+                    res_pt = compute_orthogonal_equal_margin_center(
+                        lobe_m, real_m, hard_safe, excl_inks[ri], cx, cy, fs, light_tail
+                    )
                 if res_pt is None:
                     res_pt = _estimate_empty_lobe_center(lobe_m, r)
                 if res_pt is not None:
                     nx, ny = res_pt
-                    page_items.append({"index": ri, "region_uid": r.get("region_uid"), "old_center": [cx, cy], "optical_center": [nx, ny]})
-                    if abs(nx - cx) >= 0.9 or abs(ny - cy) >= 0.9:
-                        target_key = {"region_uid": str(r["region_uid"])} if r.get("region_uid") else {"region_index": ri}
-                        upds.append({**target_key, "center": [nx, ny]})
+                    page_items.append(
+                        {"index": ri, "region_uid": uid, "old_center": [cx, cy], "optical_center": [nx, ny]}
+                    )
+                    dx = nx - cx
+                    dy = ny - cy
+                    if abs(dx) >= 0.9 or abs(dy) >= 0.9:
+                        target_key = {"region_uid": uid} if uid else {"region_index": ri}
+                        upds.append({**target_key, "move_dx": dx, "move_dy": dy})
+
             if page_items:
                 report[p.source_path.name] = page_items
-            if upds:
-                apply_region_updates_to_page(p.source_path, updates=upds)
-                if render_page_fn is not None:
-                    render_page_fn(resolve_page_paths(p.source_path))
+            if not upds:
+                break
+
+            apply_region_updates_to_page(p_fresh.source_path, updates=upds, expected_revision=page_rev)
+            if render_page_fn is None:
+                break
+
+            pre_render_paths = resolve_page_paths(p.source_path)
+            prev_fp = _rendered_artifact_fingerprint(pre_render_paths)
+            render_res = render_page_fn(pre_render_paths)
+            if pass_idx + 1 >= eff_passes:
+                break
+            if isinstance(render_res, dict) and render_res.get("status") not in (None, "ok", "success"):
+                break
+            post_render_paths = resolve_page_paths(p.source_path)
+            post_fp = _rendered_artifact_fingerprint(post_render_paths)
+            if post_fp is None:
+                break
+            if prev_fp is not None and post_fp[0] == prev_fp[0] and post_fp[2] == prev_fp[2]:
+                # Rendered image on disk was not updated; stop so stale ink is never measured twice
+                break
+
     return report

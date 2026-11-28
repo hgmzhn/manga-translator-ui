@@ -10,7 +10,15 @@ import sys
 from collections.abc import Sequence
 from typing import Optional
 
+import uvicorn
+
 from .config import get_runtime_settings
+from .embedded_server import (
+    BearerAuthMiddleware,
+    build_mcp_subapps,
+    is_loopback_host,
+    resolve_http_auth_token,
+)
 from .server import mcp
 from .worker.client import get_worker_client
 
@@ -31,15 +39,54 @@ def _default_port() -> int:
     env_val = os.environ.get("MTUI_MCP_PORT", "").strip()
     if env_val:
         try:
-            return int(env_val)
+            port = int(env_val)
+            if 0 <= port <= 65535:
+                return port
         except ValueError:
             pass
     return 8765
 
 
-def _run_mcp_transport(transport: str, host: str, port: int) -> None:
+def _parse_port_arg(raw: str) -> int:
+    try:
+        port = int(raw)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid int value: {raw!r}") from exc
+    if not (0 <= port <= 65535):
+        raise argparse.ArgumentTypeError(f"port must be between 0 and 65535, got {port}")
+    return port
+
+
+def _run_mcp_transport(
+    transport: str,
+    host: str,
+    port: int,
+    *,
+    auth_token: Optional[str] = None,
+) -> None:
+    settings = get_runtime_settings()
     if transport == "stdio":
+        settings.allow_runtime_python_override = True
         mcp.run(transport="stdio")
+        return
+
+    settings.allow_runtime_python_override = False
+
+    loopback = is_loopback_host(host)
+    token = resolve_http_auth_token(auth_token)
+    if not loopback and not token:
+        raise RuntimeError(
+            f"Refusing to bind MCP {transport} server on non-loopback host {host!r} "
+            "without MTUI_MCP_AUTH_TOKEN (or --auth-token)."
+        )
+
+    require_auth = (not loopback) or (auth_token is not None and bool(token))
+    if require_auth:
+        stream_app, sse_app = build_mcp_subapps(host, port)
+        subapp = stream_app if transport == "streamable-http" else sse_app
+        wrapped = BearerAuthMiddleware(subapp, token, allow_unauthenticated_health=False)
+        clean_host = host[1:-1].strip() if host.startswith("[") and host.endswith("]") else host
+        uvicorn.run(wrapped, host=clean_host, port=port, log_level="warning", access_log=False)
         return
 
     settings_obj = getattr(mcp, "settings", None)
@@ -87,9 +134,14 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     )
     parser.add_argument(
         "--port",
-        type=int,
+        type=_parse_port_arg,
         default=_default_port(),
         help="Bind port for streamable-http / sse transports (default: MTUI_MCP_PORT or 8765).",
+    )
+    parser.add_argument(
+        "--auth-token",
+        default=None,
+        help="Bearer token required on non-loopback HTTP/SSE hosts (overrides MTUI_MCP_AUTH_TOKEN).",
     )
     parser.add_argument(
         "--warm-up",
@@ -114,6 +166,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     settings = get_runtime_settings()
     if args.mtui_root or args.mtui_python:
         settings.refresh(mtui_root=args.mtui_root, mtui_python=args.mtui_python)
+    if args.transport != "stdio":
+        settings.allow_runtime_python_override = False
 
     if args.warm_up and settings.is_engine_available:
         try:
@@ -122,7 +176,12 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             logging.getLogger("mtui_mcp").warning("Initial worker warm-up failed: %s", exc)
 
     try:
-        _run_mcp_transport(args.transport, args.host, args.port)
+        _run_mcp_transport(
+            args.transport,
+            args.host,
+            args.port,
+            auth_token=args.auth_token,
+        )
     finally:
         get_worker_client().shutdown()
 

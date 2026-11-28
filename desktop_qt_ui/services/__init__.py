@@ -106,6 +106,7 @@ class ServiceContainer:
             
         except Exception as e:
             self.logger.error(f"Background initialization of heavyweight services failed: {e}")
+            raise
 
     def _init_ui_services(self):
         """在UI主线程初始化UI相关服务"""
@@ -177,9 +178,17 @@ class ServiceManager:
     @classmethod
     def initialize(cls, root_dir: str, root_widget=None) -> bool:
         """初始化服务管理器"""
-        if cls._container is None:
-            cls._container = ServiceContainer(root_dir)
-            return cls._container.initialize_services(root_widget)
+        if cls._container is None or not cls._container.initialized:
+            container = ServiceContainer(root_dir)
+            cls._container = container
+            try:
+                if not container.initialize_services(root_widget):
+                    cls._container = None
+                    return False
+            except Exception:
+                cls._container = None
+                raise
+            return True
         return True
     
     @classmethod

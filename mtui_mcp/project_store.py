@@ -12,18 +12,26 @@ import os
 import re
 import shutil
 import tempfile
+import threading
 import time
 import unicodedata
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 import cv2
 import numpy as np
 from PIL import Image
 
+from . import font_catalog as _font_catalog
 from .config import get_runtime_settings
 from .font_catalog import check_missing_glyphs, check_region_missing_glyphs
-from .path_resolver import PagePaths, list_manga_pages_in_path, resolve_page_paths
+from .path_resolver import (
+    SUPPORTED_IMAGE_EXTENSIONS,
+    PagePaths,
+    list_manga_pages_in_path,
+    resolve_page_paths,
+)
 from .richtext_builder import (
     apply_missing_glyph_inline_fallbacks,
     apply_span_styles_to_region,
@@ -37,6 +45,7 @@ from .richtext_builder import (
     set_region_whole_bold,
     storage_br_to_plain,
     sync_region_text_update,
+    validate_richtext_document,
     visible_text_of_region,
 )
 
@@ -44,6 +53,10 @@ logger = logging.getLogger("mtui_mcp.store")
 
 _WINDOWS_TRANSIENT_REPLACE_WINERRORS = frozenset({5, 32})
 _ATOMIC_REPLACE_RETRY_DELAYS: tuple[float, ...] = (0.02, 0.05, 0.1, 0.15, 0.2, 0.3)
+
+
+def _is_windows() -> bool:
+    return os.name == "nt"
 
 
 def _atomic_replace_with_retry(
@@ -59,7 +72,7 @@ def _atomic_replace_with_retry(
             return
         except OSError as exc:
             winerror = getattr(exc, "winerror", None)
-            is_transient_windows_lock = os.name == "nt" and (
+            is_transient_windows_lock = _is_windows() and (
                 isinstance(exc, PermissionError)
                 or winerror in _WINDOWS_TRANSIENT_REPLACE_WINERRORS
             )
@@ -75,6 +88,120 @@ def _atomic_replace_with_retry(
                 delay,
             )
             time.sleep(delay)
+
+
+class _PageLockState:
+    def __init__(self) -> None:
+        self.rlock = threading.RLock()
+        self.depth = 0
+        self.fd: Optional[int] = None
+
+
+_PAGE_LOCKS_GUARD = threading.Lock()
+_PAGE_LOCKS: dict[str, _PageLockState] = {}
+
+
+def _resolve_page_lock_path(target: PagePaths | str | Path) -> Path:
+    if isinstance(target, PagePaths):
+        return target.work_dir / "json" / f".{target.source_path.stem}_translations.lock"
+    raw_p = Path(target).expanduser()
+    if raw_p.suffix.lower() == ".json" and raw_p.name.endswith("_translations.json"):
+        if raw_p.parent.name == "json" and raw_p.parent.parent.name == "manga_translator_work":
+            return raw_p.parent / f".{raw_p.stem}.lock"
+        resolved = resolve_page_paths(raw_p)
+        if resolved.source_path.name.endswith("_translations.json"):
+            return Path(os.path.normpath(os.path.abspath(str(raw_p.parent)))) / f".{raw_p.stem}.lock"
+        return resolved.work_dir / "json" / f".{resolved.source_path.stem}_translations.lock"
+    resolved = resolve_page_paths(raw_p)
+    return resolved.work_dir / "json" / f".{resolved.source_path.stem}_translations.lock"
+
+
+def _acquire_os_file_lock(fd: int) -> None:
+    if os.name == "nt":
+        import msvcrt
+
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _release_os_file_lock(fd: int) -> None:
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            os.lseek(fd, 0, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    except OSError:
+        pass
+
+
+@contextmanager
+def page_edit_lock(target: PagePaths | str | Path, timeout_sec: float = 30.0) -> Iterator[Path]:
+    """Acquire a re-entrant per-page `threading.RLock` + cross-process advisory file lock (`<json_dir>/.<json_stem>.lock`)."""
+    lock_path = _resolve_page_lock_path(target)
+    norm_key = os.path.normcase(os.path.normpath(os.path.abspath(str(lock_path))))
+    with _PAGE_LOCKS_GUARD:
+        state = _PAGE_LOCKS.get(norm_key)
+        if state is None:
+            state = _PageLockState()
+            _PAGE_LOCKS[norm_key] = state
+
+    budget = max(0.0, float(timeout_sec))
+    deadline = time.monotonic() + budget
+    acquired_rlock = (
+        state.rlock.acquire(blocking=True, timeout=budget)
+        if budget > 0.0
+        else state.rlock.acquire(blocking=False)
+    )
+    if not acquired_rlock:
+        raise TimeoutError(f"Timed out after {budget:.2f}s waiting for page_edit_lock on {lock_path}")
+
+    try:
+        if state.depth == 0:
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o666)
+            try:
+                while True:
+                    try:
+                        _acquire_os_file_lock(fd)
+                        break
+                    except OSError as exc:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0.0:
+                            raise TimeoutError(
+                                f"Timed out after {budget:.2f}s waiting for cross-process file lock {lock_path}"
+                            ) from exc
+                        time.sleep(min(0.02, remaining))
+            except BaseException:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+                raise
+            state.fd = fd
+        state.depth += 1
+        try:
+            yield lock_path
+        finally:
+            state.depth -= 1
+            if state.depth == 0 and state.fd is not None:
+                fd_to_close = state.fd
+                state.fd = None
+                _release_os_file_lock(fd_to_close)
+                try:
+                    os.close(fd_to_close)
+                except OSError:
+                    pass
+    finally:
+        state.rlock.release()
 
 
 class _NumpySafeEncoder(json.JSONEncoder):
@@ -159,10 +286,12 @@ def encode_mask_base64(mask: np.ndarray) -> str:
     return base64.b64encode(encoded).decode("ascii")
 
 
-def compute_page_revision(paths: PagePaths) -> str:
+def compute_page_revision(paths: PagePaths, *, json_bytes: Optional[bytes] = None) -> str:
     """Compute a deterministic optimistic-concurrency token (`rev_<16hex>`) over JSON + inpainted sidecar."""
     h = hashlib.sha256()
-    if paths.json_exists and paths.json_path.is_file():
+    if json_bytes is not None:
+        h.update(json_bytes)
+    elif paths.json_exists and paths.json_path.is_file():
         try:
             h.update(paths.json_path.read_bytes())
         except OSError:
@@ -241,15 +370,7 @@ def _with_ensured_uids(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-def load_page_json(paths: PagePaths) -> tuple[str, dict[str, Any]]:
-    """Load `(image_key, image_data_dict)` from `*_translations.json`, preserving all keys."""
-    canonical_key = os.path.abspath(str(paths.source_path))
-    if not paths.json_exists:
-        return canonical_key, {"regions": []}
-
-    with open(paths.json_path, "r", encoding="utf-8") as f:
-        raw = json.load(f)
-
+def _parse_loaded_page_json(raw: Any, canonical_key: str) -> tuple[str, dict[str, Any]]:
     if not isinstance(raw, dict) or not raw:
         return canonical_key, {"regions": []}
 
@@ -271,6 +392,23 @@ def load_page_json(paths: PagePaths) -> tuple[str, dict[str, Any]]:
     first_v = raw[first_k]
     out = copy.deepcopy(first_v) if isinstance(first_v, dict) else {"regions": copy.deepcopy(first_v)}
     return first_k, _with_ensured_uids(out)
+
+
+def _load_page_json_with_bytes(paths: PagePaths) -> tuple[str, dict[str, Any], Optional[bytes]]:
+    canonical_key = os.path.abspath(str(paths.source_path))
+    if not paths.json_exists or not paths.json_path.is_file():
+        return canonical_key, {"regions": []}, None
+
+    raw_bytes = paths.json_path.read_bytes()
+    raw = json.loads(raw_bytes.decode("utf-8"))
+    key, data = _parse_loaded_page_json(raw, canonical_key)
+    return key, data, raw_bytes
+
+
+def load_page_json(paths: PagePaths) -> tuple[str, dict[str, Any]]:
+    """Load `(image_key, image_data_dict)` from `*_translations.json`, preserving all keys."""
+    key, data, _ = _load_page_json_with_bytes(paths)
+    return key, data
 
 
 _VERT_CHAR_PAIRS: tuple[tuple[str, str], ...] = (
@@ -364,8 +502,35 @@ def normalize_text_for_direction(text: str, *, is_vertical: bool, font_family: s
     return out
 
 
+def has_font(font_family: str, *, include_system: Optional[bool] = None) -> bool:
+    """Return True iff `font_family` resolves to an installed font in `mtui_mcp.font_catalog`."""
+    fn = getattr(_font_catalog, "has_font", None)
+    if callable(fn):
+        return bool(fn(font_family, include_system=include_system))
+    if not font_family:
+        return False
+    family_only = font_family.split("::")[0].strip()
+    target_norm = _font_catalog.strip_qt_foundry_brackets(family_only).casefold()
+    if not target_norm:
+        return False
+    if include_system is None:
+        include_system = not bool(os.environ.get("PYTEST_CURRENT_TEST"))
+    settings = get_runtime_settings()
+    f_dir_str, f_count, f_mtime_xor = _font_catalog._project_fonts_signature(settings.fonts_dir)
+    return (
+        _font_catalog._resolve_target_font_codepoints(
+            f_dir_str,
+            f_count,
+            f_mtime_xor,
+            include_system,
+            target_norm,
+        )
+        is not None
+    )
+
+
 def _pick_punctuation_fallback_font(font_family: str, ch: str) -> str:
-    """Return a style-matched complete CJK fallback font for missing/zero-contour punctuation ``ch`` (empty if ``ch`` is alphanumeric/hanzi)."""
+    """Return a style-matched installed CJK fallback font for missing/zero-contour punctuation ``ch`` (empty if ``ch`` is alphanumeric/hanzi or no candidate is installed)."""
     if not ch or unicodedata.category(ch)[:1] not in ("P", "S"):
         return ""
     fl = (font_family or "").casefold()
@@ -383,16 +548,24 @@ def _pick_punctuation_fallback_font(font_family: str, ch: str) -> str:
         cands = ("Source Han Sans SC::Bold", "FZHei-B01", "FZZhunYuan-M02")
 
     for cand in cands:
-        if not check_missing_glyphs(cand, ch):
+        if has_font(cand) and not check_missing_glyphs(cand, ch):
             return cand
     return ""
 
 
-def _normalize_richtext_inlines_for_direction(node: Any, *, is_vertical: bool, font_family: str = "") -> None:
+def _normalize_richtext_inlines_for_direction(
+    node: Any,
+    *,
+    is_vertical: bool,
+    font_family: str = "",
+    in_tcy: bool = False,
+) -> None:
     if isinstance(node, dict):
-        if node.get("type") == "text" and isinstance(node.get("text"), str):
-            # Do NOT rotate ASCII ()!? inside horizontal-in-vertical TCY runs
-            if not node.get("tcy"):
+        ntype = node.get("type")
+        node_in_tcy = in_tcy or ntype == "tcy" or bool(node.get("tcy"))
+        if ntype == "text" and isinstance(node.get("text"), str):
+            # Do NOT rotate ASCII/CJK punctuation inside horizontal-in-vertical TCY runs
+            if not node_in_tcy:
                 node["text"] = normalize_text_for_direction(
                     node["text"],
                     is_vertical=is_vertical,
@@ -401,10 +574,20 @@ def _normalize_richtext_inlines_for_direction(node: Any, *, is_vertical: bool, f
                 )
         for k, v in node.items():
             if k != "style" and isinstance(v, (dict, list)):
-                _normalize_richtext_inlines_for_direction(v, is_vertical=is_vertical, font_family=font_family)
+                _normalize_richtext_inlines_for_direction(
+                    v,
+                    is_vertical=is_vertical,
+                    font_family=font_family,
+                    in_tcy=node_in_tcy,
+                )
     elif isinstance(node, list):
         for item in node:
-            _normalize_richtext_inlines_for_direction(item, is_vertical=is_vertical, font_family=font_family)
+            _normalize_richtext_inlines_for_direction(
+                item,
+                is_vertical=is_vertical,
+                font_family=font_family,
+                in_tcy=in_tcy,
+            )
 
 
 def _is_effectively_vertical_region(rc: dict[str, Any]) -> bool:
@@ -446,8 +629,8 @@ def save_page_json_atomic(
             rc["translation"] = plain_to_storage_br(str(rc.get("text", "") or ""))
         if "translation_raw" not in rc or rc["translation_raw"] is None:
             rc["translation_raw"] = rc["translation"]
-        # Honor top-level `bold: True` by materializing `richtext.v1` inline bold runs
-        if rc.get("bold") is True:
+        # Honor top-level `bold: True` when `translation_rich` is not already explicitly present
+        if rc.get("bold") is True and not is_rich_text_document(rc.get("translation_rich")):
             set_region_whole_bold(rc, True)
         # Omit redundant unstyled `translation_rich`
         if "translation_rich" in rc and not document_has_nontrivial_styling(
@@ -468,21 +651,23 @@ def save_page_json_atomic(
             ff_str = ff_str[: -len("::regular")].strip()
             rc["font_family"] = ff_str
 
-        rc["translation"] = normalize_text_for_direction(
-            str(rc.get("translation", "")),
-            is_vertical=is_vert,
-            font_family=ff_str,
-            has_custom_rotation=False,
-        )
-        if isinstance(rc.get("translation_rich"), dict):
+        if is_rich_text_document(rc.get("translation_rich")):
             _normalize_richtext_inlines_for_direction(
                 rc["translation_rich"],
                 is_vertical=is_vert,
                 font_family=ff_str,
             )
+            rc["translation"] = plain_to_storage_br(visible_text_of_region(rc))
             if is_vert:
                 # Prevent double-rotation bug (`图8`: `～` + `-90°` normalized to `︴` + `-90°` rendering sideways!)
                 sanitize_vertical_richtext_rotations(rc)
+        else:
+            rc["translation"] = normalize_text_for_direction(
+                str(rc.get("translation", "")),
+                is_vertical=is_vert,
+                font_family=ff_str,
+                has_custom_rotation=False,
+            )
 
         # Auto-convert ‼/⁉ on fonts lacking U+203C/U+2049 and auto-wrap explicit !!/!?/?!/?? into TCY!
         if is_vert:
@@ -575,58 +760,114 @@ def save_page_json_atomic(
 # ---------------------------------------------------------------------------
 
 
+def _norm_abs_path_str(p: str | Path) -> str:
+    return os.path.normcase(os.path.normpath(os.path.abspath(str(p))))
+
+
+def _copy_file_atomic(src: Path, dst: Path) -> None:
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{dst.name}.",
+        suffix=".tmp",
+        dir=str(dst.parent),
+    )
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        shutil.copy2(src, tmp_path)
+        _atomic_replace_with_retry(tmp_path, dst)
+    finally:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
+
+def _is_complete_snapshot_dir(snap_dir: Path) -> bool:
+    mf = snap_dir / "manifest.json"
+    if not mf.is_file():
+        return False
+    try:
+        data = json.loads(mf.read_text(encoding="utf-8"))
+        return isinstance(data, dict)
+    except Exception:
+        return False
+
+
 def create_snapshot(paths: PagePaths, label: str = "manual") -> dict[str, Any]:
     """Create a point-in-time backup of JSON, inpainted sidecar, and rendered output for a page."""
+    paths.snapshots_dir.mkdir(parents=True, exist_ok=True)
     safe_label = re.sub(r"[^a-zA-Z0-9_\-\u4e00-\u9fff]+", "_", label.strip() or "snapshot")[:48]
     ts = time.strftime("%Y%m%d_%H%M%S")
     snap_id = f"{paths.source_path.stem}__{ts}__{safe_label}"
     snap_dir = paths.snapshots_dir / snap_id
+    if snap_dir.exists() and not _is_complete_snapshot_dir(snap_dir):
+        shutil.rmtree(snap_dir, ignore_errors=True)
     if snap_dir.exists():
         idx_dup = 2
-        while (paths.snapshots_dir / f"{snap_id}_{idx_dup}").exists():
+        while True:
+            cand_id = f"{snap_id}_{idx_dup}"
+            cand_dir = paths.snapshots_dir / cand_id
+            if cand_dir.exists() and not _is_complete_snapshot_dir(cand_dir):
+                shutil.rmtree(cand_dir, ignore_errors=True)
+            if not cand_dir.exists():
+                snap_id = cand_id
+                snap_dir = cand_dir
+                break
             idx_dup += 1
-        snap_id = f"{snap_id}_{idx_dup}"
-        snap_dir = paths.snapshots_dir / snap_id
-    snap_dir.mkdir(parents=True, exist_ok=True)
 
-    saved_files: list[str] = []
-    manifest: dict[str, Any] = {
-        "snapshot_id": snap_id,
-        "page": paths.source_path.name,
-        "source_path": str(paths.source_path),
-        "label": label,
-        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-        "created_ns": time.time_ns(),
-        "files": {},
-    }
+    staging_dir: Optional[Path] = Path(
+        tempfile.mkdtemp(prefix=f".tmp_{snap_id}_", dir=str(paths.snapshots_dir))
+    )
+    try:
+        saved_files: list[str] = []
+        manifest: dict[str, Any] = {
+            "snapshot_id": snap_id,
+            "page": paths.source_path.name,
+            "source_path": str(paths.source_path),
+            "label": label,
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "created_ns": time.time_ns(),
+            "files": {},
+        }
 
-    if paths.json_exists and paths.json_path.is_file():
-        dst = snap_dir / "translations.json"
-        shutil.copy2(paths.json_path, dst)
-        manifest["files"]["json"] = {"original": str(paths.json_path), "backup": dst.name}
-        saved_files.append("json")
+        if paths.json_exists and paths.json_path.is_file():
+            dst = staging_dir / "translations.json"
+            shutil.copy2(paths.json_path, dst)
+            manifest["files"]["json"] = {"original": str(paths.json_path), "backup": dst.name}
+            saved_files.append("json")
 
-    if paths.inpainted_exists and paths.inpainted_path.is_file():
-        dst = snap_dir / f"inpainted{paths.inpainted_path.suffix}"
-        shutil.copy2(paths.inpainted_path, dst)
-        manifest["files"]["inpainted"] = {"original": str(paths.inpainted_path), "backup": dst.name}
-        saved_files.append("inpainted")
+        if paths.inpainted_exists and paths.inpainted_path.is_file():
+            dst = staging_dir / f"inpainted{paths.inpainted_path.suffix}"
+            shutil.copy2(paths.inpainted_path, dst)
+            manifest["files"]["inpainted"] = {"original": str(paths.inpainted_path), "backup": dst.name}
+            saved_files.append("inpainted")
 
-    if paths.rendered_output_exists and paths.rendered_output_path.is_file():
-        dst = snap_dir / f"rendered{paths.rendered_output_path.suffix}"
-        shutil.copy2(paths.rendered_output_path, dst)
-        manifest["files"]["rendered"] = {"original": str(paths.rendered_output_path), "backup": dst.name}
-        saved_files.append("rendered")
+        if paths.rendered_output_exists and paths.rendered_output_path.is_file():
+            dst = staging_dir / f"rendered{paths.rendered_output_path.suffix}"
+            shutil.copy2(paths.rendered_output_path, dst)
+            manifest["files"]["rendered"] = {"original": str(paths.rendered_output_path), "backup": dst.name}
+            saved_files.append("rendered")
 
-    with open(snap_dir / "manifest.json", "w", encoding="utf-8") as f:
-        json.dump(manifest, f, indent=2, ensure_ascii=False)
+        mf_path = staging_dir / "manifest.json"
+        with open(mf_path, "w", encoding="utf-8", newline="\n") as f:
+            json.dump(manifest, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
 
-    return {
-        "snapshot_id": snap_id,
-        "snapshot_dir": str(snap_dir),
-        "saved_artifacts": saved_files,
-        "created_at": manifest["created_at"],
-    }
+        _atomic_replace_with_retry(staging_dir, snap_dir)
+        staging_dir = None
+
+        return {
+            "snapshot_id": snap_id,
+            "snapshot_dir": str(snap_dir),
+            "saved_artifacts": saved_files,
+            "created_at": manifest["created_at"],
+        }
+    finally:
+        if staging_dir is not None and staging_dir.exists():
+            shutil.rmtree(staging_dir, ignore_errors=True)
 
 
 def ensure_initial_snapshot(paths: PagePaths) -> Optional[dict[str, Any]]:
@@ -636,7 +877,13 @@ def ensure_initial_snapshot(paths: PagePaths) -> Optional[dict[str, Any]]:
     if paths.snapshots_dir.is_dir():
         prefix = f"{paths.source_path.stem}__"
         for entry in paths.snapshots_dir.iterdir():
-            if entry.is_dir() and entry.name.startswith(prefix) and entry.name.endswith("__initial_before_mcp"):
+            if not entry.is_dir() or entry.name.startswith(".tmp_"):
+                continue
+            if (
+                entry.name.startswith(prefix)
+                and re.search(r"__initial_before_mcp(?:_\d+)?$", entry.name) is not None
+                and _is_complete_snapshot_dir(entry)
+            ):
                 return None
     return create_snapshot(paths, label="initial_before_mcp")
 
@@ -665,12 +912,16 @@ def list_snapshots(target_path: str | Path) -> list[dict[str, Any]]:
         seen_dirs.add(norm_d)
         page_snaps: list[tuple[int, str, dict[str, Any]]] = []
         for snap_sub in p.snapshots_dir.iterdir():
+            if not snap_sub.is_dir() or snap_sub.name.startswith(".tmp_"):
+                continue
             mf = snap_sub / "manifest.json"
             if mf.is_file():
                 try:
                     with open(mf, "r", encoding="utf-8") as f:
                         data = json.load(f)
-                    if single_page_filter and data.get("page") != single_page_filter:
+                    if single_page_filter and os.path.normcase(str(data.get("page") or "")) != os.path.normcase(
+                        single_page_filter
+                    ):
                         continue
                     c_ns = int(data.get("created_ns") or mf.stat().st_mtime_ns)
                     page_snaps.append((c_ns, snap_sub.name, data))
@@ -681,7 +932,124 @@ def list_snapshots(target_path: str | Path) -> list[dict[str, Any]]:
     return out
 
 
-def restore_snapshot(target_path: str | Path, snapshot_id: Optional[str] = None, *, label: Optional[str] = None) -> dict[str, Any]:
+def _validate_and_plan_snapshot_restore(
+    paths: PagePaths,
+    snap_dir: Path,
+    resolved_id: str,
+    manifest: Any,
+) -> list[tuple[Path, Path, str, Optional[Path]]]:
+    if not isinstance(manifest, dict):
+        raise ValueError(f"Invalid manifest in snapshot {resolved_id!r}")
+    manifest_page = manifest.get("page")
+    if not isinstance(manifest_page, str) or os.path.normcase(manifest_page) != os.path.normcase(
+        paths.source_path.name
+    ):
+        raise ValueError(
+            f"Snapshot {resolved_id!r} belongs to page {manifest_page!r}, not {paths.source_path.name!r}"
+        )
+
+    files_map = manifest.get("files") or {}
+    if not isinstance(files_map, dict):
+        raise ValueError(f"Invalid 'files' table in snapshot {resolved_id!r}")
+
+    snap_root = snap_dir.resolve()
+    canon_json = paths.work_dir / "json" / f"{paths.source_path.stem}_translations.json"
+    legacy_json = paths.source_path.parent / f"{paths.source_path.stem}_translations.json"
+    inpainted_dir_norm = _norm_abs_path_str(paths.work_dir / "inpainted")
+    expected_inp_stem = os.path.normcase(f"{paths.source_path.stem}_inpainted")
+    src_stem_norm = os.path.normcase(paths.source_path.stem)
+    src_norm = _norm_abs_path_str(paths.source_path)
+
+    copies: list[tuple[Path, Path, str, Optional[Path]]] = []
+    for kind, info in files_map.items():
+        if kind not in ("json", "inpainted", "rendered") or not isinstance(info, dict):
+            raise ValueError(
+                f"Snapshot manifest entry {kind!r} does not belong to page {paths.source_path.name}"
+            )
+        backup_rel = info.get("backup")
+        if not isinstance(backup_rel, str) or not backup_rel.strip():
+            raise ValueError(f"Snapshot manifest entry {kind!r} has an invalid backup filename")
+        src = (snap_dir / backup_rel).resolve()
+        if (
+            not src.is_relative_to(snap_root)
+            or src == snap_root
+            or os.path.normcase(src.name) == "manifest.json"
+        ):
+            raise ValueError(f"Snapshot backup path {backup_rel!r} escapes {snap_root}")
+
+        orig_raw = info.get("original")
+        if not isinstance(orig_raw, str) or not orig_raw.strip():
+            raise ValueError(f"Snapshot manifest entry {kind!r} has an invalid original path")
+        orig_p = Path(orig_raw)
+        orig_norm = _norm_abs_path_str(orig_p)
+
+        if kind == "json":
+            if orig_norm not in (_norm_abs_path_str(canon_json), _norm_abs_path_str(legacy_json)):
+                raise ValueError(
+                    f"Snapshot manifest entry 'json' ({orig_raw!r}) does not belong to page {paths.source_path.name}"
+                )
+            # If the page has migrated to work_dir/json, restore to the active canonical path (and sync legacy if present)
+            if canon_json.is_file():
+                dst = canon_json
+                extra_sync = (
+                    legacy_json
+                    if (orig_norm == _norm_abs_path_str(legacy_json) and legacy_json.is_file())
+                    else None
+                )
+            elif orig_norm == _norm_abs_path_str(legacy_json):
+                dst = legacy_json
+                extra_sync = None
+            else:
+                dst = canon_json
+                extra_sync = None
+            copies.append((src, dst, kind, extra_sync))
+        elif kind == "inpainted":
+            valid_inp = orig_norm == _norm_abs_path_str(paths.inpainted_path) or (
+                _norm_abs_path_str(orig_p.parent) == inpainted_dir_norm
+                and os.path.normcase(orig_p.stem) == expected_inp_stem
+                and orig_p.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
+            )
+            if not valid_inp:
+                raise ValueError(
+                    f"Snapshot manifest entry 'inpainted' ({orig_raw!r}) does not belong to page {paths.source_path.name}"
+                )
+            dst = paths.inpainted_path if orig_p.suffix.lower() == paths.inpainted_path.suffix.lower() else orig_p
+            copies.append((src, dst, kind, None))
+        elif kind == "rendered":
+            sib_dir = paths.source_path.parent.parent / f"{paths.source_path.parent.name}-translated"
+            res_dir = paths.work_dir / "result"
+            valid_ren = (
+                orig_norm != src_norm
+                and orig_p.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
+                and (
+                    orig_norm == _norm_abs_path_str(paths.rendered_output_path)
+                    or (
+                        _norm_abs_path_str(orig_p.parent)
+                        in (_norm_abs_path_str(sib_dir), _norm_abs_path_str(res_dir))
+                        and os.path.normcase(orig_p.stem) == src_stem_norm
+                    )
+                    or (
+                        _norm_abs_path_str(orig_p.parent) == _norm_abs_path_str(paths.source_path.parent)
+                        and os.path.normcase(orig_p.stem) == os.path.normcase(f"{paths.source_path.stem}-translated")
+                    )
+                )
+            )
+            if not valid_ren:
+                raise ValueError(
+                    f"Snapshot manifest entry 'rendered' ({orig_raw!r}) does not belong to page {paths.source_path.name}"
+                )
+            dst = paths.rendered_output_path if orig_norm == _norm_abs_path_str(paths.rendered_output_path) else orig_p
+            copies.append((src, dst, kind, None))
+
+    return copies
+
+
+def restore_snapshot(
+    target_path: str | Path,
+    snapshot_id: Optional[str] = None,
+    *,
+    label: Optional[str] = None,
+) -> dict[str, Any]:
     raw_target = Path(target_path).expanduser()
     # Folder-level batch restore (when target_path is a directory and snapshot_id is omitted)
     if raw_target.is_dir() and not snapshot_id:
@@ -702,55 +1070,78 @@ def restore_snapshot(target_path: str | Path, snapshot_id: Optional[str] = None,
             )
         return {"restored_page_count": len(page_results), "label": label, "pages": page_results}
 
-    paths = resolve_page_paths(target_path)
-    resolved_id = snapshot_id
-    if not resolved_id:
-        candidates = list_snapshots(paths.source_path)
-        if label:
-            safe_label = re.sub(r"[^a-zA-Z0-9_\-\u4e00-\u9fff]+", "_", label.strip() or "snapshot")[:48]
-            candidates = [
-                c
-                for c in candidates
-                if c.get("label") == label or str(c.get("snapshot_id") or "").endswith(f"__{safe_label}")
-            ]
-        if not candidates:
-            raise FileNotFoundError(
-                f"No snapshot matching label={label!r} found for {paths.source_path.name}"
-                if label
-                else f"No snapshots found for {paths.source_path.name}"
-            )
-        # Prefer newest non-initial_before_mcp snapshot when label is unspecified and manual checkpoints exist
-        if not label:
-            non_initial = [
-                c for c in candidates if not str(c.get("snapshot_id") or "").endswith("__initial_before_mcp")
-            ]
-            if non_initial:
-                candidates = non_initial
-        resolved_id = str(candidates[0]["snapshot_id"])
+    with page_edit_lock(target_path):
+        paths = resolve_page_paths(target_path)
+        resolved_id = snapshot_id
+        if not resolved_id:
+            candidates = list_snapshots(paths.source_path)
+            if label:
+                safe_label = re.sub(r"[^a-zA-Z0-9_\-\u4e00-\u9fff]+", "_", label.strip() or "snapshot")[:48]
+                candidates = [
+                    c
+                    for c in candidates
+                    if (
+                        c.get("label") == label
+                        if isinstance(c.get("label"), str)
+                        else re.search(rf"__{re.escape(safe_label)}(?:_\d+)?$", str(c.get("snapshot_id") or ""))
+                        is not None
+                    )
+                ]
+            if not candidates:
+                raise FileNotFoundError(
+                    f"No snapshot matching label={label!r} found for {paths.source_path.name}"
+                    if label
+                    else f"No snapshots found for {paths.source_path.name}"
+                )
+            # Prefer newest non-initial_before_mcp snapshot when label is unspecified and manual checkpoints exist
+            if not label:
+                non_initial = [
+                    c
+                    for c in candidates
+                    if c.get("label") != "initial_before_mcp"
+                    and re.search(r"__initial_before_mcp(?:_\d+)?$", str(c.get("snapshot_id") or "")) is None
+                ]
+                if non_initial:
+                    candidates = non_initial
+            resolved_id = str(candidates[0]["snapshot_id"])
 
-    snap_dir = paths.snapshots_dir / resolved_id
-    if not snap_dir.is_dir():
-        # Search across folder snapshots
-        if paths.work_dir.is_dir():
+        if (
+            not resolved_id
+            or "/" in resolved_id
+            or "\\" in resolved_id
+            or resolved_id in (".", "..")
+        ):
+            raise ValueError(f"Invalid snapshot_id {resolved_id!r}")
+
+        snap_dir = paths.snapshots_dir / resolved_id
+        if not snap_dir.is_dir() and paths.work_dir.is_dir():
             alt = paths.work_dir / ".mtui_mcp_snapshots" / resolved_id
             if alt.is_dir():
                 snap_dir = alt
-    mf_path = snap_dir / "manifest.json"
-    if not mf_path.is_file():
-        raise FileNotFoundError(f"Snapshot {resolved_id!r} not found under {paths.snapshots_dir}")
+        if paths.snapshots_dir.exists() and snap_dir.exists():
+            if not snap_dir.resolve().is_relative_to(paths.snapshots_dir.resolve()):
+                raise ValueError(f"Snapshot {resolved_id!r} escapes {paths.snapshots_dir}")
+        mf_path = snap_dir / "manifest.json"
+        if not mf_path.is_file():
+            raise FileNotFoundError(f"Snapshot {resolved_id!r} not found under {paths.snapshots_dir}")
 
-    with open(mf_path, "r", encoding="utf-8") as f:
-        manifest = json.load(f)
+        with open(mf_path, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
 
-    restored: list[str] = []
-    for kind, info in (manifest.get("files") or {}).items():
-        src = snap_dir / info["backup"]
-        dst = Path(info["original"])
-        if src.is_file():
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
-            restored.append(f"{kind}:{dst}")
-    return {"page": paths.source_path.name, "snapshot_id": resolved_id, "label": manifest.get("label"), "restored": restored}
+        copies = _validate_and_plan_snapshot_restore(paths, snap_dir, resolved_id, manifest)
+        restored: list[str] = []
+        for src, dst, kind, extra_sync in copies:
+            if src.is_file():
+                _copy_file_atomic(src, dst)
+                if extra_sync is not None and _norm_abs_path_str(extra_sync) != _norm_abs_path_str(dst):
+                    _copy_file_atomic(src, extra_sync)
+                restored.append(f"{kind}:{dst}")
+        return {
+            "page": paths.source_path.name,
+            "snapshot_id": resolved_id,
+            "label": manifest.get("label"),
+            "restored": restored,
+        }
 
 
 def create_snapshots_for_target(target_path: str | Path, label: str = "checkpoint") -> dict[str, Any]:
@@ -817,7 +1208,7 @@ def cleanup_snapshots_for_target(
         if not sdir.is_dir():
             continue
         for sub in list(sdir.iterdir()):
-            if not sub.is_dir():
+            if not sub.is_dir() or sub.name.startswith(".tmp_"):
                 continue
             if snapshot_id and sub.name != snapshot_id:
                 continue
@@ -825,20 +1216,28 @@ def cleanup_snapshots_for_target(
             manifest: dict[str, Any] = {}
             if mf.is_file():
                 try:
-                    manifest = json.loads(mf.read_text(encoding="utf-8"))
+                    loaded_mf = json.loads(mf.read_text(encoding="utf-8"))
+                    if isinstance(loaded_mf, dict):
+                        manifest = loaded_mf
                 except Exception:
                     manifest = {}
             if single_page_name:
                 m_page = manifest.get("page")
-                if m_page and m_page != single_page_name:
-                    continue
-                if not m_page and single_stem_prefix and not sub.name.startswith(single_stem_prefix):
-                    continue
-            if label:
-                if manifest.get("label") != label and not (
-                    safe_label and (sub.name.endswith(f"__{safe_label}") or f"__{safe_label}_" in sub.name)
+                if isinstance(m_page, str) and m_page:
+                    if os.path.normcase(m_page) != os.path.normcase(single_page_name):
+                        continue
+                elif single_stem_prefix and not os.path.normcase(sub.name).startswith(
+                    os.path.normcase(single_stem_prefix)
                 ):
                     continue
+            if label:
+                m_label = manifest.get("label")
+                if isinstance(m_label, str):
+                    if m_label != label:
+                        continue
+                else:
+                    if not safe_label or re.search(rf"__{re.escape(safe_label)}(?:_\d+)?$", sub.name) is None:
+                        continue
 
             sub_bytes = sum(f.stat().st_size for f in sub.rglob("*") if f.is_file())
             shutil.rmtree(sub, ignore_errors=True)
@@ -1118,14 +1517,56 @@ def format_region_summary(idx: int, region: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _inpainted_stat_sig(paths: PagePaths) -> Optional[tuple[int, int]]:
+    if paths.inpainted_exists and paths.inpainted_path.is_file():
+        try:
+            st = paths.inpainted_path.stat()
+            return (st.st_size, st.st_mtime_ns)
+        except OSError:
+            return None
+    return None
+
+
 def get_page_details_dict(page_path: str | Path, include_polygons: bool = False) -> dict[str, Any]:
     paths = resolve_page_paths(page_path)
+    lock_path = _resolve_page_lock_path(paths)
+    norm_key = os.path.normcase(os.path.normpath(os.path.abspath(str(lock_path))))
+    with _PAGE_LOCKS_GUARD:
+        existing_state = _PAGE_LOCKS.get(norm_key)
+
+    @contextmanager
+    def _maybe_inproc_lock() -> Iterator[None]:
+        if existing_state is not None:
+            with existing_state.rlock:
+                yield
+        else:
+            yield
+
+    with _maybe_inproc_lock():
+        image_data: dict[str, Any] = {"regions": []}
+        revision = ""
+        for attempt in range(3):
+            paths = resolve_page_paths(page_path)
+            inp_before = _inpainted_stat_sig(paths)
+            _, image_data, raw_bytes = _load_page_json_with_bytes(paths)
+            revision = compute_page_revision(paths, json_bytes=raw_bytes)
+            paths_after = resolve_page_paths(page_path)
+            inp_after = _inpainted_stat_sig(paths_after)
+            if (
+                attempt == 2
+                or (
+                    _norm_abs_path_str(paths_after.json_path) == _norm_abs_path_str(paths.json_path)
+                    and paths_after.json_exists == paths.json_exists
+                    and inp_before == inp_after
+                )
+            ):
+                break
+
     img_w, img_h = 0, 0
     if paths.display_base_path.is_file():
         with Image.open(paths.display_base_path) as im:
             img_w, img_h = im.size
 
-    _, image_data = load_page_json(paths)
     regions = image_data.get("regions", [])
     ensure_region_uids(regions)
     formatted_regions = []
@@ -1137,7 +1578,7 @@ def get_page_details_dict(page_path: str | Path, include_polygons: bool = False)
 
     return {
         "page_name": paths.source_path.name,
-        "revision": compute_page_revision(paths),
+        "revision": revision,
         "source_path": str(paths.source_path),
         "display_base_path": str(paths.display_base_path),
         "json_path": str(paths.json_path),
@@ -1278,212 +1719,231 @@ def apply_region_updates_to_page(
     expected_revision: Optional[str] = None,
 ) -> tuple[PagePaths, list[dict[str, Any]]]:
     """Apply structured updates to one or more regions on a page and atomically save JSON."""
-    paths = resolve_page_paths(page_path)
-    verify_expected_revision(paths, expected_revision)
-    image_key, image_data = load_page_json(paths)
-    regions = image_data.setdefault("regions", [])
-    ensure_region_uids(regions)
+    with page_edit_lock(page_path):
+        paths = resolve_page_paths(page_path)
+        verify_expected_revision(paths, expected_revision)
+        image_key, image_data = load_page_json(paths)
+        regions = image_data.setdefault("regions", [])
+        ensure_region_uids(regions)
 
-    source_rgb: Optional[np.ndarray] = None
-    modified_summaries: list[dict[str, Any]] = []
+        source_rgb: Optional[np.ndarray] = None
+        patched_targets: list[tuple[int, str]] = []
 
-    for patch in updates:
-        if not isinstance(patch, dict):
-            raise TypeError("Each item in updates must be a dictionary")
-        unknown_keys = set(patch.keys()) - ALLOWED_REGION_PATCH_KEYS
-        if unknown_keys:
-            raise ValueError(
-                f"Unknown region update field(s) {sorted(unknown_keys)}; "
-                f"allowed fields: {sorted(ALLOWED_REGION_PATCH_KEYS)}"
+        for patch in updates:
+            if not isinstance(patch, dict):
+                raise TypeError("Each item in updates must be a dictionary")
+            unknown_keys = set(patch.keys()) - ALLOWED_REGION_PATCH_KEYS
+            if unknown_keys:
+                raise ValueError(
+                    f"Unknown region update field(s) {sorted(unknown_keys)}; "
+                    f"allowed fields: {sorted(ALLOWED_REGION_PATCH_KEYS)}"
+                )
+            idx = resolve_region_target_index(
+                regions,
+                region_index=patch.get("region_index"),
+                region_uid=patch.get("region_uid"),
             )
-        idx = resolve_region_target_index(
-            regions,
-            region_index=patch.get("region_index"),
-            region_uid=patch.get("region_uid"),
-        )
-        reg = regions[idx]
+            reg = regions[idx]
 
-        # 1. Text & Rich-text updates
-        clear_rt = bool(patch.get("clear_rich_text", False))
-        if "translation" in patch and patch["translation"] is not None:
-            sync_region_text_update(reg, str(patch["translation"]), clear_rich_text=clear_rt)
-        elif clear_rt:
-            reg.pop("translation_rich", None)
+            # 1. Text & Rich-text updates
+            clear_rt = bool(patch.get("clear_rich_text", False))
+            if "translation" in patch and patch["translation"] is not None:
+                sync_region_text_update(reg, str(patch["translation"]), clear_rich_text=clear_rt)
+            elif clear_rt:
+                reg.pop("translation_rich", None)
+                reg.pop("bold", None)
 
-        if "source_text" in patch and patch["source_text"] is not None:
-            st = str(patch["source_text"])
-            reg["text"] = st
-            reg["texts"] = [st]
+            if "source_text" in patch and patch["source_text"] is not None:
+                st = str(patch["source_text"])
+                reg["text"] = st
+                reg["texts"] = [st]
 
-        if "translation_rich" in patch and patch["translation_rich"] is not None:
-            rt_val = patch["translation_rich"]
-            if not is_rich_text_document(rt_val):
-                raise ValueError("translation_rich must be a valid richtext.v1 dict")
-            reg["translation_rich"] = copy.deepcopy(rt_val)
-            vis = visible_text_of_region(reg)
-            reg["translation"] = plain_to_storage_br(vis)
-            reg["translation_raw"] = reg["translation"]
+            if "translation_rich" in patch and patch["translation_rich"] is not None:
+                norm_rt = validate_richtext_document(patch["translation_rich"], field_name="translation_rich")
+                reg["translation_rich"] = norm_rt
+                vis = visible_text_of_region(reg)
+                reg["translation"] = plain_to_storage_br(vis)
+                reg["translation_raw"] = reg["translation"]
+                if region_is_bold(reg):
+                    reg["bold"] = True
+                else:
+                    reg.pop("bold", None)
 
-        # Optional inline/whole rich-text styling right inside `update_regions`!
-        if patch.get("rich_style") or patch.get("rich_spans"):
-            apply_span_styles_to_region(
-                reg,
-                whole_style=patch.get("rich_style"),
-                spans=patch.get("rich_spans"),
-                reset_existing=bool(patch.get("reset_rich_style", False)),
-            )
+            # Optional inline/whole rich-text styling right inside `update_regions`!
+            if patch.get("rich_style") or patch.get("rich_spans"):
+                apply_span_styles_to_region(
+                    reg,
+                    whole_style=patch.get("rich_style"),
+                    spans=patch.get("rich_spans"),
+                    reset_existing=bool(patch.get("reset_rich_style", False)),
+                )
 
-        # 2. Font size & Font family
-        old_fs = int(round(float(reg.get("font_size") or 16)))
-        if patch.get("font_size") is not None:
-            new_fs = max(1, int(round(float(patch["font_size"]))))
-            reg["font_size"] = new_fs
-            if "white_frame_quad_local" not in patch and "white_frame_rect_local" not in patch:
-                scale_region_local_frames_for_font_change(reg, old_fs, new_fs)
-        elif patch.get("font_size_delta") is not None:
-            new_fs = max(1, old_fs + int(round(float(patch["font_size_delta"]))))
-            reg["font_size"] = new_fs
-            if "white_frame_quad_local" not in patch and "white_frame_rect_local" not in patch:
-                scale_region_local_frames_for_font_change(reg, old_fs, new_fs)
+            # 2. Font size & Font family
+            old_fs = int(round(float(reg.get("font_size") or 16)))
+            if patch.get("font_size") is not None:
+                new_fs = max(1, int(round(float(patch["font_size"]))))
+                reg["font_size"] = new_fs
+                if "white_frame_quad_local" not in patch and "white_frame_rect_local" not in patch:
+                    scale_region_local_frames_for_font_change(reg, old_fs, new_fs)
+            elif patch.get("font_size_delta") is not None:
+                new_fs = max(1, old_fs + int(round(float(patch["font_size_delta"]))))
+                reg["font_size"] = new_fs
+                if "white_frame_quad_local" not in patch and "white_frame_rect_local" not in patch:
+                    scale_region_local_frames_for_font_change(reg, old_fs, new_fs)
 
-        if patch.get("font_family") is not None:
-            reg["font_family"] = str(patch["font_family"]).strip()
+            if patch.get("font_family") is not None:
+                reg["font_family"] = str(patch["font_family"]).strip()
 
-        if patch.get("bold") is not None:
-            set_region_whole_bold(reg, bool(patch["bold"]))
+            if patch.get("bold") is not None:
+                set_region_whole_bold(reg, bool(patch["bold"]))
 
-        # 3. Colors & Stroke
-        if patch.get("sample_color_from_original"):
-            if source_rgb is None and paths.display_base_path.is_file():
-                source_rgb = open_rgb_image(paths.display_base_path)
-            if source_rgb is not None:
-                fg_auto, bg_auto = sample_original_text_colors(source_rgb, region_bbox_xyxy(reg))
-                reg["font_color"] = fg_auto
-                reg.pop("fg_colors", None)
-                reg.pop("fg_color", None)
-                rgb_bg = color_to_rgb_list(bg_auto)
-                if rgb_bg:
-                    reg["bg_color"] = rgb_bg
+            # 3. Colors & Stroke
+            if patch.get("sample_color_from_original"):
+                if source_rgb is None and paths.display_base_path.is_file():
+                    source_rgb = open_rgb_image(paths.display_base_path)
+                if source_rgb is not None:
+                    fg_auto, bg_auto = sample_original_text_colors(source_rgb, region_bbox_xyxy(reg))
+                    reg["font_color"] = fg_auto
+                    reg.pop("fg_colors", None)
+                    reg.pop("fg_color", None)
+                    rgb_bg = color_to_rgb_list(bg_auto)
+                    if rgb_bg:
+                        reg["bg_color"] = rgb_bg
+                        reg.pop("bg_colors", None)
+                        reg.pop("text_stroke_color", None)
+
+            if patch.get("font_color") is not None:
+                fg_hex = normalize_hex_color(patch["font_color"])
+                if fg_hex:
+                    reg["font_color"] = fg_hex
+                    reg.pop("fg_colors", None)
+                    reg.pop("fg_color", None)
+
+            if patch.get("stroke_color") is not None:
+                bg_rgb = color_to_rgb_list(patch["stroke_color"])
+                if bg_rgb is not None:
+                    reg["bg_color"] = bg_rgb
                     reg.pop("bg_colors", None)
                     reg.pop("text_stroke_color", None)
 
-        if patch.get("font_color") is not None:
-            fg_hex = normalize_hex_color(patch["font_color"])
-            if fg_hex:
-                reg["font_color"] = fg_hex
-                reg.pop("fg_colors", None)
-                reg.pop("fg_color", None)
+            if patch.get("stroke_width") is not None:
+                sw = max(0.0, float(patch["stroke_width"]))
+                reg["stroke_width"] = sw
+                reg["default_stroke_width"] = sw
 
-        if patch.get("stroke_color") is not None:
-            bg_rgb = color_to_rgb_list(patch["stroke_color"])
-            if bg_rgb is not None:
-                reg["bg_color"] = bg_rgb
-                reg.pop("bg_colors", None)
-                reg.pop("text_stroke_color", None)
+            if patch.get("disable_font_border") is not None:
+                reg["disable_font_border"] = bool(patch["disable_font_border"])
 
-        if patch.get("stroke_width") is not None:
-            sw = max(0.0, float(patch["stroke_width"]))
-            reg["stroke_width"] = sw
-            reg["default_stroke_width"] = sw
+            # 4. Layout, Direction, Alignment, Spacing
+            if patch.get("direction") is not None:
+                d = str(patch["direction"]).strip().lower()
+                if d not in ("h", "v", "auto", "horizontal", "vertical"):
+                    raise ValueError(f"Invalid direction {d!r}; expected 'h', 'v', or 'auto'")
+                reg["direction"] = {"h": "horizontal", "v": "vertical"}.get(d, d)
 
-        if patch.get("disable_font_border") is not None:
-            reg["disable_font_border"] = bool(patch["disable_font_border"])
+            if patch.get("alignment") is not None:
+                al = str(patch["alignment"]).strip().lower()
+                if al not in ("left", "center", "right", "auto"):
+                    raise ValueError(f"Invalid alignment {al!r}; expected 'left', 'center', 'right', or 'auto'")
+                reg["alignment"] = al
 
-        # 4. Layout, Direction, Alignment, Spacing
-        if patch.get("direction") is not None:
-            d = str(patch["direction"]).strip().lower()
-            if d not in ("h", "v", "auto", "horizontal", "vertical"):
-                raise ValueError(f"Invalid direction {d!r}; expected 'h', 'v', or 'auto'")
-            reg["direction"] = {"h": "horizontal", "v": "vertical"}.get(d, d)
+            if patch.get("line_spacing") is not None:
+                reg["line_spacing"] = max(0.1, float(patch["line_spacing"]))
 
-        if patch.get("alignment") is not None:
-            al = str(patch["alignment"]).strip().lower()
-            if al not in ("left", "center", "right", "auto"):
-                raise ValueError(f"Invalid alignment {al!r}; expected 'left', 'center', 'right', or 'auto'")
-            reg["alignment"] = al
+            if patch.get("letter_spacing") is not None:
+                reg["letter_spacing"] = max(0.1, float(patch["letter_spacing"]))
 
-        if patch.get("line_spacing") is not None:
-            reg["line_spacing"] = max(0.1, float(patch["line_spacing"]))
+            if patch.get("opacity") is not None:
+                reg["opacity"] = max(0.0, min(1.0, float(patch["opacity"])))
 
-        if patch.get("letter_spacing") is not None:
-            reg["letter_spacing"] = max(0.1, float(patch["letter_spacing"]))
+            # 5. Geometry: bbox_xyxy, lines, center, move_dx/dy, angle, white_frame
+            if patch.get("lines") is not None:
+                reg["lines"] = patch["lines"]
+                if "center" not in patch:
+                    reg["center"] = region_center({"lines": patch["lines"]})
+            elif patch.get("bbox_xyxy") is not None:
+                x1, y1, x2, y2 = (float(v) for v in patch["bbox_xyxy"])
+                reg["lines"] = [[[x1, y1], [x2, y1], [x2, y2], [x1, y2]]]
+                if "center" not in patch:
+                    reg["center"] = [(x1 + x2) / 2.0, (y1 + y2) / 2.0]
 
-        if patch.get("opacity") is not None:
-            reg["opacity"] = max(0.0, min(1.0, float(patch["opacity"])))
-
-        # 5. Geometry: bbox_xyxy, lines, center, move_dx/dy, angle, white_frame
-        if patch.get("lines") is not None:
-            reg["lines"] = patch["lines"]
-            if "center" not in patch:
-                reg["center"] = region_center({"lines": patch["lines"]})
-        elif patch.get("bbox_xyxy") is not None:
-            x1, y1, x2, y2 = (float(v) for v in patch["bbox_xyxy"])
-            reg["lines"] = [[[x1, y1], [x2, y1], [x2, y2], [x1, y2]]]
-            if "center" not in patch:
-                reg["center"] = [(x1 + x2) / 2.0, (y1 + y2) / 2.0]
-
-        if patch.get("center") is not None:
-            cx, cy = (float(v) for v in patch["center"][:2])
-            reg["center"] = [cx, cy]
-            # Clear local offset & stale quads unless caller explicitly sets white_frame_quad_local/rect_local in the same patch
-            if "white_frame_quad_local" not in patch and "white_frame_rect_local" not in patch:
-                reg.pop("white_frame_rect_local", None)
-                reg.pop("render_box_rect_local", None)
-                reg.pop("white_frame_quad_local", None)
-                reg.pop("render_box_quad_local", None)
-                reg["has_custom_white_frame"] = False
-
-        dx = float(patch.get("move_dx", 0.0) or 0.0)
-        dy = float(patch.get("move_dy", 0.0) or 0.0)
-        if dx != 0.0 or dy != 0.0:
-            cur_c = region_center(reg)
-            reg["center"] = [cur_c[0] + dx, cur_c[1] + dy]
-            # Also shift polygon lines if requested via `move_source_box`
-            if patch.get("move_source_box", False) and isinstance(reg.get("lines"), list):
-                reg["lines"] = [
-                    [[float(pt[0]) + dx, float(pt[1]) + dy] for pt in poly]
-                    for poly in reg["lines"]
-                ]
-
-        if patch.get("angle") is not None:
-            reg["angle"] = float(patch["angle"])
-            reg.pop("render_box_rect_local", None)
-            if "white_frame_quad_local" not in patch:
-                reg.pop("render_box_quad_local", None)
-
-        if "white_frame_quad_local" in patch:
-            if patch["white_frame_quad_local"] is None:
-                reg.pop("white_frame_quad_local", None)
-                reg.pop("render_box_quad_local", None)
-                if patch.get("white_frame_rect_local") is None:
+            if patch.get("center") is not None:
+                cx, cy = (float(v) for v in patch["center"][:2])
+                reg["center"] = [cx, cy]
+                # Clear local offset & stale quads unless caller explicitly sets white_frame_quad_local/rect_local in the same patch
+                if "white_frame_quad_local" not in patch and "white_frame_rect_local" not in patch:
                     reg.pop("white_frame_rect_local", None)
                     reg.pop("render_box_rect_local", None)
+                    reg.pop("white_frame_quad_local", None)
+                    reg.pop("render_box_quad_local", None)
                     reg["has_custom_white_frame"] = False
-            else:
-                quad = _parse_perspective_quad(patch["white_frame_quad_local"])
-                q_xs = [pt[0] for pt in quad]
-                q_ys = [pt[1] for pt in quad]
-                q_bbox = [min(q_xs), min(q_ys), max(q_xs), max(q_ys)]
-                reg["white_frame_quad_local"] = quad
-                reg["render_box_quad_local"] = [list(pt) for pt in quad]
-                reg["white_frame_rect_local"] = q_bbox
-                reg["render_box_rect_local"] = list(q_bbox)
+
+            dx = float(patch.get("move_dx", 0.0) or 0.0)
+            dy = float(patch.get("move_dy", 0.0) or 0.0)
+            if dx != 0.0 or dy != 0.0:
+                raw_c = reg.get("center")
+                if isinstance(raw_c, (list, tuple)) and len(raw_c) >= 2:
+                    base_cx, base_cy = float(raw_c[0]), float(raw_c[1])
+                else:
+                    base_cx, base_cy = region_center(reg)
+                reg["center"] = [round(base_cx + dx, 2), round(base_cy + dy, 2)]
+                # Also shift polygon lines if requested via `move_source_box`
+                if patch.get("move_source_box", False) and isinstance(reg.get("lines"), list):
+                    reg["lines"] = [
+                        [[float(pt[0]) + dx, float(pt[1]) + dy] for pt in poly]
+                        for poly in reg["lines"]
+                    ]
+
+            if patch.get("angle") is not None:
+                reg["angle"] = float(patch["angle"])
+                reg.pop("render_box_rect_local", None)
+                if "white_frame_quad_local" not in patch:
+                    reg.pop("render_box_quad_local", None)
+
+            if "white_frame_quad_local" in patch:
+                if patch["white_frame_quad_local"] is None:
+                    reg.pop("white_frame_quad_local", None)
+                    reg.pop("render_box_quad_local", None)
+                    if patch.get("white_frame_rect_local") is None:
+                        reg.pop("white_frame_rect_local", None)
+                        reg.pop("render_box_rect_local", None)
+                        reg["has_custom_white_frame"] = False
+                else:
+                    quad = _parse_perspective_quad(patch["white_frame_quad_local"])
+                    q_xs = [pt[0] for pt in quad]
+                    q_ys = [pt[1] for pt in quad]
+                    q_bbox = [min(q_xs), min(q_ys), max(q_xs), max(q_ys)]
+                    reg["white_frame_quad_local"] = quad
+                    reg["render_box_quad_local"] = [list(pt) for pt in quad]
+                    reg["white_frame_rect_local"] = q_bbox
+                    reg["render_box_rect_local"] = list(q_bbox)
+                    reg["has_custom_white_frame"] = True
+
+            if patch.get("white_frame_rect_local") is not None and patch.get("white_frame_quad_local") is None:
+                wf = [float(v) for v in patch["white_frame_rect_local"][:4]]
+                if len(wf) < 4:
+                    raise ValueError("white_frame_rect_local must have 4 numbers [x1, y1, x2, y2]")
+                reg["white_frame_rect_local"] = wf
                 reg["has_custom_white_frame"] = True
+                reg.pop("white_frame_quad_local", None)
+                reg.pop("render_box_quad_local", None)
 
-        if patch.get("white_frame_rect_local") is not None and patch.get("white_frame_quad_local") is None:
-            wf = [float(v) for v in patch["white_frame_rect_local"][:4]]
-            if len(wf) < 4:
-                raise ValueError("white_frame_rect_local must have 4 numbers [x1, y1, x2, y2]")
-            reg["white_frame_rect_local"] = wf
-            reg["has_custom_white_frame"] = True
-            reg.pop("white_frame_quad_local", None)
-            reg.pop("render_box_quad_local", None)
+            patched_targets.append((idx, str(reg.get("region_uid") or "")))
 
-        modified_summaries.append(format_region_summary(idx, reg))
+        saved_json = save_page_json_atomic(paths, image_key, image_data)
+        refreshed = resolve_page_paths(saved_json)
+        _, saved_data = load_page_json(refreshed)
+        saved_regions = saved_data.get("regions", [])
 
-    saved_json = save_page_json_atomic(paths, image_key, image_data)
-    refreshed = resolve_page_paths(saved_json)
-    return refreshed, modified_summaries
+        modified_summaries: list[dict[str, Any]] = []
+        for orig_idx, uid in patched_targets:
+            try:
+                s_idx = resolve_region_target_index(saved_regions, region_uid=uid) if uid else orig_idx
+                modified_summaries.append(format_region_summary(s_idx, saved_regions[s_idx]))
+            except (KeyError, IndexError):
+                modified_summaries.append(format_region_summary(orig_idx, regions[orig_idx]))
+
+        return refreshed, modified_summaries
 
 
 def align_regions_on_page(
@@ -1493,66 +1953,77 @@ def align_regions_on_page(
     reference: str = "selection",  # "selection" | "canvas"
 ) -> tuple[PagePaths, list[dict[str, Any]]]:
     """Align or distribute multiple regions on a page (matching `alignment_service.py`)."""
-    paths = resolve_page_paths(page_path)
-    image_key, image_data = load_page_json(paths)
-    regions = image_data.get("regions", [])
+    with page_edit_lock(page_path):
+        paths = resolve_page_paths(page_path)
+        image_key, image_data = load_page_json(paths)
+        regions = image_data.get("regions", [])
+        ensure_region_uids(regions)
 
-    valid_indices = [int(i) for i in region_indices if 0 <= int(i) < len(regions)]
-    if len(valid_indices) < (1 if reference == "canvas" else 2):
-        raise ValueError("Not enough valid region_indices for alignment/distribution")
+        valid_indices = [int(i) for i in region_indices if 0 <= int(i) < len(regions)]
+        if len(valid_indices) < (1 if reference == "canvas" else 2):
+            raise ValueError("Not enough valid region_indices for alignment/distribution")
 
-    img_w, img_h = 0.0, 0.0
-    if paths.display_base_path.is_file():
-        with Image.open(paths.display_base_path) as im:
-            img_w, img_h = float(im.width), float(im.height)
+        img_w, img_h = 0.0, 0.0
+        if paths.display_base_path.is_file():
+            with Image.open(paths.display_base_path) as im:
+                img_w, img_h = float(im.width), float(im.height)
 
-    boxes = {i: region_render_world_bbox_xyxy(regions[i]) for i in valid_indices}
-    centers = {i: region_center(regions[i]) for i in valid_indices}
+        boxes = {i: region_render_world_bbox_xyxy(regions[i]) for i in valid_indices}
+        centers = {i: region_center(regions[i]) for i in valid_indices}
 
-    if mode in ("distribute_horizontal", "distribute_vertical"):
-        if len(valid_indices) < 3:
-            raise ValueError("Distribution requires at least 3 regions")
-        axis = 0 if mode == "distribute_horizontal" else 1
-        ordered = sorted(valid_indices, key=lambda idx: centers[idx][axis])
-        first_c = centers[ordered[0]][axis]
-        last_c = centers[ordered[-1]][axis]
-        n = len(ordered)
-        for pos, idx in enumerate(ordered[1:-1], start=1):
-            target_c = first_c + (last_c - first_c) * pos / (n - 1)
-            new_c = list(centers[idx])
-            new_c[axis] = target_c
-            regions[idx]["center"] = new_c
-    else:
-        if reference == "canvas" and img_w > 0 and img_h > 0:
-            min_x, min_y, max_x, max_y = 0.0, 0.0, img_w, img_h
+        if mode in ("distribute_horizontal", "distribute_vertical"):
+            if len(valid_indices) < 3:
+                raise ValueError("Distribution requires at least 3 regions")
+            axis = 0 if mode == "distribute_horizontal" else 1
+            ordered = sorted(valid_indices, key=lambda idx: centers[idx][axis])
+            first_c = centers[ordered[0]][axis]
+            last_c = centers[ordered[-1]][axis]
+            n = len(ordered)
+            for pos, idx in enumerate(ordered[1:-1], start=1):
+                target_c = first_c + (last_c - first_c) * pos / (n - 1)
+                new_c = list(centers[idx])
+                new_c[axis] = target_c
+                regions[idx]["center"] = new_c
         else:
-            min_x = min(boxes[i][0] for i in valid_indices)
-            min_y = min(boxes[i][1] for i in valid_indices)
-            max_x = max(boxes[i][2] for i in valid_indices)
-            max_y = max(boxes[i][3] for i in valid_indices)
-
-        for idx in valid_indices:
-            x1, y1, x2, y2 = boxes[idx]
-            cx, cy = centers[idx]
-            hw, hh = (x2 - x1) / 2.0, (y2 - y1) / 2.0
-            if mode == "left":
-                cx = min_x + hw
-            elif mode == "horizontal_center":
-                cx = (min_x + max_x) / 2.0
-            elif mode == "right":
-                cx = max_x - hw
-            elif mode == "top":
-                cy = min_y + hh
-            elif mode == "vertical_center":
-                cy = (min_y + max_y) / 2.0
-            elif mode == "bottom":
-                cy = max_y - hh
+            if reference == "canvas" and img_w > 0 and img_h > 0:
+                min_x, min_y, max_x, max_y = 0.0, 0.0, img_w, img_h
             else:
-                raise ValueError(
-                    f"Unsupported align mode {mode!r}; choose from left, horizontal_center, right, top, vertical_center, bottom, distribute_horizontal, distribute_vertical"
-                )
-            regions[idx]["center"] = [cx, cy]
+                min_x = min(boxes[i][0] for i in valid_indices)
+                min_y = min(boxes[i][1] for i in valid_indices)
+                max_x = max(boxes[i][2] for i in valid_indices)
+                max_y = max(boxes[i][3] for i in valid_indices)
 
-    saved_json = save_page_json_atomic(paths, image_key, image_data)
-    refreshed = resolve_page_paths(saved_json)
-    return refreshed, [format_region_summary(i, regions[i]) for i in valid_indices]
+            for idx in valid_indices:
+                x1, y1, x2, y2 = boxes[idx]
+                cx, cy = centers[idx]
+                if mode == "left":
+                    cx = cx + (min_x - x1)
+                elif mode == "horizontal_center":
+                    cx = cx + ((min_x + max_x) / 2.0 - (x1 + x2) / 2.0)
+                elif mode == "right":
+                    cx = cx + (max_x - x2)
+                elif mode == "top":
+                    cy = cy + (min_y - y1)
+                elif mode == "vertical_center":
+                    cy = cy + ((min_y + max_y) / 2.0 - (y1 + y2) / 2.0)
+                elif mode == "bottom":
+                    cy = cy + (max_y - y2)
+                else:
+                    raise ValueError(
+                        f"Unsupported align mode {mode!r}; choose from left, horizontal_center, right, top, vertical_center, bottom, distribute_horizontal, distribute_vertical"
+                    )
+                regions[idx]["center"] = [cx, cy]
+
+        target_uids = [(i, str(regions[i].get("region_uid") or "")) for i in valid_indices]
+        saved_json = save_page_json_atomic(paths, image_key, image_data)
+        refreshed = resolve_page_paths(saved_json)
+        _, saved_data = load_page_json(refreshed)
+        saved_regions = saved_data.get("regions", [])
+        aligned_summaries: list[dict[str, Any]] = []
+        for orig_i, uid in target_uids:
+            try:
+                s_idx = resolve_region_target_index(saved_regions, region_uid=uid) if uid else orig_i
+                aligned_summaries.append(format_region_summary(s_idx, saved_regions[s_idx]))
+            except (KeyError, IndexError):
+                aligned_summaries.append(format_region_summary(orig_i, regions[orig_i]))
+        return refreshed, aligned_summaries

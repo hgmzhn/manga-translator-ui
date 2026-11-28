@@ -4,7 +4,9 @@ import _bootstrap  # noqa: F401, I001
 
 import importlib.util
 import json
+import os
 import sys
+import types
 from pathlib import Path
 
 import cv2
@@ -12,6 +14,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from mtui_mcp.config import get_runtime_settings
 from mtui_mcp.path_resolver import SUPPORTED_IMAGE_EXTENSIONS, resolve_page_paths
 from mtui_mcp.project_store import encode_mask_base64, save_page_json_atomic, save_rgb_image_atomic
 from mtui_mcp.richtext_builder import region_is_bold
@@ -38,6 +41,7 @@ def _load_aac_module(monkeypatch: pytest.MonkeyPatch | None = None):
 def test_s1_translate_raw_and_compare_respect_last_output_path_and_translated_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(get_runtime_settings(), "mtui_root", None)
     aac = _load_aac_module(monkeypatch)
 
     assert "cfg_svc.shutdown()" in aac._HEADLESS_TRANSLATE_RUNNER
@@ -132,6 +136,7 @@ def test_s1_translate_raw_and_compare_respect_last_output_path_and_translated_di
 def test_s2_verify_crops_perspective_quad_bounds_badge_and_centering_skip(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(get_runtime_settings(), "mtui_root", None)
     aac = _load_aac_module(monkeypatch)
     folder = tmp_path / "persp_ch"
     folder.mkdir()
@@ -148,6 +153,7 @@ def test_s2_verify_crops_perspective_quad_bounds_badge_and_centering_skip(
 
     Image.fromarray(raw_page).save(img_path)
     paths = resolve_page_paths(img_path)
+    assert paths.rendered_output_path.resolve().is_relative_to(tmp_path.resolve())
     save_rgb_image_atomic(inp_page, paths.inpainted_path)
     save_rgb_image_atomic(ren_page, paths.rendered_output_path)
 
@@ -203,6 +209,7 @@ def test_s2_verify_crops_perspective_quad_bounds_badge_and_centering_skip(
 def test_os3_raw_fonts_no_nameerror_richtext_bold_and_11_image_exts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(get_runtime_settings(), "mtui_root", None)
     aac = _load_aac_module(monkeypatch)
     assert aac.IMAGE_EXTS == set(SUPPORTED_IMAGE_EXTENSIONS)
     assert {".jfif", ".tiff", ".tif", ".heic", ".heif", ".avif", ".bmp"} <= aac.IMAGE_EXTS
@@ -285,7 +292,156 @@ def test_s3_skill_md_and_readme_contracts() -> None:
     assert "last_output_path" in skill_md
 
     assert "24" in readme_md
+    assert "PYTHONPATH" in readme_md
     assert "mtui_center_bubbles" in readme_md
     assert "mtui_live_gui_session" in readme_md
     for key in ("last_output_path", "white_frame_quad_local", "render_box_quad_local", "blurAngle", "rubyInherit"):
         assert key in readme_md
+
+
+def test_s4_slice5_cli_audit_translate_backup_symlink_and_verify_crops_contracts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(get_runtime_settings(), "mtui_root", None)
+    aac = _load_aac_module(monkeypatch)
+
+    # F63: _discover_mtui_runtime fallback preserves venv python path without dereferencing symlinks
+    fake_root = tmp_path / "fake_mtui_root"
+    (fake_root / "manga_translator").mkdir(parents=True)
+    (fake_root / "manga_translator" / "__init__.py").write_text("", encoding="utf-8")
+    (fake_root / "manga_translator" / "manga_translator.py").write_text("# stub\n", encoding="utf-8")
+    venv_py = fake_root / ".venv" / "bin" / "python"
+    venv_py.parent.mkdir(parents=True)
+    venv_py.write_text("#!/bin/sh\n", encoding="utf-8")
+    real_path_resolve = Path.resolve
+    with monkeypatch.context() as mp_fb:
+        mp_fb.setattr(
+            "mtui_mcp.config.get_runtime_settings",
+            lambda: (_ for _ in ()).throw(RuntimeError("force fallback branch")),
+        )
+        mp_fb.setattr(
+            Path,
+            "resolve",
+            lambda self, *a, **kw: (
+                tmp_path / "dereferenced_sys_python"
+                if self.name == "python"
+                else real_path_resolve(self, *a, **kw)
+            ),
+        )
+        disc_root, disc_py = aac._discover_mtui_runtime(fake_root)
+    assert disc_root == real_path_resolve(fake_root)
+    assert disc_py == Path(os.path.abspath(str(venv_py)))
+
+    # F60 + F61 + F62: translate-raw excludes `*-translated`, passes temp files (not -c cmdline JSON), and backfills missing backups
+    ch_tr = tmp_path / "ch_tr"
+    ch_tr.mkdir()
+    raw_rgb = np.full((120, 100, 3), 230, dtype=np.uint8)
+    for fn in ("001.png", "001-translated.png", "002.png"):
+        Image.fromarray(raw_rgb).save(ch_tr / fn)
+
+    res_dir = ch_tr / "manga_translator_work" / "result"
+    res_dir.mkdir(parents=True)
+    for fn in ("001.png", "002.png"):
+        Image.fromarray(raw_rgb).save(res_dir / fn)
+
+    captured_subproc: dict[str, object] = {}
+
+    def fake_subproc_run(cmd, **kwargs):
+        captured_subproc["cmd"] = list(cmd)
+        runner_file = Path(cmd[1])
+        payload_file = Path(cmd[3])
+        assert runner_file.is_file() and runner_file.suffix == ".py"
+        assert payload_file.is_file() and payload_file.suffix == ".json"
+        captured_subproc["runner_tmp"] = runner_file
+        captured_subproc["payload_tmp"] = payload_file
+        captured_subproc["payload"] = json.loads(payload_file.read_text(encoding="utf-8"))
+        return types.SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(aac, "_discover_mtui_runtime", lambda *_a, **_kw: (fake_root, venv_py))
+    monkeypatch.setattr(aac.subprocess, "run", fake_subproc_run)
+
+    before_dir = tmp_path / "before_partial"
+    before_dir.mkdir()
+    # Pre-seed only page 1 in before_dir to simulate an interrupted earlier backup
+    Image.fromarray(raw_rgb).save(before_dir / "001.png")
+
+    aac.cmd_translate_raw(ch_tr, backup_before_dir=before_dir, overwrite=True)
+    cmd_used = captured_subproc["cmd"]
+    assert "-c" not in cmd_used
+    payload_files = [Path(p).name for p in captured_subproc["payload"]["files"]]
+    assert payload_files == ["001.png", "002.png"], "001-translated.png must not be re-translated as a raw source page"
+    assert not captured_subproc["runner_tmp"].exists()
+    assert not captured_subproc["payload_tmp"].exists()
+
+    # Now test resume backfill (`overwrite=False`) when 002.png is missing from before_dir
+    (before_dir / "002.png").unlink()
+    kept_plus_copied = aac._backup_result_to_before(
+        res_dir,
+        before_dir,
+        overwrite=False,
+        source_pages=[ch_tr / "001.png", ch_tr / "002.png"],
+    )
+    assert kept_plus_copied == 2
+    assert (before_dir / "001.png").is_file() and (before_dir / "002.png").is_file()
+    assert list(before_dir.glob("*.tmp")) == []
+
+    # F59: cmd_audit decodes nested array `mask_raw` via decode_mask_base64 without TypeError
+    ch_aud = tmp_path / "ch_aud"
+    ch_aud.mkdir()
+    p007 = ch_aud / "007.png"
+    Image.fromarray(np.full((40, 40, 3), 255, dtype=np.uint8)).save(p007)
+    p007_paths = resolve_page_paths(p007)
+    save_rgb_image_atomic(np.full((40, 40, 3), 255, dtype=np.uint8), p007_paths.inpainted_path)
+    save_rgb_image_atomic(np.full((40, 40, 3), 255, dtype=np.uint8), p007_paths.rendered_output_path)
+    nested_mask = [[255 if (10 <= r < 20 and 10 <= c < 20) else 0 for c in range(40)] for r in range(40)]
+    p007_paths.json_path.parent.mkdir(parents=True, exist_ok=True)
+    p007_paths.json_path.write_text(
+        json.dumps(
+            {
+                str(p007): {
+                    "mask_raw": nested_mask,
+                    "regions": [
+                        {
+                            "lines": [[[8.0, 8.0], [32.0, 8.0], [32.0, 32.0], [8.0, 32.0]]],
+                            "text": "テスト",
+                            "translation": "测试",
+                            "font_family": "FZHei-B01",
+                            "font_size": 16,
+                            "direction": "v",
+                        }
+                    ],
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    aud_out = tmp_path / "aud_nested"
+    aac.cmd_audit(ch_aud, aud_out)
+    assert (aud_out / "baseline_and_ghost_report.txt").is_file()
+
+    # F134 + F64: `--pages 007` matches stem `007.png` when p_no==1, and missing rendered output is recorded in skipped_pages
+    vc_007 = tmp_path / "vc_007"
+    mf_007 = aac.cmd_verify_crops(ch_aud, vc_007, pages=["007"])
+    assert mf_007["selected_pages"] == ["007.png"]
+    assert mf_007["exported_pages"] == ["007.png"]
+    assert mf_007["skipped_pages"] == []
+    assert mf_007["verify_sheet_count"] == 1
+
+    p008 = ch_aud / "008.png"
+    Image.fromarray(np.full((40, 40, 3), 255, dtype=np.uint8)).save(p008)
+    p008_paths = resolve_page_paths(p008)
+    save_page_json_atomic(
+        p008_paths,
+        str(p008),
+        {"regions": [{"lines": [[[8.0, 8.0], [32.0, 8.0], [32.0, 32.0], [8.0, 32.0]]], "text": "あ", "translation": "啊"}]},
+        auto_initial_snapshot=False,
+    )
+    # Intentionally omit p008 rendered output
+    vc_all = tmp_path / "vc_all"
+    mf_all = aac.cmd_verify_crops(ch_aud, vc_all)
+    assert mf_all["selected_pages"] == ["007.png", "008.png"]
+    assert mf_all["exported_pages"] == ["007.png"]
+    assert len(mf_all["missing_artifact_pages"]) == 1
+    assert mf_all["missing_artifact_pages"][0]["page"] == "008.png"
+    assert "missing_rendered_output" in mf_all["missing_artifact_pages"][0]["reason"]

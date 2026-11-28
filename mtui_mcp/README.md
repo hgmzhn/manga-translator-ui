@@ -85,6 +85,8 @@ python -m manga_translator mcp --transport sse --host 127.0.0.1 --port 8765
 ```
 
 #### Antigravity / Claude Desktop（STDIO 配置）
+> 由于仓库 `pyproject.toml` 设置了 `package = false`（项目源码不安装进 `site-packages`），从其他项目目录拉起 STDIO 子进程时需在 `env` 中设置 `PYTHONPATH` 指向 `<manga-translator-ui>` 仓库根目录。
+
 ```json
 {
   "mcpServers": {
@@ -92,13 +94,14 @@ python -m manga_translator mcp --transport sse --host 127.0.0.1 --port 8765
       "command": "/path/to/manga-translator-ui/.venv/Scripts/python.exe",
       "args": ["-m", "mtui_mcp"],
       "env": {
+        "PYTHONPATH": "/path/to/manga-translator-ui",
         "PYTHONUTF8": "1"
       }
     }
   }
 }
 ```
-> 便携版（Portable Release）可将 `command` 指向 `<manga-translator-ui>/packaging/python/python.exe`；Linux/macOS 指向 `<manga-translator-ui>/.venv/bin/python`。
+> 便携版（Portable Release）可将 `command` 指向 `<manga-translator-ui>/packaging/python/python.exe`；Linux/macOS 指向 `<manga-translator-ui>/.venv/bin/python`（`PYTHONPATH` 同样填 `<manga-translator-ui>`）。
 
 #### OpenAI Codex（`~/.codex/config.toml`）
 ```toml
@@ -109,6 +112,7 @@ startup_timeout_sec = 30
 tool_timeout_sec = 300
 
 [mcp_servers.mtui-mcp.env]
+PYTHONPATH = "/path/to/manga-translator-ui"
 PYTHONUTF8 = "1"
 ```
 

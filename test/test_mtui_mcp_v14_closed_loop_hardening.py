@@ -40,7 +40,7 @@ def test_fig2_no_bold_heavy_double_counting_false_error(tmp_path: Path) -> None:
     folder = tmp_path / "bold_doublecount_ch"
     folder.mkdir()
     img_path = folder / "007.png"
-    page = np.full((500, 400, 3), 255, dtype=np.uint8)
+    page = np.full((500, 520, 3), 255, dtype=np.uint8)
     Image.fromarray(page).save(img_path)
     paths = resolve_page_paths(img_path)
     save_rgb_image_atomic(page, paths.inpainted_path)
@@ -76,6 +76,15 @@ def test_fig2_no_bold_heavy_double_counting_false_error(tmp_path: Path) -> None:
                     "direction": "v",
                     "alignment": "left",
                 },
+                {
+                    "lines": [[[380.0, 60.0], [470.0, 60.0], [470.0, 260.0], [380.0, 260.0]]],
+                    "text": "行くぞみんな！",
+                    "translation": "大家上吧！",
+                    "font_family": "FZHei-B01",
+                    "font_size": 26,
+                    "direction": "v",
+                    "alignment": "left",
+                },
             ]
         },
         auto_initial_snapshot=False,
@@ -106,6 +115,14 @@ def test_fig2_no_bold_heavy_double_counting_false_error(tmp_path: Path) -> None:
                 "family_probs": {"KAKU_GOTHIC": 0.96, "ANTIQUE": 0.0},
                 "top_fonts": [{"font": "A-OTF-KakuminPro-Bold.otf", "prob": 0.72}],
             },
+            "3": {
+                "pred_family": "KAKU_GOTHIC",
+                "pred_conf": 0.92,
+                "bold_prob": 0.76,
+                "heavy_prob": 0.18,
+                "family_probs": {"KAKU_GOTHIC": 0.92, "ANTIQUE": 0.0},
+                "top_fonts": [{"font": "A-OTF-KakuminPro-Bold.otf", "prob": 0.72}],
+            },
         }
     }
     rep = audit_single_page(
@@ -119,6 +136,7 @@ def test_fig2_no_bold_heavy_double_counting_false_error(tmp_path: Path) -> None:
     assert 0 not in bold_by_r
     assert bold_by_r.get(1) == "warning"
     assert bold_by_r.get(2) == "error"
+    assert 3 not in bold_by_r, "Double-counting bold_prob + heavy_prob (0.76 + 0.18 = 0.94) would falsely emit error!"
 
 
 def test_fig3_4_5_vertical_alignment_check_and_add_region_default(tmp_path: Path) -> None:

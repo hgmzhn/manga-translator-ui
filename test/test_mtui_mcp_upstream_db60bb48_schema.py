@@ -11,12 +11,14 @@ import numpy as np
 import pytest
 from PIL import Image
 
+import mtui_mcp.project_store as ps
 import mtui_mcp.server as server_mod
 from mtui_mcp.bubble_centering import (
     _extract_page_exclusive_inks,
     partition_page_white_bubbles,
     run_closed_loop_bubble_centering,
 )
+from mtui_mcp.config import get_runtime_settings
 from mtui_mcp.font_detector import save_font_detection_cache_atomic
 from mtui_mcp.glossary_manager import batch_edit_chapter_pages, manage_glossary_entries
 from mtui_mcp.path_resolver import resolve_page_paths
@@ -301,6 +303,7 @@ def test_last_output_path_resolution_bg_colors_precedence_and_windows_atomic_ret
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(get_runtime_settings(), "mtui_root", None)
     ch_dir = tmp_path / "vol1" / "ch01"
     page = _make_page_fixture(ch_dir, "001.png")
     sib_dir = tmp_path / "vol1" / "ch01-translated"
@@ -340,20 +343,27 @@ def test_last_output_path_resolution_bg_colors_precedence_and_windows_atomic_ret
             raise err
         real_replace(src, dst)
 
-    monkeypatch.setattr(os, "name", "nt", raising=False)
-    monkeypatch.setattr(os, "replace", flaky_replace)
+    monkeypatch.setattr(ps, "_is_windows", lambda: True)
+    monkeypatch.setattr(ps.os, "replace", flaky_replace)
     monkeypatch.setattr("time.sleep", lambda _s: None)
 
+    atomic_img_p = tmp_path / "atomic_img.png"
+    atomic_glossary_p = tmp_path / "atomic_glossary.yaml"
     save_page_json_atomic(resolved, ik, data, auto_initial_snapshot=False)
-    save_rgb_image_atomic(np.zeros((32, 32, 3), dtype=np.uint8), tmp_path / "atomic_img.png")
+    save_rgb_image_atomic(np.zeros((32, 32, 3), dtype=np.uint8), atomic_img_p)
     save_font_detection_cache_atomic(resolved.work_dir, {"version": 2})
     manage_glossary_entries(
         action="upsert",
-        glossary_file=str(tmp_path / "atomic_glossary.yaml"),
+        glossary_file=str(atomic_glossary_p),
         category="Person",
         entries=[{"original": "アイズ", "translation": "艾丝"}],
     )
     assert attempts["count"] == 12
+    assert resolved.json_path.is_file()
+    assert atomic_img_p.is_file()
+    assert (resolved.work_dir / ".yuzumarker_font_cache.json").is_file()
+    assert atomic_glossary_p.is_file()
+    assert list(tmp_path.rglob("*.tmp")) == []
 
 
 def test_server_24_tools_enhancements_and_worker_contracts(

@@ -92,11 +92,24 @@ except Exception:
         'mtui_mcp.embedded_server',
     ]
 
+try:
+    manga_translator_datas = collect_data_files('manga_translator', include_py_files=True)
+except Exception:
+    manga_translator_datas = []
+
+try:
+    manga_translator_hiddenimports = collect_submodules('manga_translator')
+except Exception:
+    manga_translator_hiddenimports = [
+        'manga_translator',
+        'manga_translator.__main__',
+    ]
+
 a = Analysis(
     ['../desktop_qt_ui/main.py'],  # 相对于packaging目录
     pathex=[project_root],
     binaries=onnx_binaries + pythainlp_binaries + nlpo3_binaries + mcp_binaries,
-    datas=py3langid_datas + unidic_datas + pythainlp_datas + nlpo3_datas + onnx_datas + opencc_datas + mcp_datas + mtui_mcp_datas,  # 添加所有数据文件
+    datas=py3langid_datas + unidic_datas + pythainlp_datas + nlpo3_datas + onnx_datas + opencc_datas + mcp_datas + mtui_mcp_datas + manga_translator_datas,  # 添加所有数据文件
     hiddenimports=[
         'pydensecrf.eigen', 
         'bsdiff4.core', 
@@ -111,7 +124,7 @@ a = Analysis(
         'manga_translator.ocr.paddleocr_vl_model.modeling_paddleocr_vl',
         'manga_translator.ocr.paddleocr_vl_model.processing_paddleocr_vl',
         'manga_translator.ocr.paddleocr_vl_model.image_processing',
-    ] + pythainlp_hiddenimports + nlpo3_hiddenimports + onnx_hiddenimports + mcp_hiddenimports + mtui_mcp_hiddenimports,  # 添加隐式导入
+    ] + pythainlp_hiddenimports + nlpo3_hiddenimports + onnx_hiddenimports + mcp_hiddenimports + mtui_mcp_hiddenimports + manga_translator_hiddenimports,  # 添加隐式导入
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[os.path.join(SPECPATH, 'pyi_rth_onnxruntime.py')],

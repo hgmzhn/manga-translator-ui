@@ -13,7 +13,10 @@
 
 ### 1.2 判定原则
 1. **只看原图**：原字体相同，译文字体就保持一致；原字体变了，就跟着换。不要按“角色/分镜/口吻”去猜，同一角色在普通对白、内心独白、威压台词、抓狂吐槽之间会频繁换字体。
-2. **置信度分级**：`≥0.90` 锁定（推翻前必须先用 `mtui_inspect_region_visual` 找证据）；`0.84~0.90` 一般采纳；`<0.84` 或 `top1<0.68` 必须对照原图和相邻同款气泡后再决定。
+2. **置信度分级（严格互斥判定顺序，自上而下匹配第一条即生效）**：
+   - **第一步（前置例外优先，不触发高置信锁定）**：只要命中以下任一条件——① 带 `[NARROW-KANA-STRETCH]` 或 `[THIN-STEM]` 标记（见第 5 条）；② `n_clean ≤ 2` 且无相邻框传播（`neighbor_propagated_family` 为空）；③ **`top1 < 0.68`**（即使 `pred_conf ≥ 0.90`，也说明字系内部多款字库分票或字形模糊）；④ `KAISHO_BRUSH` 但 Top-1 非核心验证楷书（如 `HOT-FKaisho` / `DFSoKaiSho`）——**一律不锁定**，必须先 1:1 对照原图和相邻同款气泡笔画后再决定。
+   - **第二步（高置信锁定）**：仅在**未命中第一步任何例外**，且同时满足 **`pred_conf ≥ 0.90` 与 `top1 ≥ 0.68`** 时，锁定映射结果直接采用（推翻前必须先用 `mtui_inspect_region_visual` 查看单框 1:1 原图并给出明确笔画证据）。
+   - **第三步（中高置信与低置信）**：未命中第一步且 `0.84 ≤ pred_conf < 0.90`（`top1 ≥ 0.68`）时一般采纳，但若与同页同款原字冲突，以 1:1 原图结论为准；`pred_conf < 0.84` 时必须对照原图和相邻气泡后再决定。
 3. **粗体零漏检，同时防过粗误加**：原图笔画明显粗重，或**非 `ANTIQUE` 字系**且高置信度 `bold_prob ≥ 0.90`（即使两个模型在两类粗体之间分票），就**不能**留在 `FZHei-B01` + `bold=False`（换用原生粗字重字库，或改成 `FZHei-B01` + `bold=True`）。但有两条硬边界：① **`pred_family == ANTIQUE` 例外**：常规对白字库（`AnticCezannePro-DB`、`ShueiAntiStd-B`）因文件名带 `-DB`/`-B`，`bold_prob` 常达 `0.89~1.00`，严禁仅凭 `bold_prob` 盲目加粗，必须核对原图笔画确实显著粗于同页常规基线；② **`n_clean ≤ 2` 短框例外**（如 `っ!?`、`──っ!?`）：小字短框的 YuzuMarker 预测极易噪声漂移，无同页大字粗笔或 `raw_sw > 1.18x` 常规基线佐证时**禁止加粗**；确系粗体的小字（`fs ≤ 22px`）优先用原生 **`Source Han Sans SC::Medium`** / **`Source Han Sans SC::Bold`**（`bold=False`），避免 `FZHei-B01` 假粗在小字号下糊成一团。
 4. **原生重字重与北魏楷书不叠假粗**：`FZCuSong-B09`、`FZLanTingYuan-B-GBK`、`FZJianZhi-M23`、`Arphic Tankuin Bold GB`、`DFZongYiW7-GB`、`DFFangYuanW7-GB`、`ZHSRXT2011-GB`、`XinYuGongCangSangTi`、`FZSongHei-B07`，所有 `::Bold` / `::Heavy` 选择器，以及 **`FZBeiWeiKaiShu-S19`**（刀刻碑楷笔画棱角密，叠 Qt 合成假粗会发胖堵死字怀），一律 `bold=False`（原生重字重叠假粗报 `inherently_heavy_font_bolded` error，`FZBeiWeiKaiShu-S19` 叠假粗报 warning；此外 `FZZhunYuan-M02 + bold=True` 报 `unjustified_faux_bold` error）。
 5. **窄条纯假名拉伸与薄竖笔防误判粗宋**：YuzuMarker 4x 推理遵循上游训练时的正方形拉伸（`_crop_exact_data_py` 不改 padding），极端细长纯假名短框（`n_clean ≤ 3`、长宽比 `≥ 3.5`、短边 `≤ 44px` 归一化尺度）或薄竖笔气泡（实测竖笔半宽 `stem_hw < 2.45px` 归一化尺度）容易被误判为 `FZCuSong-B09` 或高置信异字系。遇到带 `[NARROW-KANA-STRETCH]` / `[THIN-STEM]` 标记的自检卡或降级 `warning` 时不锁定 `≥0.90`，须 1:1 核对原图：常规黑体/アンチック假名保持 `FZHei-B01`，仅原图确系明朝才改 `FZYaSong-DB-GBK`（确认真粗明朝才用 `FZCuSong-B09`）。

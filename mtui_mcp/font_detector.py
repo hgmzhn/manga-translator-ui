@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import tempfile
@@ -16,7 +17,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .config import get_runtime_settings
-from .project_store import _atomic_replace_with_retry, region_bbox_xyxy
+from .project_store import _atomic_replace_with_retry, region_bbox_xyxy, region_center
 
 FONT_COUNT = 6150
 INPUT_SIZE = 512
@@ -124,6 +125,28 @@ def is_narrow_kana_stretch_suspect(
     return True
 
 
+_LIGHT_WEIGHT_RE = re.compile(
+    r"((?:-w1|-w2|-w3)(?!\d)|thin|hairline|extralight|extra[-_\s]?light|ultralight|ultra[-_\s]?light|semilight|light|-el\b|-ul\b|-l\b|_l\.|细|纤|极细|細|纖|極細)"
+)
+_HEAVY_WEIGHT_RE = re.compile(
+    r"(-w9|-w10|-w12|-w14|heavy|exheavy|ultrablack|ultrabold|ultra(?!\s*[-_]?\s*light)|black|superbold|-eb|-ub|-hv|-u\b|-h\b|_h\.|_u\.|特粗|超粗|极粗|特太)"
+)
+_BOLD_WEIGHT_RE = re.compile(
+    r"(-w7|-w8|bold|semibold|demibold|debold|-db|-b\b|_b\.|粗|中粗|准|大黑|大标|太)"
+)
+
+
+def _classify_font_filename_weight(fname_lower: str) -> str:
+    """Classify a lowercased font filename/selector into ``light | regular | bold | heavy``."""
+    if _LIGHT_WEIGHT_RE.search(fname_lower):
+        return "light"
+    if _HEAVY_WEIGHT_RE.search(fname_lower):
+        return "heavy"
+    if _BOLD_WEIGHT_RE.search(fname_lower):
+        return "bold"
+    return "regular"
+
+
 def classify_vcb_font_entry(entry: dict[str, Any]) -> tuple[str, str]:
     """Deterministically categorize each of the 6,150 VCB-Studio font labels into `(manga_family, weight_tier)`."""
     p = str(entry.get("path") or "")
@@ -131,16 +154,7 @@ def classify_vcb_font_entry(entry: dict[str, Any]) -> tuple[str, str]:
     is_serif = bool(entry.get("serif", False))
     fname = p.split("/")[-1].lower()
 
-    weight = "regular"
-    if re.search(
-        r"(-w9|-w10|-w12|-w14|heavy|exheavy|ultra|black|superbold|-eb|-ub|-hv|-u\b|-h\b|_h\.|_u\.|特粗|超粗|极粗|特太)",
-        fname,
-    ):
-        weight = "heavy"
-    elif re.search(r"(-w7|-w8|bold|semibold|demibold|debold|-db|-b\b|_b\.|粗|中粗|准|大黑|大标|太)", fname):
-        weight = "bold"
-    elif re.search(r"(-w1|-w2|-w3|thin|extralight|ultralight|light|-el|-ul|-l\b|细|纤|极细)", fname):
-        weight = "light"
+    weight = _classify_font_filename_weight(fname)
 
     # 1. GUYIN (古印体 — broken/worm-eaten strokes)
     if any(k in pl for k in ("koin", "kointai", "古印", "古籍木兰", "斑驳")):
@@ -440,9 +454,9 @@ def recommend_mtui_font_for_prediction(
     # Read-time safety net for legacy v1 caches whose top-1 is Morisawa KyokaICA / Hitujyun (cached under ROUND_GOTHIC/KAKU_GOTHIC)
     if not pred.get("neighbor_propagated_family") and any(k in top1_font for k in _KYOKAICA_SUBSTRS):
         return _recommend_textbook_kyokasho(top1_font, top_fonts)
-    if "kaimin" in top1_font:
+    if not pred.get("neighbor_propagated_family") and "kaimin" in top1_font:
         return "FZHei-B01", False, {"ANTIQUE", "MINCHO", "KAKU_GOTHIC"}
-    if "greco" in top1_font:
+    if not pred.get("neighbor_propagated_family") and "greco" in top1_font:
         return "FZYaSong-DB-GBK", False, {"MINCHO", "ANTIQUE", "KAKU_GOTHIC"}
     # `KakuminPro-Bold` (`カクミン Bold`) is bold Kaku-Gothic dialogue/narration — check BEFORE `eff_fam == "MINCHO"`
     # so coin-flip splits (e.g. `KakuminPro-Bold` top1=0.491 vs summed `MINCHO=0.502`) never recommend Songti!
@@ -474,8 +488,10 @@ def recommend_mtui_font_for_prediction(
         return "FZZhunYuan-M02", False, {"ROUND_GOTHIC", "KAKU_GOTHIC"}
 
     if eff_fam == "MINCHO":
-        is_explicit_heavy_mincho = any(
-            k in top1_font for k in ("leigaso", "ultra", "exheavy", "heavy", "-hv", "-eb", "shueishogo", "futo")
+        top1_weight = _classify_font_filename_weight(top1_font)
+        is_explicit_heavy_mincho = top1_weight != "light" and (
+            top1_weight == "heavy"
+            or any(k in top1_font for k in ("leigaso", "shueishogo", "futo"))
         )
         if heavy_p >= 0.35 or is_explicit_heavy_mincho:
             scale = page_resolution_scale(page_wh)
@@ -551,9 +567,19 @@ def yuzumarker_models_available() -> bool:
     if not rt.mtui_root:
         return False
     mdir = rt.mtui_root / "models" / "yuzumarker"
-    if not (mdir / "font-labels-ex.json").is_file():
+    try:
+        if not (mdir / "font-labels-ex.json").is_file():
+            return False
+        candidates = list(mdir.glob("*.ckpt"))
+    except OSError:
         return False
-    return any(p.stat().st_size > 300_000_000 for p in mdir.glob("*.ckpt"))
+    for p in candidates:
+        try:
+            if p.stat().st_size > 300_000_000:
+                return True
+        except OSError:
+            continue
+    return False
 
 
 def font_cache_path_for_work_dir(work_dir: Path) -> Path:
@@ -566,7 +592,14 @@ def load_font_detection_cache(work_dir: Path) -> dict[str, Any]:
         return {}
     try:
         data = json.loads(cp.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
+        if not isinstance(data, dict):
+            return {}
+        pages_dict = data.get("pages")
+        if isinstance(pages_dict, dict):
+            for p_entry in pages_dict.values():
+                if isinstance(p_entry, dict):
+                    p_entry.setdefault("_from_disk_cache", True)
+        return data
     except Exception:
         return {}
 
@@ -574,10 +607,19 @@ def load_font_detection_cache(work_dir: Path) -> dict[str, Any]:
 def save_font_detection_cache_atomic(work_dir: Path, payload: dict[str, Any]) -> Path:
     work_dir.mkdir(parents=True, exist_ok=True)
     cp = font_cache_path_for_work_dir(work_dir)
+    clean_payload = dict(payload)
+    if isinstance(clean_payload.get("pages"), dict):
+        clean_pages: dict[str, Any] = {}
+        for k, v in clean_payload["pages"].items():
+            if isinstance(v, dict) and "_from_disk_cache" in v:
+                clean_pages[k] = {pk: pv for pk, pv in v.items() if pk != "_from_disk_cache"}
+            else:
+                clean_pages[k] = v
+        clean_payload["pages"] = clean_pages
     fd, tmp = tempfile.mkstemp(prefix=".yuzumarker_cache.", suffix=".tmp", dir=str(work_dir))
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
+            json.dump(clean_payload, f, ensure_ascii=False, indent=2)
         _atomic_replace_with_retry(tmp, cp)
         tmp = ""
     finally:
@@ -593,12 +635,67 @@ def lookup_cached_region_prediction(
     page_cache: Optional[dict[str, Any]],
     reg: dict[str, Any],
     region_index: int,
+    *,
+    total_regions: Optional[int] = None,
 ) -> Optional[dict[str, Any]]:
     if not page_cache or not isinstance(page_cache, dict):
         return None
+    bbox = region_bbox_xyxy(reg)
+    sig = region_bbox_signature(bbox)
+    reg_uid = str(reg.get("region_uid") or "").strip()
+
     by_sig = page_cache.get("by_bbox_sig") or {}
-    sig = region_bbox_signature(region_bbox_xyxy(reg))
-    if sig in by_sig:
-        return by_sig[sig]
+    if isinstance(by_sig, dict) and sig in by_sig:
+        hit = by_sig[sig]
+        if isinstance(hit, dict):
+            hit_uid = str(hit.get("region_uid") or "").strip()
+            if not (reg_uid and hit_uid and reg_uid != hit_uid):
+                return hit
+
     by_idx = page_cache.get("by_ridx") or {}
-    return by_idx.get(str(region_index))
+    if not isinstance(by_idx, dict):
+        return None
+    cand = by_idx.get(str(region_index))
+    if not isinstance(cand, dict):
+        return None
+
+    # 1. Explicit stable region_uid match/mismatch
+    cand_uid = str(cand.get("region_uid") or "").strip()
+    if reg_uid and cand_uid:
+        return cand if reg_uid == cand_uid else None
+    if cand_uid and not reg_uid:
+        return None
+
+    # 2. Cached bbox_sig / center identity verification (present on all real engine_worker cache entries)
+    cand_sig = str(cand.get("bbox_sig") or "").strip()
+    cand_center = cand.get("center")
+    has_cand_center = isinstance(cand_center, (list, tuple)) and len(cand_center) >= 2
+    if cand_sig and cand_sig == sig:
+        return cand
+
+    # Reject stale index reuse whenever page region count changed or cached indices exceed current region list
+    cached_count = page_cache.get("region_count")
+    if cached_count is not None and total_regions is not None and int(cached_count) != total_regions:
+        return None
+    if total_regions is not None:
+        if any(int(k) >= total_regions for k in by_idx if str(k).isdigit()):
+            return None
+        if (page_cache.get("_from_disk_cache") or by_sig) and len(by_idx) != total_regions:
+            return None
+
+    if has_cand_center:
+        cx, cy = region_center(reg)
+        if math.hypot(cx - float(cand_center[0]), cy - float(cand_center[1])) > 24.0:
+            return None
+        if total_regions is not None and len(by_idx) != total_regions:
+            return None
+        return cand
+
+    if cand_sig or by_sig:
+        # Cached entry had a different bbox_sig (or by_bbox_sig missed) and no matching center/UID
+        return None
+
+    # Bare by_ridx-only cache without bbox_sig/center/UID: reject multi-region unverified index lookups
+    if total_regions is None and len(by_idx) > 1:
+        return None
+    return cand

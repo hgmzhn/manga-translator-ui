@@ -166,6 +166,9 @@ class MainAppLogic(QObject):
         self.excluded_files: set = set() # 记录从已添加文件夹中排除的单文件/压缩包
 
         self.app_config = AppConfig()
+        self._suppress_mcp_config_sync = False
+        if self.config_service is not None and hasattr(self.config_service, "config_changed"):
+            self.config_service.config_changed.connect(self._on_config_changed)
 
     @staticmethod
     def _path_key(path: str) -> str:
@@ -1092,6 +1095,50 @@ class MainAppLogic(QObject):
             self.logger.error('Config update exception: {error}'.format(error=e))
             return False
 
+    @pyqtSlot(dict)
+    def _on_config_changed(self, config_dict: Dict[str, Any]):
+        """配置文件重载或完整替换后，同步内置 MCP 服务启停状态与监听参数。"""
+        if self._suppress_mcp_config_sync or self._shutdown_started:
+            return
+        try:
+            from services import get_mcp_service
+
+            mcp_service = get_mcp_service()
+            if mcp_service is None:
+                return
+
+            app_cfg = config_dict.get("app") if isinstance(config_dict, dict) else None
+            if isinstance(app_cfg, dict):
+                enabled = bool(app_cfg.get("mcp_server_enabled", True))
+                host = str(app_cfg.get("mcp_server_host") or "127.0.0.1")
+                port = int(app_cfg.get("mcp_server_port", 8765))
+            elif self.config_service is not None:
+                cfg_obj = self.config_service.get_config()
+                enabled = bool(cfg_obj.app.mcp_server_enabled)
+                host = str(cfg_obj.app.mcp_server_host)
+                port = int(cfg_obj.app.mcp_server_port)
+            else:
+                return
+
+            if (
+                enabled
+                and not mcp_service.is_running
+                and not getattr(mcp_service, "has_started_once", False)
+                and mcp_service.is_autostart_suppressed_by_pytest()
+            ):
+                return
+
+            mcp_service.apply_config(
+                enabled=enabled,
+                host=host,
+                port=port,
+                override_host=False,
+                override_port=False,
+                override_enabled=False,
+            )
+        except Exception as e:
+            self.logger.warning(f"Failed to sync MCP service on config change: {e}")
+
     def update_single_config(self, full_key: str, value: Any):
         self.logger.debug(f"update_single_config: '{full_key}' = '{value}'")
         try:
@@ -1102,7 +1149,11 @@ class MainAppLogic(QObject):
                 parent_obj = getattr(parent_obj, key)
             setattr(parent_obj, keys[-1], value)
             
-            self.config_service.set_config(config_obj)
+            self._suppress_mcp_config_sync = True
+            try:
+                self.config_service.set_config(config_obj)
+            finally:
+                self._suppress_mcp_config_sync = False
             self.config_service.save_config_file()
             self.logger.debug("Config saved: '{config_key}' = '{value}'".format(config_key=full_key, value=value))
 
@@ -1121,7 +1172,7 @@ class MainAppLogic(QObject):
                 self.logger.debug("Render setting changed: '{config_key}'".format(config_key=full_key))
                 self.render_setting_changed.emit()
 
-            # 当内置 MCP 服务开关或监听地址/端口更改时，实时热应用
+            # 当内置 MCP 服务开关或监听地址/端口更改时，实时热应用（保留未修改的 CLI 覆盖项）
             if full_key in (
                 'app.mcp_server_enabled',
                 'app.mcp_server_host',
@@ -1135,6 +1186,9 @@ class MainAppLogic(QObject):
                         enabled=bool(config_obj.app.mcp_server_enabled),
                         host=str(config_obj.app.mcp_server_host),
                         port=int(config_obj.app.mcp_server_port),
+                        override_host=(full_key == 'app.mcp_server_host'),
+                        override_port=(full_key == 'app.mcp_server_port'),
+                        override_enabled=(full_key == 'app.mcp_server_enabled'),
                     )
 
         except Exception as e:

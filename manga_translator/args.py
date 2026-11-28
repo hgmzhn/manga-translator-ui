@@ -135,8 +135,6 @@ def create_parser():
 
 def parse_args():
     """解析命令行参数"""
-    parser = create_parser()
-
     # MCP 子命令将后续参数完整委托给 mtui_mcp.__main__.main 解析（含 --help）
     if len(sys.argv) > 1 and sys.argv[1] == 'mcp':
         return argparse.Namespace(
@@ -145,6 +143,8 @@ def parse_args():
             disable_onnx_gpu=False,
             verbose=False,
         )
+
+    parser = create_parser()
     
     # 如果第一个参数不是模式，默认使用 local 模式
     if len(sys.argv) > 1 and sys.argv[1] not in ['web', 'local', 'ws', 'shared', 'mcp']:

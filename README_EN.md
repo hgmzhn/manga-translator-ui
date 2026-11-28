@@ -203,24 +203,33 @@ uv run --no-sync python -m manga_translator --help
 
 Use multimodal AI agents (**Antigravity**, **Codex**, **Claude Code**, **Cursor**, etc.) to proofread whole chapters, clean up residual ink or over-erased borders, and refine `richtext.v1` typesetting after initial translation.
 
-- **Desktop auto-start (recommended)**: Launching the Qt UI automatically starts the built-in MCP server at `http://127.0.0.1:8765/mcp` (Streamable HTTP; SSE at `/sse`) and the live Qt editor bridge (`mtui_live_gui_session`). Toggle or change the port anytime in **Settings → General**, or override at launch via `--no-mcp` / `--mcp-port`.
-- **Standalone headless STDIO mode**: Spawn on demand from any MCP client without opening the desktop window:
+- **Desktop auto-start (recommended, Streamable HTTP)**: Launching the Qt UI automatically starts the built-in MCP server at `http://127.0.0.1:8765/mcp` (Streamable HTTP; SSE at `/sse`) and the live Qt editor bridge (`mtui_live_gui_session`). Toggle or change the port anytime in **Settings → General**, or override at launch via `--no-mcp` / `--mcp-port`.
+  - **Antigravity / Claude Code** (`mcpServers` JSON config; for **Cursor** or clients expecting `"url"`, replace `"serverUrl"` with `"url"`):
+
+  ```json
+  {
+    "mcpServers": {
+      "mtui-mcp": {
+        "serverUrl": "http://127.0.0.1:8765/mcp"
+      }
+    }
+  }
+  ```
+
+  - **OpenAI Codex** (add to `~/.codex/config.toml`, or register via `codex mcp add mtui-mcp --url http://127.0.0.1:8765/mcp`):
+
+  ```toml
+  [mcp_servers.mtui-mcp]
+  url = "http://127.0.0.1:8765/mcp"
+  ```
+
+- **Standalone headless STDIO mode**: Spawn on demand from any MCP client via `command` / `args` without opening the desktop window:
 
 ```bash
 # Default STDIO mode (for MCP client command/args configuration)
 uv run --no-sync python -m mtui_mcp
 # Or via the main CLI subcommand
 uv run --no-sync python -m manga_translator mcp
-```
-
-```json
-{
-  "mcpServers": {
-    "mtui-mcp": {
-      "serverUrl": "http://127.0.0.1:8765/mcp"
-    }
-  }
-}
 ```
 
 🤖 Want the full catalog of all 24 `mtui_*` tools, STDIO client configs, and proofreading workflows? [View MTUI-MCP documentation](mtui_mcp/README.md)

@@ -52,7 +52,7 @@ flowchart LR
 
 ### 内置 MCP 服务与端口 {#mcp-server}
 
-“启用内置 MCP 服务”（`app.mcp_server_enabled`）与“MCP 服务端口”（`app.mcp_server_port`）位于“设置 → General”。开启后，桌面端在首帧显示后自动启动内置 MTUI-MCP HTTP/SSE 服务（默认 `127.0.0.1:8765`，暴露 `/mcp`、`/sse` 与 `/health`）以及本机认证的实时 GUI 会话桥接管道，方便 AI Agent 直接执行译文审校、局部蒙版修补与排版调整。重型 GPU 引擎工作进程默认按需懒启动，空闲时不额外占用显存。
+“启用内置 MCP 服务”（`app.mcp_server_enabled`）与“MCP 服务端口”（`app.mcp_server_port`）位于“设置 → General”。开启后，桌面端会在主窗口显示后通过事件循环调度启动内置 MTUI-MCP HTTP/SSE 服务（不保证首帧已绘制完成；默认监听 `127.0.0.1:8765`，暴露 `/mcp`、`/sse` 与 `/health`）以及本机认证的实时 GUI 会话桥接管道，方便 AI Agent 直接执行译文审校、局部蒙版修补与排版调整。重型 GPU 引擎工作进程默认按需懒启动，空闲时不额外占用显存。
 
 在界面中切换开关或修改端口（范围 `1~65535`）会立即热生效；监听地址由 `app.mcp_server_host` 控制（默认 `127.0.0.1`）。桌面端启动时还支持通过命令行 `--mcp` / `--no-mcp`、`--mcp-host`、`--mcp-port` 或环境变量 `MTUI_MCP_ENABLED`、`MTUI_MCP_HOST`、`MTUI_MCP_PORT` 临时覆盖，不改写 `config/config.json`。
 

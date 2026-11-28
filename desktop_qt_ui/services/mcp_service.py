@@ -10,9 +10,16 @@ import os
 import secrets
 import tempfile
 import threading
+import time
 import weakref
 from dataclasses import dataclass
-from multiprocessing.connection import BufferTooShort, Client, Listener
+from multiprocessing.connection import (
+    BufferTooShort,
+    Client,
+    Listener,
+    answer_challenge,
+    deliver_challenge,
+)
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -22,9 +29,13 @@ from PyQt6.QtCore import QCoreApplication, QObject, Qt, QThread, pyqtSignal, pyq
 MAX_GUI_REQUEST_BYTES = 256 * 1024
 DEFAULT_MCP_HOST = "127.0.0.1"
 DEFAULT_MCP_PORT = 8765
+DEFAULT_IPC_HANDSHAKE_TIMEOUT = 5.0
 
 _TRUTHY_ENV = frozenset({"1", "true", "yes", "on"})
 _FALSY_ENV = frozenset({"0", "false", "no", "off"})
+
+_ACTIVE_BRIDGE_LOCK = threading.Lock()
+_ACTIVE_BRIDGE_ADDRESSES: set[str] = set()
 
 
 def parse_env_bool(name: str) -> Optional[bool]:
@@ -73,6 +84,75 @@ def gui_session_paths(session_name: Optional[str] = None) -> tuple[str, Path]:
         return address, key_file
 
 
+def _abort_ipc_connection(conn: Any) -> None:
+    """Force-unblock pending I/O on a stalled IPC connection and close it."""
+    try:
+        from mtui_mcp.gui_bridge import abort_ipc_connection
+
+        abort_ipc_connection(conn)
+        return
+    except Exception:
+        pass
+
+    if conn is None:
+        return
+    try:
+        conn.close()
+    except Exception:
+        pass
+
+
+def _acquire_session_lockfile(lock_path: Path) -> Optional[int]:
+    """Acquire an exclusive non-blocking OS lock on ``lock_path`` (held while bridge is live)."""
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd: Optional[int] = None
+    try:
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+        if os.name == "nt":
+            import msvcrt
+
+            os.lseek(fd, 0, os.SEEK_SET)
+            if os.fstat(fd).st_size == 0:
+                os.write(fd, b"1")
+                os.lseek(fd, 0, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return fd
+    except OSError:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        return None
+
+
+def _release_session_lockfile(fd: Optional[int]) -> None:
+    """Release and close an exclusive session lockfile descriptor."""
+    if fd is None:
+        return
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            os.lseek(fd, 0, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    except OSError:
+        pass
+    finally:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+
+
 def _json_sanitize(value: Any) -> Any:
     """Convert numpy scalars/arrays, Paths, and tuples into JSON-safe values."""
     if value is None or isinstance(value, (str, int, float, bool)):
@@ -94,7 +174,7 @@ def _json_sanitize(value: Any) -> Any:
 class _MainThreadCall:
     fn: Callable[[], Any]
     done: threading.Event
-    claimed: bool = False
+    state: str = "PENDING"  # PENDING -> RUNNING -> DONE | CANCELLED
     result: Any = None
     error: Optional[BaseException] = None
 
@@ -106,7 +186,7 @@ class _MainThreadDispatcher(QObject):
 
     def __init__(self) -> None:
         super().__init__(None)
-        self._exec_lock = threading.RLock()
+        self._state_lock = threading.Lock()
         app = QCoreApplication.instance()
         if app is not None and QThread.currentThread() != app.thread():
             try:
@@ -122,63 +202,80 @@ class _MainThreadDispatcher(QObject):
     def _on_invoke(self, call: object) -> None:
         if not isinstance(call, _MainThreadCall):
             return
-        with self._exec_lock:
-            if call.claimed:
+        with self._state_lock:
+            if call.state != "PENDING":
                 return
-            call.claimed = True
-            try:
-                call.result = call.fn()
-            except BaseException as exc:  # noqa: BLE001
-                call.error = exc
-            finally:
-                call.done.set()
+            call.state = "RUNNING"
 
-    def dispatch(self, fn: Callable[[], Any], timeout: float = 25.0) -> Any:
+        result: Any = None
+        error: Optional[BaseException] = None
+        try:
+            result = call.fn()
+        except BaseException as exc:  # noqa: BLE001
+            error = exc
+
+        with self._state_lock:
+            call.result = result
+            call.error = error
+            call.state = "DONE"
+            call.done.set()
+
+    def dispatch(
+        self,
+        fn: Callable[[], Any],
+        timeout: float = 25.0,
+        *,
+        on_running_timeout: Optional[Callable[[_MainThreadCall], Any]] = None,
+    ) -> Any:
         app = QCoreApplication.instance()
         target_thread = self.thread() if app is not None else None
-        if app is None or target_thread is None or QThread.currentThread() == target_thread:
-            with self._exec_lock:
-                return fn()
+        if app is None or target_thread is None:
+            raise RuntimeError("Qt GUI application is not available")
+        if QThread.currentThread() == target_thread:
+            return fn()
+        if QCoreApplication.closingDown():
+            raise RuntimeError("Qt GUI event loop is unavailable")
 
         call = _MainThreadCall(fn=fn, done=threading.Event())
         self._invoke_signal.emit(call)
 
-        loop_level = 1
-        if hasattr(target_thread, "loopLevel"):
-            try:
-                loop_level = int(target_thread.loopLevel())
-            except Exception:
-                loop_level = 1
+        deadline = time.monotonic() + max(0.01, float(timeout))
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            if call.done.wait(min(0.1, remaining)):
+                break
+            if QCoreApplication.closingDown():
+                with self._state_lock:
+                    if call.state == "PENDING":
+                        call.state = "CANCELLED"
+                        raise RuntimeError("Qt GUI event loop is unavailable")
 
-        # When no Qt event loop is running (e.g. synchronous offscreen pytest calling
-        # IPC from the main thread without app.exec()), give processEvents() a brief
-        # chance first, then claim execution under lock rather than deadlocking.
-        if loop_level <= 0:
-            if not call.done.wait(min(0.05, max(0.01, timeout))):
-                current_loop_level = (
-                    int(target_thread.loopLevel())
-                    if hasattr(target_thread, "loopLevel")
-                    else 0
-                )
-                if current_loop_level <= 0:
-                    with self._exec_lock:
-                        if not call.claimed:
-                            call.claimed = True
-                            try:
-                                call.result = call.fn()
-                            except BaseException as exc:  # noqa: BLE001
-                                call.error = exc
-                            finally:
-                                call.done.set()
+        if call.done.is_set():
+            if call.error is not None:
+                raise call.error
+            return call.result
 
-        if not call.done.wait(timeout):
-            with self._exec_lock:
-                call.claimed = True
+        with self._state_lock:
+            state = call.state
+            if state == "PENDING":
+                call.state = "CANCELLED"
+
+        if state == "DONE":
+            if call.error is not None:
+                raise call.error
+            return call.result
+
+        if state == "PENDING":
+            if QCoreApplication.closingDown():
+                raise RuntimeError("Qt GUI event loop is unavailable")
             raise TimeoutError("Timed out waiting for Qt GUI main thread")
 
-        if call.error is not None:
-            raise call.error
-        return call.result
+        # state == "RUNNING": callback has already started on the Qt main thread
+        if on_running_timeout is not None:
+            return on_running_timeout(call)
+        raise TimeoutError("Timed out waiting for Qt GUI main thread")
 
 
 class McpGuiBridgeServer:
@@ -198,6 +295,7 @@ class McpGuiBridgeServer:
         editor_logic: Any = None,
         session_name: Optional[str] = None,
         dispatch_timeout: float = 25.0,
+        handshake_timeout: float = DEFAULT_IPC_HANDSHAKE_TIMEOUT,
     ) -> None:
         self.logger = logging.getLogger("desktop_qt_ui.mcp_gui_bridge")
         self._main_window = main_window
@@ -207,14 +305,17 @@ class McpGuiBridgeServer:
         self._editor_logic = editor_logic
         self.session_name = session_name
         self.dispatch_timeout = float(dispatch_timeout)
+        self.handshake_timeout = max(0.05, float(handshake_timeout))
 
         self._lock = threading.RLock()
         self._stop_event = threading.Event()
+        self._bridge_generation: int = 0
         self._listener: Optional[Listener] = None
         self._accept_thread: Optional[threading.Thread] = None
         self._authkey: Optional[bytes] = None
         self._address: Optional[str] = None
         self._key_file: Optional[Path] = None
+        self._lock_fd: Optional[int] = None
         self._owns_key_file = False
         self._dispatcher = _MainThreadDispatcher()
 
@@ -242,10 +343,26 @@ class McpGuiBridgeServer:
         with self._lock:
             return self._key_file
 
+    def _verify_bridge_generation(self, expected_generation: int) -> None:
+        with self._lock:
+            if self._stop_event.is_set() or self._bridge_generation != expected_generation:
+                raise RuntimeError("Live GUI MCP bridge session was stopped or restarted")
+
     @staticmethod
     def _is_peer_session_alive(address: str, key_file: Path) -> bool:
         if not key_file.is_file():
             return False
+        try:
+            from mtui_mcp.gui_bridge import call_live_gui
+
+            # Only used as a fallback check when no OS lockfile is held yet
+            sess = os.getenv("MTUI_MCP_SESSION", "default")
+            expected_addr, _ = gui_session_paths(sess)
+            if address == expected_addr:
+                res = call_live_gui("list_pages", session_name=sess, timeout_sec=0.75, limit=1)
+                return isinstance(res, dict)
+        except Exception:
+            pass
         try:
             auth = key_file.read_bytes()
             if not auth:
@@ -254,12 +371,37 @@ class McpGuiBridgeServer:
                 {"method": "list_pages", "args": {"limit": 1}},
                 ensure_ascii=False,
             ).encode("utf-8")
-            with Client(address, authkey=auth) as peer:
-                peer.send_bytes(packet)
-                if not peer.poll(0.75):
-                    return False
-                reply = json.loads(peer.recv_bytes(MAX_GUI_REQUEST_BYTES).decode("utf-8"))
-                return isinstance(reply, dict) and "result" in reply
+            done = threading.Event()
+            ok_box = [False]
+            peer_box: list[Any] = [None]
+
+            def _probe() -> None:
+                peer = None
+                try:
+                    peer = Client(address, authkey=None)
+                    peer_box[0] = peer
+                    answer_challenge(peer, auth)
+                    deliver_challenge(peer, auth)
+                    peer.send_bytes(packet)
+                    if peer.poll(0.75):
+                        reply = json.loads(peer.recv_bytes(MAX_GUI_REQUEST_BYTES).decode("utf-8"))
+                        ok_box[0] = isinstance(reply, dict) and "result" in reply
+                except Exception:
+                    ok_box[0] = False
+                finally:
+                    if peer is not None:
+                        try:
+                            peer.close()
+                        except Exception:
+                            pass
+                    done.set()
+
+            t = threading.Thread(target=_probe, daemon=True)
+            t.start()
+            if not done.wait(0.75):
+                _abort_ipc_connection(peer_box[0])
+                return False
+            return ok_box[0]
         except Exception:
             return False
 
@@ -300,8 +442,32 @@ class McpGuiBridgeServer:
 
             self._dispatcher = _MainThreadDispatcher()
             address, key_file = gui_session_paths(self.session_name)
+            addr_key = os.path.normcase(address)
+
+            with _ACTIVE_BRIDGE_LOCK:
+                if addr_key in _ACTIVE_BRIDGE_ADDRESSES:
+                    self.logger.warning(
+                        "Another live manga-translator-ui GUI bridge is already active at %s; skipping bind.",
+                        address,
+                    )
+                    return False
+                _ACTIVE_BRIDGE_ADDRESSES.add(addr_key)
+
+            lock_path = key_file.with_suffix(".lock")
+            lock_fd = _acquire_session_lockfile(lock_path)
+            if lock_fd is None:
+                with _ACTIVE_BRIDGE_LOCK:
+                    _ACTIVE_BRIDGE_ADDRESSES.discard(addr_key)
+                self.logger.warning(
+                    "Another live manga-translator-ui GUI bridge holds ownership lock for %s; skipping bind.",
+                    address,
+                )
+                return False
 
             if self._is_peer_session_alive(address, key_file):
+                _release_session_lockfile(lock_fd)
+                with _ACTIVE_BRIDGE_LOCK:
+                    _ACTIVE_BRIDGE_ADDRESSES.discard(addr_key)
                 self.logger.warning(
                     "Another live manga-translator-ui GUI bridge is already active at %s; skipping bind.",
                     address,
@@ -312,13 +478,21 @@ class McpGuiBridgeServer:
                 try:
                     os.unlink(address)
                 except OSError as exc:
+                    _release_session_lockfile(lock_fd)
+                    with _ACTIVE_BRIDGE_LOCK:
+                        _ACTIVE_BRIDGE_ADDRESSES.discard(addr_key)
                     self.logger.warning("Could not unlink stale GUI socket %s: %s", address, exc)
                     return False
 
             authkey = secrets.token_bytes(32)
             try:
-                listener = Listener(address, authkey=authkey)
+                # Bind with authkey=None so accept() never blocks on stalled client handshakes;
+                # HMAC challenge/response runs per-connection with a deadline in _handle_connection.
+                listener = Listener(address, authkey=None)
             except OSError as exc:
+                _release_session_lockfile(lock_fd)
+                with _ACTIVE_BRIDGE_LOCK:
+                    _ACTIVE_BRIDGE_ADDRESSES.discard(addr_key)
                 self.logger.warning("Failed to bind live GUI IPC listener at %s: %s", address, exc)
                 return False
 
@@ -329,19 +503,25 @@ class McpGuiBridgeServer:
                     listener.close()
                 except Exception:
                     pass
+                _release_session_lockfile(lock_fd)
+                with _ACTIVE_BRIDGE_LOCK:
+                    _ACTIVE_BRIDGE_ADDRESSES.discard(addr_key)
                 self.logger.warning("Failed to write live GUI IPC key %s: %s", key_file, exc)
                 return False
 
+            self._bridge_generation += 1
+            bridge_gen = self._bridge_generation
             self._stop_event.clear()
             self._listener = listener
             self._authkey = authkey
             self._address = address
             self._key_file = key_file
+            self._lock_fd = lock_fd
             self._owns_key_file = True
 
             accept_thread = threading.Thread(
                 target=self._accept_loop,
-                args=(listener,),
+                args=(listener, authkey, bridge_gen),
                 name="mtui-gui-bridge-accept",
                 daemon=True,
             )
@@ -352,16 +532,19 @@ class McpGuiBridgeServer:
     def stop(self, timeout: float = 3.0) -> None:
         with self._lock:
             self._stop_event.set()
+            self._bridge_generation += 1
             listener = self._listener
             accept_thread = self._accept_thread
             authkey = self._authkey
             address = self._address
             key_file = self._key_file
+            lock_fd = self._lock_fd
             owns_key = self._owns_key_file
 
             self._listener = None
             self._accept_thread = None
             self._authkey = None
+            self._lock_fd = None
             self._owns_key_file = False
 
         if owns_key and key_file is not None:
@@ -377,11 +560,10 @@ class McpGuiBridgeServer:
             and accept_thread is not None
             and accept_thread.is_alive()
             and address
-            and authkey
         ):
             def _poke() -> None:
                 try:
-                    with Client(address, authkey=authkey):
+                    with Client(address, authkey=None):
                         pass
                 except Exception:
                     pass
@@ -399,13 +581,18 @@ class McpGuiBridgeServer:
         if accept_thread is not None and accept_thread is not threading.current_thread():
             accept_thread.join(timeout=max(0.1, float(timeout)))
 
-        if os.name != "nt" and address and os.path.exists(address):
+        if owns_key and os.name != "nt" and address and os.path.exists(address):
             try:
                 os.unlink(address)
             except OSError:
                 pass
 
-    def _accept_loop(self, listener: Listener) -> None:
+        _release_session_lockfile(lock_fd)
+        if owns_key and address:
+            with _ACTIVE_BRIDGE_LOCK:
+                _ACTIVE_BRIDGE_ADDRESSES.discard(os.path.normcase(address))
+
+    def _accept_loop(self, listener: Listener, authkey: bytes, bridge_gen: int) -> None:
         while not self._stop_event.is_set():
             try:
                 conn = listener.accept()
@@ -428,14 +615,37 @@ class McpGuiBridgeServer:
 
             worker = threading.Thread(
                 target=self._handle_connection,
-                args=(conn,),
+                args=(conn, authkey, bridge_gen),
                 name="mtui-gui-bridge-conn",
                 daemon=True,
             )
             worker.start()
 
-    def _handle_connection(self, conn: Any) -> None:
+    def _authenticate_connection(self, conn: Any, authkey: bytes) -> bool:
+        timed_out = threading.Event()
+
+        def _on_handshake_timeout() -> None:
+            timed_out.set()
+            _abort_ipc_connection(conn)
+
+        timer = threading.Timer(self.handshake_timeout, _on_handshake_timeout)
+        timer.daemon = True
+        timer.start()
         try:
+            deliver_challenge(conn, authkey)
+            answer_challenge(conn, authkey)
+            return not timed_out.is_set()
+        except Exception as exc:
+            self.logger.debug("Live GUI IPC authentication failed: %s", exc)
+            return False
+        finally:
+            timer.cancel()
+
+    def _handle_connection(self, conn: Any, authkey: bytes, bridge_gen: int) -> None:
+        try:
+            if not self._authenticate_connection(conn, authkey):
+                return
+
             if not conn.poll(5.0):
                 return
             try:
@@ -470,7 +680,7 @@ class McpGuiBridgeServer:
                 return
 
             try:
-                result = self._execute_rpc(method, args)
+                result = self._execute_rpc(method, args, bridge_generation=bridge_gen)
                 self._send_reply(conn, {"result": _json_sanitize(result)})
             except Exception as exc:
                 self._send_reply(conn, {"error": str(exc)})
@@ -585,15 +795,53 @@ class McpGuiBridgeServer:
     # RPC Dispatch & Implementations
     # ------------------------------------------------------------------
 
-    def _execute_rpc(self, method: str, args: dict[str, Any]) -> dict[str, Any]:
+    def _execute_rpc(
+        self,
+        method: str,
+        args: dict[str, Any],
+        *,
+        bridge_generation: Optional[int] = None,
+    ) -> dict[str, Any]:
+        if bridge_generation is None:
+            with self._lock:
+                bridge_generation = self._bridge_generation
+
+        self._verify_bridge_generation(bridge_generation)
+
         if method == "open_page":
-            return self._rpc_open_page(args)
+            return self._rpc_open_page(args, bridge_generation=bridge_generation)
+
+        if method == "save_page":
+            def _on_save_running_timeout(call: _MainThreadCall) -> dict[str, Any]:
+                if call.done.wait(min(0.25, max(0.02, self.dispatch_timeout * 0.25))):
+                    if call.error is not None:
+                        raise call.error
+                    return call.result
+                return {
+                    "status": "in_progress",
+                    "saved": False,
+                    "save_in_progress": True,
+                    "message": "Save has already started on the Qt GUI main thread and is still completing",
+                }
+
+            return self._dispatcher.dispatch(
+                lambda: self._dispatch_main_thread_method(method, args, bridge_generation),
+                timeout=self.dispatch_timeout,
+                on_running_timeout=_on_save_running_timeout,
+            )
+
         return self._dispatcher.dispatch(
-            lambda: self._dispatch_main_thread_method(method, args),
+            lambda: self._dispatch_main_thread_method(method, args, bridge_generation),
             timeout=self.dispatch_timeout,
         )
 
-    def _dispatch_main_thread_method(self, method: str, args: dict[str, Any]) -> dict[str, Any]:
+    def _dispatch_main_thread_method(
+        self,
+        method: str,
+        args: dict[str, Any],
+        bridge_generation: int,
+    ) -> dict[str, Any]:
+        self._verify_bridge_generation(bridge_generation)
         if method == "list_pages":
             return self._rpc_list_pages_main(args)
         if method == "read_page":
@@ -770,7 +1018,16 @@ class McpGuiBridgeServer:
             "regions": region_summaries,
         }
 
-    def _rpc_open_page(self, args: dict[str, Any]) -> dict[str, Any]:
+    @staticmethod
+    def _reserve_doc_load_generation(doc_service: Any) -> int:
+        cancel_fn = getattr(doc_service, "_cancel_pending_load", None)
+        if callable(cancel_fn):
+            return int(cancel_fn())
+        next_gen = int(getattr(doc_service, "_load_generation", 0)) + 1
+        setattr(doc_service, "_load_generation", next_gen)
+        return next_gen
+
+    def _rpc_open_page(self, args: dict[str, Any], *, bridge_generation: int) -> dict[str, Any]:
         raw_path = str(args.get("path") or "").strip()
         if not raw_path:
             raise ValueError("path is required for open_page")
@@ -787,7 +1044,24 @@ class McpGuiBridgeServer:
         except Exception:
             pass
 
-        def _prepare_on_main() -> tuple[Any, str, Optional[dict[str, Any]]]:
+        def _check_or_save_unsaved_on_main(editor_controller: Any, doc_service: Any) -> None:
+            has_unsaved = bool(editor_controller.export_service.has_unsaved_changes())
+            if not has_unsaved:
+                return
+            auto_save = bool(doc_service._auto_save_on_switch_enabled())
+            auto_export = bool(doc_service._auto_export_on_switch_enabled())
+            if auto_save:
+                if not editor_controller.save_editor_state():
+                    raise RuntimeError("Auto-save of current editor page failed; switch aborted")
+                if auto_export:
+                    editor_controller.export_image(automatic=True)
+            elif not force:
+                raise RuntimeError(
+                    "Current editor page has unsaved changes; call save_page first or pass force=True"
+                )
+
+        def _prepare_on_main() -> tuple[Any, str, int, Optional[dict[str, Any]]]:
+            self._verify_bridge_generation(bridge_generation)
             mw, _app_logic, editor_controller, editor_model, _editor_logic = self._resolve_components()
             if mw is not None and hasattr(mw, "_ensure_editor_initialized"):
                 mw._ensure_editor_initialized()
@@ -815,29 +1089,16 @@ class McpGuiBridgeServer:
             if same_page and not reload_if_same:
                 if mw is not None and getattr(mw, "editor_view", None) is not None:
                     mw.switchTo(mw.editor_view)
-                return doc_service, source_path, self._rpc_read_page_main({"limit": 50})
+                return doc_service, source_path, 0, self._rpc_read_page_main({"limit": 50})
 
-            has_unsaved = bool(editor_controller.export_service.has_unsaved_changes())
-            if has_unsaved:
-                auto_save = bool(doc_service._auto_save_on_switch_enabled())
-                auto_export = bool(doc_service._auto_export_on_switch_enabled())
-                if auto_save:
-                    if not editor_controller.save_editor_state():
-                        raise RuntimeError("Auto-save of current editor page failed; switch aborted")
-                    if auto_export:
-                        editor_controller.export_image(automatic=True)
-                elif not force:
-                    raise RuntimeError(
-                        "Current editor page has unsaved changes; call save_page first or pass force=True"
-                    )
+            _check_or_save_unsaved_on_main(editor_controller, doc_service)
 
-            if mw is not None and getattr(mw, "editor_view", None) is not None:
-                mw.switchTo(mw.editor_view)
+            # Reserve a monotonic load generation WITHOUT clearing current editor state yet,
+            # so a failed background load never destroys the open page or unsaved edits (F73).
+            expected_load_gen = self._reserve_doc_load_generation(doc_service)
+            return doc_service, source_path, expected_load_gen, None
 
-            doc_service.clear_editor_state()
-            return doc_service, source_path, None
-
-        doc_service, source_path, already_open_payload = self._dispatcher.dispatch(
+        doc_service, source_path, expected_load_gen, already_open_payload = self._dispatcher.dispatch(
             _prepare_on_main,
             timeout=self.dispatch_timeout,
         )
@@ -858,9 +1119,30 @@ class McpGuiBridgeServer:
         if not isinstance(load_result, DocumentSnapshot):
             raise RuntimeError(f"Unexpected editor load result for {source_path}")
 
+        self._verify_bridge_generation(bridge_generation)
+
         def _install_on_main() -> dict[str, Any]:
-            doc_service.apply_loaded_data_to_model(load_result)
-            _mw, _app_logic, _ec, _em, editor_logic = self._resolve_components()
+            self._verify_bridge_generation(bridge_generation)
+            current_gen = int(getattr(doc_service, "_load_generation", expected_load_gen))
+            if current_gen != expected_load_gen:
+                raise RuntimeError("Page open request was superseded by a newer page load")
+
+            mw, _app_logic, editor_controller, _em, editor_logic = self._resolve_components()
+            if editor_controller is not None:
+                editor_controller.commit_pending_edits()
+                _check_or_save_unsaved_on_main(editor_controller, doc_service)
+
+            if mw is not None and getattr(mw, "editor_view", None) is not None:
+                mw.switchTo(mw.editor_view)
+
+            doc_service.clear_editor_state()
+            install_gen = int(getattr(doc_service, "_load_generation", expected_load_gen))
+            apply_load_result = getattr(doc_service, "apply_load_result", None)
+            if callable(apply_load_result):
+                apply_load_result((install_gen, load_result))
+            else:
+                doc_service.apply_loaded_data_to_model(load_result)
+
             if editor_logic is not None and getattr(editor_logic, "file_model", None) is not None:
                 if not editor_logic.file_model.get_file_item(source_path):
                     try:
@@ -971,6 +1253,7 @@ class McpService:
 
         self._host: str = DEFAULT_MCP_HOST
         self._port: int = DEFAULT_MCP_PORT
+        self._has_started_once = False
         self._http_server: Optional[Any] = None
         self._gui_bridge = McpGuiBridgeServer(
             main_window=main_window,
@@ -1008,6 +1291,11 @@ class McpService:
             self._cli_host = host.strip() if isinstance(host, str) and host.strip() else None
             self._cli_port = int(port) if port is not None else None
 
+    @property
+    def has_started_once(self) -> bool:
+        with self._lock:
+            return self._has_started_once
+
     def is_autostart_suppressed_by_pytest(self) -> bool:
         """Skip automatic MainWindow startup under pytest unless forced."""
         with self._lock:
@@ -1029,7 +1317,8 @@ class McpService:
         app_cfg = getattr(config, "app", None) if config is not None else None
         enabled = bool(getattr(app_cfg, "mcp_server_enabled", True))
         host = str(getattr(app_cfg, "mcp_server_host", DEFAULT_MCP_HOST) or DEFAULT_MCP_HOST).strip()
-        port = int(getattr(app_cfg, "mcp_server_port", DEFAULT_MCP_PORT) or DEFAULT_MCP_PORT)
+        raw_cfg_port = getattr(app_cfg, "mcp_server_port", None)
+        port = int(raw_cfg_port) if raw_cfg_port is not None else DEFAULT_MCP_PORT
 
         env_enabled = parse_env_bool("MTUI_MCP_ENABLED")
         if env_enabled is not None:
@@ -1123,7 +1412,7 @@ class McpService:
         return True
 
     def autostart(self) -> bool:
-        """Automatic startup entry point used by MainWindow after first paint."""
+        """Automatic startup entry point used by MainWindow after window creation."""
         if self.is_autostart_suppressed_by_pytest():
             self.logger.debug("Skipping automatic MCP startup under PYTEST_CURRENT_TEST.")
             return False
@@ -1151,6 +1440,7 @@ class McpService:
 
         with self._lock:
             self._ensure_atexit_hook()
+            self._has_started_once = True
             self._host = host
             self._port = port
 
@@ -1221,14 +1511,49 @@ class McpService:
     def apply_config(
         self,
         enabled: bool,
-        host: str = DEFAULT_MCP_HOST,
-        port: int = DEFAULT_MCP_PORT,
+        host: Optional[str] = None,
+        port: Optional[int] = None,
+        *,
+        override_host: bool = False,
+        override_port: bool = False,
+        override_enabled: bool = True,
     ) -> bool:
-        """Apply live UI setting changes cleanly without restarting the app."""
+        """Apply live UI or reloaded setting changes while preserving unmodified CLI overrides."""
+        with self._lock:
+            if override_enabled:
+                self._cli_enabled = None
+            elif self._cli_enabled is not None:
+                enabled = self._cli_enabled
+
+            if override_host:
+                self._cli_host = None
+            if override_port:
+                self._cli_port = None
+
+            if self._cli_host:
+                effective_host = self._cli_host
+            elif host is not None and str(host).strip():
+                effective_host = str(host).strip()
+            else:
+                env_host = os.environ.get("MTUI_MCP_HOST")
+                effective_host = (
+                    env_host.strip()
+                    if env_host and env_host.strip()
+                    else (self._host or DEFAULT_MCP_HOST)
+                )
+
+            if self._cli_port is not None:
+                effective_port = self._cli_port
+            elif port is not None:
+                effective_port = int(port)
+            else:
+                env_port = parse_env_port("MTUI_MCP_PORT")
+                effective_port = env_port if env_port is not None else self._port
+
         if not bool(enabled):
             self.shutdown()
             return False
-        return self.start(host=host, port=int(port))
+        return self.start(host=effective_host, port=effective_port)
 
     def shutdown(self, timeout: float = 5.0) -> None:
         """Idempotently stop both the live GUI bridge and the embedded HTTP MCP server."""
