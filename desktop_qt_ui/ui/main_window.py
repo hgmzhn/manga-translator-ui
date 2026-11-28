@@ -2,26 +2,27 @@ import logging
 import os
 import re
 
-from manga_translator.utils.system_proxy import set_system_proxy_enabled
+from app_logic import MainAppLogic
 from PyQt6.QtCore import QLibraryInfo, QLocale, Qt, QTimer, QTranslator, QUrl, pyqtSlot
 from PyQt6.QtGui import QAction, QDesktopServices
 from PyQt6.QtWidgets import QApplication
 from qfluentwidgets import FluentIcon as FIF
 from qfluentwidgets import FluentWindow, NavigationItemPosition
-
-from app_logic import MainAppLogic
 from services import (
     ServiceManager,
     get_config_service,
     get_i18n_manager,
     get_logger,
+    get_mcp_service,
     get_state_manager,
 )
 from services.file_list_data_service import FileCatalogSnapshot, FileListDataService
 from theme_registry import THEME_OPTIONS
+from utils.app_version import format_app_title, get_app_version
+
+from manga_translator.utils.system_proxy import set_system_proxy_enabled
 from ui.main_page.view import MainView
 from ui.secondary_pages.themed_message_box import show_error_dialog
-from utils.app_version import format_app_title, get_app_version
 
 
 class MainWindow(FluentWindow):
@@ -75,6 +76,11 @@ class MainWindow(FluentWindow):
         self._connect_signals()
 
         self.app_logic.initialize()
+
+        mcp_service = get_mcp_service()
+        if mcp_service is not None:
+            mcp_service.bind_main_window(self)
+            QTimer.singleShot(0, mcp_service.autostart)
 
     def _t(self, key: str, **kwargs) -> str:
         """翻译辅助方法"""
@@ -263,6 +269,7 @@ class MainWindow(FluentWindow):
         from editor.editor_controller import EditorController
         from editor.editor_logic import EditorLogic
         from editor.editor_model import EditorModel
+
         from ui.editor.view import EditorView
 
         self.editor_model = EditorModel()
@@ -988,6 +995,13 @@ class MainWindow(FluentWindow):
                 return
 
             self.editor_controller.shutdown()
+
+        mcp_service = get_mcp_service()
+        if mcp_service is not None:
+            try:
+                mcp_service.shutdown()
+            except Exception as e:
+                self.logger.warning(f"Failed to shut down MCP service during closeEvent: {e}")
 
         # 先等待 API 测试/取模型等后台线程结束（带超时），
         # 避免 QThread: Destroyed while thread is still running。

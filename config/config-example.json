@@ -22,6 +22,9 @@
     "editor_auto_rich_text_rules": true,
     "editor_delete_and_recover": false,
     "unload_models_after_translation": false,
+    "mcp_server_enabled": true,
+    "mcp_server_host": "127.0.0.1",
+    "mcp_server_port": 8765,
     "saved_colors": null,
     "saved_style_presets": null,
     "saved_rich_text_presets": null

@@ -237,3 +237,10 @@ CLAUDE.md
 # Local GitHub command presets
 .github/commands/
 packaging/maintenance_config.json
+
+# MTUI-MCP runtime artifacts and caches
+.mtui_mcp_cache/
+.mtui_mcp_inspect/
+.mtui_mcp_snapshots/
+.yuzumarker_font_cache.json
+.yuzumarker_cache.*.tmp

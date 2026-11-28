@@ -117,6 +117,7 @@
 - 📥 **PSD 导出** - 导出原图、修复图和文本分层，便于继续编辑
 - 🔄 **JSON / TXT 导入导出** - 导入、导出文本并支持写回
 - ⌨️ **命令行模式** - 适合批量处理和自动化脚本
+- 🤖 **内置 MCP 服务** - 随桌面端自动启动本地 MCP 接口，供 AI Agent 执行译文校对、局部修图与富文本排版精修
 - 🌐 **Web UI** - 提供账号与配额管理
 - 🐳 **Docker 部署** - 支持容器化运行
 
@@ -197,6 +198,41 @@ uv run --no-sync python -m manga_translator web --host 127.0.0.1 --port 8000 --u
 # 查看所有参数
 uv run --no-sync python -m manga_translator --help
 ```
+
+### 🤖 内置 MCP 服务（AI Agent 协同精修）
+
+适合使用 **Antigravity**、**Codex**、**Claude Code**、**Cursor** 等多模态 Agent 对初翻结果进行整话校对、漏擦补修与富文本嵌字精修。
+
+- **桌面端自动启动（推荐，Streamable HTTP）**：启动 Qt 界面后，内置 MCP 服务默认监听 `http://127.0.0.1:8765/mcp`（Streamable HTTP；SSE 为 `/sse`）并开启实时编辑器会话桥（`mtui_live_gui_session`）。可在 **设置 → 通用设置** 中开关或修改端口，也支持 `--no-mcp` / `--mcp-port` 启动参数。
+  - **Antigravity / Claude Code**（`mcpServers` JSON 配置；**Cursor** 等使用 `url` 字段的客户端将 `"serverUrl"` 改为 `"url"` 即可）：
+
+  ```json
+  {
+    "mcpServers": {
+      "mtui-mcp": {
+        "serverUrl": "http://127.0.0.1:8765/mcp"
+      }
+    }
+  }
+  ```
+
+  - **OpenAI Codex**（写入 `~/.codex/config.toml`，或运行 `codex mcp add mtui-mcp --url http://127.0.0.1:8765/mcp`）：
+
+  ```toml
+  [mcp_servers.mtui-mcp]
+  url = "http://127.0.0.1:8765/mcp"
+  ```
+
+- **独立无头 STDIO 模式**：无需打开桌面窗口，直接由客户端按 `command` / `args` 拉起：
+
+```bash
+# 默认 STDIO 模式（供 MCP 客户端配置 command/args 拉起）
+uv run --no-sync python -m mtui_mcp
+# 或通过主入口子命令启动
+uv run --no-sync python -m manga_translator mcp
+```
+
+🤖 想了解全部 24 个 `mtui_*` 工具、STDIO 配置与精修工作流？[查看 MTUI-MCP 详细文档](mtui_mcp/README.md)
 
 📖 想了解命令行参数？[查看命令结构与参数](https://hgmzhn.github.io/manga-translator-ui/zh/cli/command-structure)
 

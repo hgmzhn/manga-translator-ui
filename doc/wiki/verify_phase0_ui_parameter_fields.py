@@ -2,7 +2,6 @@ import ast
 import json
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 WIKI_DIR = ROOT / "doc" / "wiki"
 LAYOUT_PATH = ROOT / "desktop_qt_ui" / "ui" / "main_page" / "settings_tab_layout.json"
@@ -147,8 +146,8 @@ def main() -> int:
 
     entries = layout_entries(layout)
     layout_keys = [key for key, _page in entries]
-    if len(layout_keys) != 112 or len(set(layout_keys)) != 112:
-        fail(f"expected 112 unique layout entries, got {len(layout_keys)} / {len(set(layout_keys))}")
+    if len(layout_keys) != 114 or len(set(layout_keys)) != 114:
+        fail(f"expected 114 unique layout entries, got {len(layout_keys)} / {len(set(layout_keys))}")
 
     fixed_actions = assigned_string_set(dynamic_tree, "_FIXED_PROMPT_KEYS")
     if fixed_actions != FIXED_ACTIONS:
@@ -204,15 +203,15 @@ def main() -> int:
     if len(excluded) != 1 or excluded[0]["key"] != "render.font_color":
         fail("catalog must retain only render.font_color as the release-default excluded entry")
     if catalog["baseline_comparison"] != {
-        "requested_baseline": 112,
-        "layout_parameter_entries": 112,
-        "visible_parameter_fields": 111,
+        "requested_baseline": 114,
+        "layout_parameter_entries": 114,
+        "visible_parameter_fields": 113,
         "difference_from_requested_baseline": -1,
-        "difference_explanation": "The layout has 112 string entries, matching the updated baseline. Its render.font_color entry has a null release default and no None widget branch, leaving 111 visible settings rows (one below 112).",
+        "difference_explanation": "The layout has 114 string entries, matching the updated baseline. Its render.font_color entry has a null release default and no None widget branch, leaving 113 visible settings rows (one below 114).",
     }:
         fail("baseline comparison changed; update the catalog and its validation")
 
-    print("PASS: layout=112, fixed-actions=3, visible=111, baseline-delta=-1, excluded=render.font_color")
+    print("PASS: layout=114, fixed-actions=3, visible=113, baseline-delta=-1, excluded=render.font_color")
     return 0
 
 

@@ -36,6 +36,18 @@ def main():
     # 解析参数
     args = parse_args()
 
+    # MCP 模式保持 stdout 纯净（供 stdio JSON-RPC 使用），直接委托给 mtui_mcp
+    if args.mode == 'mcp':
+        from mtui_mcp.__main__ import main as run_mcp_main
+
+        original_argv = sys.argv[:]
+        try:
+            sys.argv = [f"{original_argv[0]} mcp", *getattr(args, 'mcp_argv', original_argv[2:])]
+            run_mcp_main()
+        finally:
+            sys.argv = original_argv
+        return
+
     # 统一导出 ONNX GPU 开关到环境变量，确保各运行模式都能生效
     if getattr(args, 'disable_onnx_gpu', False):
         os.environ['MT_DISABLE_ONNX_GPU'] = '1'

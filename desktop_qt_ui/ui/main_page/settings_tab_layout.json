@@ -24,7 +24,9 @@
         "cli.save_to_source_dir",
         "cli.export_editable_psd",
         "cli.psd_script_only",
-        "app.unload_models_after_translation"
+        "app.unload_models_after_translation",
+        "app.mcp_server_enabled",
+        "app.mcp_server_port"
       ]
     },
     {

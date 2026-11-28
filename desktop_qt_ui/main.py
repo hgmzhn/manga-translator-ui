@@ -1,10 +1,10 @@
-from contextlib import redirect_stdout
-from io import StringIO
-
+import argparse
 import logging
 import os
 import sys
 import warnings
+from contextlib import redirect_stdout
+from io import StringIO
 
 # 抑制第三方库的警告（必须在导入其他库之前设置）
 warnings.filterwarnings('ignore', message='.*Triton.*')
@@ -144,13 +144,13 @@ except ImportError:
 with redirect_stdout(StringIO()):
     import qfluentwidgets  # noqa: F401
 
-from ui.main_window import MainWindow
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication
 from services import init_services
+from ui.main_window import MainWindow
+from ui.secondary_pages.themed_message_box import install_themed_message_boxes
 from utils.app_version import get_app_version
 from utils.resource_helper import iter_existing_resource_paths, load_icon_from_resources
-from ui.secondary_pages.themed_message_box import install_themed_message_boxes
 
 
 # 全局异常处理器，捕获未处理的异常并记录到日志
@@ -266,12 +266,112 @@ def _apply_macos_native_app_icon(icon_path: str):
     return False
 
 
+def _parse_mcp_port_arg(raw: str) -> int:
+    """Validate `--mcp-port` range (`0..65535`, where `0` binds an ephemeral port)."""
+    try:
+        port = int(raw)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid int value: {raw!r}") from exc
+    if not (0 <= port <= 65535):
+        raise argparse.ArgumentTypeError(
+            f"MCP port must be between 0 and 65535, got {port}"
+        )
+    return port
+
+
+def parse_desktop_mcp_args(argv: list[str] | None = None):
+    """解析桌面端可选 MCP 启动参数，保留未识别的 Qt 参数供 QApplication 处理。"""
+    parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+    mcp_group = parser.add_mutually_exclusive_group()
+    mcp_group.add_argument(
+        "--mcp",
+        dest="mcp_enabled",
+        action="store_true",
+        default=None,
+    )
+    mcp_group.add_argument(
+        "--no-mcp",
+        dest="mcp_enabled",
+        action="store_false",
+        default=None,
+    )
+    parser.add_argument("--mcp-host", dest="mcp_host", default=None)
+    parser.add_argument("--mcp-port", dest="mcp_port", type=_parse_mcp_port_arg, default=None)
+    return parser.parse_known_args(argv)
+
+
+def dispatch_internal_subcommand(argv: list[str] | None = None) -> int | None:
+    """Handle headless worker/CLI invocations when running via a frozen PyInstaller executable."""
+    args = list(sys.argv[1:] if argv is None else argv)
+    if not args:
+        return None
+
+    def _is_engine_worker_script(token: str) -> bool:
+        norm = token.replace("\\", "/").lower()
+        return norm.endswith("/mtui_mcp/worker/engine_worker.py") or os.path.basename(norm) == "engine_worker.py"
+
+    worker_argv: list[str] | None = None
+    worker_prog = sys.argv[0] if sys.argv else "engine_worker.py"
+    if args[0] == "--mtui-engine-worker":
+        worker_argv = args[1:]
+    elif args[0] == "-u" and len(args) >= 2 and _is_engine_worker_script(args[1]):
+        worker_prog = args[1]
+        worker_argv = args[2:]
+    elif _is_engine_worker_script(args[0]):
+        worker_prog = args[0]
+        worker_argv = args[1:]
+
+    if worker_argv is not None:
+        from mtui_mcp.worker.engine_worker import main as run_engine_worker_main
+
+        original_argv = sys.argv[:]
+        try:
+            sys.argv = [worker_prog, *worker_argv]
+            run_engine_worker_main()
+        finally:
+            sys.argv = original_argv
+        return 0
+
+    cli_argv: list[str] | None = None
+    if args[0] == "--mtui-cli-local":
+        rest = args[1:]
+        if not rest or rest[0] not in ("web", "local", "ws", "shared", "mcp"):
+            cli_argv = ["local", *rest]
+        else:
+            cli_argv = rest
+    elif len(args) >= 2 and args[0] == "-m" and args[1] == "manga_translator":
+        cli_argv = args[2:]
+
+    if cli_argv is not None:
+        from manga_translator.__main__ import main as run_cli_main
+
+        original_argv = sys.argv[:]
+        try:
+            sys.argv = [original_argv[0] if original_argv else "manga_translator", *cli_argv]
+            run_cli_main()
+        finally:
+            sys.argv = original_argv
+        return 0
+
+    if len(args) >= 2 and args[0] == "-m" and args[1] == "mtui_mcp":
+        from mtui_mcp.__main__ import main as run_mcp_main
+
+        run_mcp_main(args[2:])
+        return 0
+
+    return None
+
+
 def main():
     """
     应用主入口
     """
+    subcommand_rc = dispatch_internal_subcommand(sys.argv[1:])
+    if subcommand_rc is not None:
+        return subcommand_rc
     # --- 日志配置：所有格式化/控制台/文件/recent 写入都在监听线程 ---
     import atexit
+
     from services.log_service import configure_queue_logging, shutdown_queue_logging
 
     log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - [%(name)s] - %(message)s')
@@ -332,8 +432,12 @@ def main():
             True,
         )
     
+    # 0. 解析可选 MCP 参数（保留其余 Qt 参数传给 QApplication）
+    mcp_args, qt_remaining_args = parse_desktop_mcp_args(sys.argv[1:])
+    qt_argv = [sys.argv[0], *qt_remaining_args]
+
     # 1. 创建 QApplication 实例
-    app = QApplication(sys.argv)
+    app = QApplication(qt_argv)
     app.setApplicationName("Manga Translator UI")
     app.setOrganizationName("Manga Translator UI")
     app_version = get_app_version()
@@ -396,6 +500,16 @@ def main():
     if not init_services(root_dir):
         logging.fatal("Fatal: Service initialization failed.")
         sys.exit(1)
+
+    from services import get_mcp_service
+
+    mcp_service = get_mcp_service()
+    if mcp_service is not None:
+        mcp_service.set_cli_overrides(
+            enabled=mcp_args.mcp_enabled,
+            host=mcp_args.mcp_host,
+            port=mcp_args.mcp_port,
+        )
 
     # 3. 创建并显示主窗口
     main_window = MainWindow()
@@ -491,6 +605,13 @@ def main():
 
     # 4. 启动事件循环
     ret = app.exec()
+
+    try:
+        mcp_service = get_mcp_service()
+        if mcp_service is not None:
+            mcp_service.shutdown()
+    except Exception as e:
+        logging.error(f"Error shutting down MCP service: {e}", exc_info=True)
 
     # Persist the latest coalesced config/.env snapshots before services vanish.
     try:

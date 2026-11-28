@@ -25,6 +25,7 @@ dependencies = [
     "einops==0.8.1",
     "fastapi==0.141.1",
     "fire==0.7.1",
+    "fonttools>=4.50.0",
     "fugashi==1.3.2",
     "hanlp==2.1.3",
     "python-multipart==0.0.32",
@@ -37,6 +38,7 @@ dependencies = [
     "langcodes==3.5.0",
     "loguru==0.7.3",
     "matplotlib==3.11.1",
+    "mcp>=2.0.0",
     "networkx==3.5",
     "omegaconf==2.3.0",
     "openai==2.14.0",
@@ -49,7 +51,7 @@ dependencies = [
     "psutil==5.9.5",
     "py3langid==0.2.2",
     "pyclipper==1.3.0.post6",
-    "pydantic==2.11.7",
+    "pydantic==2.12.5",
     "pyperclip==1.9.0",
     "pythainlp[nlpo3]==5.3.1",
     "PyHyphen==4.0.4",
@@ -158,6 +160,7 @@ packaging = [
 ]
 test = [
     "pytest==9.1.1",
+    "pytest-asyncio>=0.23.0",
 ]
 
 [tool.uv]
@@ -180,6 +183,8 @@ conflicts = [
 # 固定到当前仓库，避免 pytest 向上继承相邻旧仓库的配置和源码路径。
 testpaths = ["test"]
 pythonpath = [".", "desktop_qt_ui"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.uv.sources]
 # torch 索引按 dependency group 绑定；metal 不绑定，回落到默认 PyPI（自动 MPS 版）
