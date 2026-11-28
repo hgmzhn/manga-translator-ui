@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import atexit
 import collections
+import contextlib
 import http.client
 import json
 import logging
@@ -35,6 +36,7 @@ class MtuiWorkerClient:
         self._state_cond = threading.Condition(self._lock)
         self._proc: Optional[subprocess.Popen[str]] = None
         self._shutting_down_procs: set[subprocess.Popen[str]] = set()
+        self._proc_pipe_readers: dict[Any, dict[str, threading.Thread]] = {}
         self._port: Optional[int] = None
         self._token: str = ""
         self._bound_root: Optional[Path] = None
@@ -54,13 +56,54 @@ class MtuiWorkerClient:
                 self._stderr_ring.append(line.rstrip("\r\n"))
         except Exception:
             pass
+        finally:
+            with contextlib.suppress(Exception):
+                pipe.close()
+
+    def _close_exited_proc_pipes_locked(self, proc: Any) -> None:
+        """Close pipes on an exited `proc` ONLY when no reader thread is still blocked on that pipe (`R4-F22`)."""
+        if proc.poll() is None:
+            return
+        readers = self._proc_pipe_readers.get(proc) or {}
+        for pipe_name, pipe in (("stdout", getattr(proc, "stdout", None)), ("stderr", getattr(proc, "stderr", None))):
+            if pipe is None:
+                continue
+            t_reader = readers.get(pipe_name)
+            if t_reader is not None and t_reader.is_alive():
+                continue
+            with contextlib.suppress(Exception):
+                pipe.close()
+        stdin_pipe = getattr(proc, "stdin", None)
+        if stdin_pipe is not None:
+            with contextlib.suppress(Exception):
+                stdin_pipe.close()
+        if all(not t_r.is_alive() for t_r in readers.values()):
+            self._proc_pipe_readers.pop(proc, None)
+
+    def _cleanup_proc_pipes(self, proc: Any, *, join_timeout_sec: float = 0.05) -> None:
+        """Join exited-process pipe readers briefly and close only idle pipes (`R4-F22`)."""
+        if proc.poll() is None:
+            return
+        with self._lock:
+            readers = dict(self._proc_pipe_readers.get(proc) or {})
+        if join_timeout_sec > 0 and readers:
+            join_deadline = time.monotonic() + join_timeout_sec
+            for t_reader in readers.values():
+                rem = join_deadline - time.monotonic()
+                if rem <= 0:
+                    break
+                if t_reader.is_alive() and t_reader is not threading.current_thread():
+                    t_reader.join(timeout=rem)
+        with self._lock:
+            self._close_exited_proc_pipes_locked(proc)
 
     def _reap_shutting_down_procs_locked(self) -> bool:
-        """Remove processes in `_shutting_down_procs` ONLY after `poll()` confirms OS exit (R3-F11)."""
+        """Remove processes in `_shutting_down_procs` ONLY after `poll()` confirms OS exit (`R3-F11`, `R4-F22`)."""
         reaped_any = False
         for p in list(self._shutting_down_procs):
             if p.poll() is not None:
                 self._shutting_down_procs.discard(p)
+                self._close_exited_proc_pipes_locked(p)
                 reaped_any = True
         if reaped_any:
             self._state_cond.notify_all()
@@ -86,34 +129,112 @@ class MtuiWorkerClient:
             self._state_cond.wait(timeout=min(0.25, remaining_drain))
             self._reap_shutting_down_procs_locked()
 
+    def _detach_active_proc_locked(
+        self,
+    ) -> tuple[Optional[subprocess.Popen[str]], Optional[int], str]:
+        proc = self._proc
+        port = self._port
+        token = self._token
+        self._proc = None
+        self._port = None
+        self._token = ""
+        self._bound_root = None
+        self._bound_python = None
+        if proc is not None and proc.poll() is None:
+            self._shutting_down_procs.add(proc)
+        return proc, port, token
+
+    def _terminate_detached_proc(
+        self,
+        proc: subprocess.Popen[str],
+        port: Optional[int],
+        token: str,
+    ) -> None:
+        try:
+            sent_shutdown = False
+            if proc.poll() is None and port is not None and token:
+                try:
+                    req = urllib.request.Request(
+                        f"http://127.0.0.1:{port}/rpc",
+                        data=b'{"action":"shutdown"}',
+                        headers={
+                            "Content-Type": "application/json",
+                            "X-MTUI-Worker-Token": token,
+                        },
+                        method="POST",
+                    )
+                    with _LOOPBACK_OPENER.open(req, timeout=3.0) as resp:
+                        resp.read()
+                    sent_shutdown = True
+                except Exception:
+                    pass
+
+            if sent_shutdown:
+                try:
+                    proc.wait(timeout=_SHUTDOWN_DRAIN_WAIT_SEC)
+                except Exception:
+                    with contextlib.suppress(Exception):
+                        proc.kill()
+                    with contextlib.suppress(Exception):
+                        proc.wait(timeout=2.0)
+            else:
+                if proc.poll() is None:
+                    with contextlib.suppress(Exception):
+                        proc.kill()
+                with contextlib.suppress(Exception):
+                    proc.wait(timeout=2.0)
+        finally:
+            self._cleanup_proc_pipes(proc)
+            with self._lock:
+                # R3-F11: Only unregister `proc` once OS exit is confirmed (`proc.poll() is not None`)
+                if proc.poll() is not None:
+                    self._shutting_down_procs.discard(proc)
+                self._reap_shutting_down_procs_locked()
+                self._state_cond.notify_all()
+
     def _ensure_started_instance(
         self,
         startup_timeout_sec: float = 45.0,
     ) -> tuple[subprocess.Popen[str], int, str]:
-        deadline = time.monotonic() + max(0.1, float(startup_timeout_sec))
+        deadline = time.monotonic() + max(0.01, float(startup_timeout_sec))
 
         with self._lock:
-            # R2-F27 & R3-F11: Never spawn a replacement worker while a previous worker process is still alive/draining
-            self._wait_for_shutting_down_procs_locked(deadline)
+            while True:
+                # R2-F27 & R3-F11: Never spawn a replacement worker while a previous worker process is still alive/draining
+                self._wait_for_shutting_down_procs_locked(deadline)
 
-            settings = get_runtime_settings()
-            if not settings.is_engine_available or settings.mtui_root is None or settings.mtui_python is None:
-                raise RuntimeError(
-                    "manga-translator-ui runtime is not configured or its Python environment was not found. "
-                    "Set MTUI_ROOT environment variable or call mtui_status(mtui_root=...)."
-                )
+                settings = get_runtime_settings()
+                if not settings.is_engine_available or settings.mtui_root is None or settings.mtui_python is None:
+                    raise RuntimeError(
+                        "manga-translator-ui runtime is not configured or its Python environment was not found. "
+                        "Set MTUI_ROOT environment variable or call mtui_status(mtui_root=...)."
+                    )
 
-            if (
-                self.is_running
-                and self._proc is not None
-                and self._port is not None
-                and self._bound_root == settings.mtui_root
-                and self._bound_python == settings.mtui_python
-            ):
-                return self._proc, int(self._port), self._token
+                if (
+                    self.is_running
+                    and self._proc is not None
+                    and self._port is not None
+                    and self._bound_root == settings.mtui_root
+                    and self._bound_python == settings.mtui_python
+                ):
+                    return self._proc, int(self._port), self._token
 
-            self.shutdown()
-            self._wait_for_shutting_down_procs_locked(deadline)
+                if self._proc is not None:
+                    # R4-F32: Initiate old-worker shutdown asynchronously so config-switch wait stays bounded by `deadline`
+                    old_proc, old_port, old_token = self._detach_active_proc_locked()
+                    if old_proc is not None:
+                        if old_proc.poll() is None:
+                            threading.Thread(
+                                target=self._terminate_detached_proc,
+                                args=(old_proc, old_port, old_token),
+                                daemon=True,
+                            ).start()
+                        else:
+                            self._cleanup_proc_pipes(old_proc, join_timeout_sec=0.02)
+                            self._shutting_down_procs.discard(old_proc)
+                    continue
+
+                break
 
             # R3-F38: Re-check startup budget after draining old workers before spawning a new process
             if deadline - time.monotonic() <= 0:
@@ -181,9 +302,13 @@ class MtuiWorkerClient:
             self._token = token
             self._bound_root = settings.mtui_root
             self._bound_python = settings.mtui_python
+            readers: dict[str, threading.Thread] = {}
+            self._proc_pipe_readers[proc] = readers
 
             if proc.stderr is not None:
-                threading.Thread(target=self._drain_stderr, args=(proc.stderr,), daemon=True).start()
+                t_stderr = threading.Thread(target=self._drain_stderr, args=(proc.stderr,), daemon=True)
+                readers["stderr"] = t_stderr
+                t_stderr.start()
 
             # R2-F57: Keep `handshake_q` strictly bounded to READY or EOF; stream pre-READY logs into `_stderr_ring`
             handshake_q: queue.Queue[Optional[str]] = queue.Queue(maxsize=2)
@@ -208,9 +333,13 @@ class MtuiWorkerClient:
                             handshake_q.put_nowait(None)
                         except queue.Full:
                             pass
+                    with contextlib.suppress(Exception):
+                        pipe.close()
 
             if proc.stdout is not None:
-                threading.Thread(target=_read_stdout, args=(proc.stdout,), daemon=True).start()
+                t_stdout = threading.Thread(target=_read_stdout, args=(proc.stdout,), daemon=True)
+                readers["stdout"] = t_stdout
+                t_stdout.start()
             else:
                 handshake_q.put_nowait(None)
 
@@ -391,14 +520,7 @@ class MtuiWorkerClient:
                     self._state_cond.wait(timeout=0.25)
                     self._reap_shutting_down_procs_locked()
                 return
-            proc = self._proc
-            port = self._port
-            token = self._token
-            self._proc = None
-            self._port = None
-            self._token = ""
-            self._bound_root = None
-            self._bound_python = None
+            proc, port, token = self._detach_active_proc_locked()
             if proc is None:
                 self._reap_shutting_down_procs_locked()
                 while self._shutting_down_procs and time.monotonic() < wait_deadline:
@@ -407,60 +529,7 @@ class MtuiWorkerClient:
                 return
             self._shutting_down_procs.add(proc)
 
-        try:
-            sent_shutdown = False
-            if proc.poll() is None and port is not None and token:
-                try:
-                    req = urllib.request.Request(
-                        f"http://127.0.0.1:{port}/rpc",
-                        data=b'{"action":"shutdown"}',
-                        headers={
-                            "Content-Type": "application/json",
-                            "X-MTUI-Worker-Token": token,
-                        },
-                        method="POST",
-                    )
-                    with _LOOPBACK_OPENER.open(req, timeout=3.0) as resp:
-                        resp.read()
-                    sent_shutdown = True
-                except Exception:
-                    pass
-
-            if sent_shutdown:
-                try:
-                    proc.wait(timeout=_SHUTDOWN_DRAIN_WAIT_SEC)
-                except Exception:
-                    try:
-                        proc.kill()
-                    except Exception:
-                        pass
-                    try:
-                        proc.wait(timeout=2.0)
-                    except Exception:
-                        pass
-            else:
-                if proc.poll() is None:
-                    try:
-                        proc.kill()
-                    except Exception:
-                        pass
-                try:
-                    proc.wait(timeout=2.0)
-                except Exception:
-                    pass
-        finally:
-            for pipe in (proc.stdout, proc.stderr, proc.stdin):
-                if pipe is not None:
-                    try:
-                        pipe.close()
-                    except Exception:
-                        pass
-            with self._lock:
-                # R3-F11: Only unregister `proc` once OS exit is confirmed (`proc.poll() is not None`)
-                if proc.poll() is not None:
-                    self._shutting_down_procs.discard(proc)
-                self._reap_shutting_down_procs_locked()
-                self._state_cond.notify_all()
+        self._terminate_detached_proc(proc, port, token)
 
 
 _WORKER_CLIENT: Optional[MtuiWorkerClient] = None

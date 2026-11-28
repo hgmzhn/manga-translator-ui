@@ -173,20 +173,17 @@ def call_live_gui(
     deadline = time.monotonic() + budget
     fixed_deadline = math.floor(deadline * 1_000_000) / 1_000_000
 
-    probe_remaining = round(budget, 6)
-    if probe_remaining == int(probe_remaining):
-        probe_remaining = round(probe_remaining + 0.123456, 6)
-    probe_packet = json.dumps(
+    min_probe_packet = json.dumps(
         {
             "method": method,
             "args": kwargs,
-            "timeout_sec": probe_remaining,
+            "timeout_sec": 0,
             "deadline_monotonic": fixed_deadline,
         },
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode("utf-8")
-    if len(probe_packet) > MAX_GUI_REQUEST_BYTES:
+    if len(min_probe_packet) > MAX_GUI_REQUEST_BYTES:
         raise ValueError("Live GUI IPC request exceeds 256 KiB")
 
     address, key_file = gui_session_paths(session_name)
@@ -207,9 +204,19 @@ def call_live_gui(
         "peer": None,
         "timed_out": False,
         "closed": False,
+        "request_sent": False,
+        "reply_ready": False,
         "message": None,
         "error": None,
     }
+
+    def _timeout_error_for_state(req_sent: bool) -> TimeoutError:
+        if method == "save_page" and req_sent:
+            return TimeoutError(
+                "Timed out waiting for live manga-translator-ui GUI reply to save_page; "
+                "save outcome is unknown (save may still be in progress or completed)"
+            )
+        return TimeoutError("Timed out waiting for live manga-translator-ui GUI")
 
     def _exchange() -> None:
         peer = None
@@ -228,7 +235,7 @@ def call_live_gui(
 
             send_remaining = deadline - time.monotonic()
             if send_remaining <= 0:
-                raise TimeoutError("Timed out waiting for live manga-translator-ui GUI")
+                raise _timeout_error_for_state(False)
             wire_payload = {
                 "method": method,
                 "args": kwargs,
@@ -244,11 +251,17 @@ def call_live_gui(
                 ).encode("utf-8")
             if len(wire_packet) > MAX_GUI_REQUEST_BYTES:
                 raise ValueError("Live GUI IPC request exceeds 256 KiB")
+            with state_lock:
+                if state["timed_out"]:
+                    raise _timeout_error_for_state(False)
+                state["request_sent"] = True
             peer.send_bytes(wire_packet)
 
             remaining = deadline - time.monotonic()
             if remaining <= 0 or not peer.poll(remaining):
-                raise TimeoutError("Timed out waiting for live manga-translator-ui GUI")
+                raise _timeout_error_for_state(True)
+            with state_lock:
+                state["reply_ready"] = True
             raw_reply = peer.recv_bytes()
             state["message"] = json.loads(raw_reply.decode("utf-8"))
         except BaseException as exc:  # noqa: BLE001
@@ -270,18 +283,27 @@ def call_live_gui(
     wait_remaining = max(0.0, deadline - time.monotonic())
     if not done.wait(wait_remaining):
         with state_lock:
-            state["timed_out"] = True
-            peer_to_abort = state["peer"]
-            if peer_to_abort is not None and not state["closed"]:
-                state["closed"] = True
-                abort_ipc_connection(peer_to_abort)
-        worker.join(timeout=0.1)
-        raise TimeoutError("Timed out waiting for live manga-translator-ui GUI")
+            reply_already_ready = bool(state["reply_ready"])
+        if not (reply_already_ready and done.wait(0.02)):
+            with state_lock:
+                state["timed_out"] = True
+                req_sent = bool(state["request_sent"])
+                peer_to_abort = state["peer"]
+                if peer_to_abort is not None and not state["closed"]:
+                    state["closed"] = True
+                    abort_ipc_connection(peer_to_abort)
+            worker.join(timeout=0.1)
+            if done.is_set() and state["message"] is not None and state["error"] is None:
+                message = state["message"]
+                if isinstance(message, dict) and "error" in message:
+                    raise RuntimeError(str(message["error"]))
+                return message.get("result") if isinstance(message, dict) else message
+            raise _timeout_error_for_state(req_sent)
 
     err = state["error"]
     if err is not None:
-        if isinstance(err, TimeoutError):
-            raise err
+        if isinstance(err, TimeoutError) and method == "save_page" and state["request_sent"]:
+            raise _timeout_error_for_state(True) from err
         raise err
 
     message = state["message"]

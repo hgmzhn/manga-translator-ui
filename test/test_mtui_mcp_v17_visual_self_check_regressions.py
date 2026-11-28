@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from mtui_mcp.config import get_runtime_settings
 from mtui_mcp.font_detector import region_bbox_signature
 from mtui_mcp.local_inpaint import apply_mask_operations
 from mtui_mcp.path_resolver import resolve_page_paths
@@ -163,6 +164,11 @@ def test_fig3_fig4_fig5_fig7_font_bold_residual_and_scale(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(sys, "dont_write_bytecode", True)
+    monkeypatch.setattr(
+        get_runtime_settings(),
+        "load_mtui_config_dict",
+        lambda: {"app": {"last_output_path": ""}, "cli": {}},
+    )
     folder = tmp_path / "fig3_4_5_7_ch"
     folder.mkdir()
     img_path = folder / "p01.png"
@@ -359,8 +365,17 @@ def test_fig3_fig4_fig5_fig7_font_bold_residual_and_scale(
     assert Path(manifest["sheets"][0]).is_file()
 
 
-def test_r2_visual_inspector_inpaint_fallback_label_and_1px_thin_mask_downscale(tmp_path: Path) -> None:
+def test_r2_visual_inspector_inpaint_fallback_label_and_1px_thin_mask_downscale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import mtui_mcp.visual_inspector as vis_mod
+
+    # R4-F23: Isolate runtime config so `resolve_page_paths` never writes `001.png` into host `app.last_output_path`.
+    monkeypatch.setattr(
+        get_runtime_settings(),
+        "load_mtui_config_dict",
+        lambda: {"app": {"last_output_path": ""}, "cli": {}},
+    )
 
     folder = tmp_path / "vis_r2_ch"
     folder.mkdir()
@@ -369,6 +384,7 @@ def test_r2_visual_inspector_inpaint_fallback_label_and_1px_thin_mask_downscale(
     page = np.full((1000, 1000, 3), 255, dtype=np.uint8)
     Image.fromarray(page).save(img_path)
     paths = resolve_page_paths(img_path)
+    assert paths.rendered_output_path.is_relative_to(tmp_path)
     # R3-F65: Paint a distinct blue block on rendered_output_path (inside Region #0's loupe crop and far from x=501)
     # while keeping source `img_path` pure white so Panel 2 proves it never used `rendered_output_path`!
     rendered_page = page.copy()
@@ -446,8 +462,16 @@ def test_r2_visual_inspector_inpaint_fallback_label_and_1px_thin_mask_downscale(
         vis_mod._wrap_panel_with_world_rulers = orig_attr  # type: ignore[assignment]
 
 
-def test_r3_visual_inspector_mismatched_2x_mask_and_editor_base_fallback(tmp_path: Path) -> None:
+def test_r3_visual_inspector_mismatched_2x_mask_and_editor_base_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import mtui_mcp.visual_inspector as vis_mod
+
+    monkeypatch.setattr(
+        get_runtime_settings(),
+        "load_mtui_config_dict",
+        lambda: {"app": {"last_output_path": ""}, "cli": {}},
+    )
 
     folder = tmp_path / "vis_r3_ch"
     folder.mkdir()

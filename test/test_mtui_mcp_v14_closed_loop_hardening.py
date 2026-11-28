@@ -664,3 +664,118 @@ def test_r3_diff_qa_audits_bipartite_order_invariance_path_identity_dedup_and_do
     diff_dot_wrong_ext = diff_qa_audits(rep_dot_b, rep_dot_a, pages={"001.final.jpg"})
     assert diff_dot_wrong_ext["unaudited_pages"] == ["001.final.jpg"]
     assert diff_dot_wrong_ext["passed"] is False
+
+
+def test_r4_diff_qa_audits_legacy_ambiguous_page_names_and_full_uid_pair_first_dedup(
+    tmp_path: Path,
+) -> None:
+    import itertools
+
+    # R4-F13: A single legacy pathless `001.png` entry MUST NEVER prove coverage of two same-named path-bearing pages
+    # (`/ch01/001.png` and `/ch02/001.png`), while unambiguous legacy single-page reports continue to pair cleanly.
+    p1_str = str((tmp_path / "ch01" / "001.png").resolve())
+    p2_str = str((tmp_path / "ch02" / "001.png").resolve())
+    p3_str = str((tmp_path / "ch01" / "002.png").resolve())
+
+    before_two_same_name = {
+        "audited_pages": 2,
+        "audited_page_names": ["001.png", "001.png"],
+        "audited_page_paths": [p1_str, p2_str],
+        "pages": [
+            {"page_name": "001.png", "source_path": p1_str, "issues": []},
+            {"page_name": "001.png", "source_path": p2_str, "issues": []},
+        ],
+    }
+    legacy_single_after = {
+        "audited_pages": 1,
+        "audited_page_names": ["001.png"],
+        "pages": [{"page_name": "001.png", "issues": []}],
+    }
+    diff_ambig = diff_qa_audits(before_two_same_name, legacy_single_after)
+    assert diff_ambig["scope_complete"] is False
+    assert diff_ambig["passed"] is False
+    assert len(diff_ambig["unaudited_pages"]) == 2
+
+    # Symmetric reverse: legacy single `001.png` baseline vs two same-named path-bearing pages in `after`
+    diff_ambig_rev = diff_qa_audits(legacy_single_after, before_two_same_name)
+    assert diff_ambig_rev["scope_complete"] is False
+    assert diff_ambig_rev["passed"] is False
+    assert diff_ambig_rev["unaudited_pages"] == ["001.png"]
+
+    # Mixed report: unambiguous `002.png` still pairs and resolves its error even when `001.png` is ambiguous
+    before_mixed = {
+        "audited_pages": 3,
+        "audited_page_names": ["001.png", "001.png", "002.png"],
+        "audited_page_paths": [p1_str, p2_str, p3_str],
+        "pages": [
+            {
+                "page_name": "001.png",
+                "source_path": p1_str,
+                "issues": [{"severity": "error", "category": "vertical_alignment_mismatch", "region_index": 0}],
+            },
+            {
+                "page_name": "002.png",
+                "source_path": p3_str,
+                "issues": [{"severity": "error", "category": "vertical_alignment_mismatch", "region_index": 0}],
+            },
+        ],
+    }
+    legacy_mixed_after = {
+        "audited_pages": 2,
+        "audited_page_names": ["001.png", "002.png"],
+        "pages": [
+            {"page_name": "001.png", "issues": []},
+            {"page_name": "002.png", "issues": []},
+        ],
+    }
+    diff_mixed = diff_qa_audits(before_mixed, legacy_mixed_after)
+    assert diff_mixed["resolved_error_count"] == 1
+    assert diff_mixed["scope_complete"] is False
+    assert diff_mixed["passed"] is False
+    assert len(diff_mixed["unaudited_pages"]) == 2
+
+    # Single unambiguous legacy page continues to compare cleanly against a path-bearing baseline
+    before_unambig = {
+        "audited_pages": 1,
+        "audited_page_names": ["001.png"],
+        "audited_page_paths": [p1_str],
+        "pages": [{"page_name": "001.png", "source_path": p1_str, "issues": []}],
+    }
+    diff_unambig_ok = diff_qa_audits(before_unambig, legacy_single_after)
+    assert diff_unambig_ok["scope_complete"] is True
+    assert diff_unambig_ok["passed"] is True
+    assert diff_unambig_ok["unaudited_pages"] == []
+
+    # R4-F14: Full 2-UID overlap pair `(uid-A, uid-B)` deduplicates before partial 1-UID pairs `(uid-A, None)` and
+    # `(None, uid-B)` regardless of arrival order, while preserving complementary partial pairs when `(uid-A, uid-B)` is absent.
+    pair_a_b = {
+        "severity": "error",
+        "category": "overlapping_regions",
+        "region_index": 0,
+        "other_region_index": 1,
+        "overlap_pair_indices": [0, 1],
+        "overlap_pair_uids": ["uid-A", "uid-B"],
+        "overlap_pair_bbox_sigs": ["sig-0", "sig-1"],
+        "overlap_pair_source_texts": ["あ", "い"],
+    }
+    pair_a_none = {**pair_a_b, "overlap_pair_uids": ["uid-A", None]}
+    pair_none_b = {**pair_a_b, "overlap_pair_uids": [None, "uid-B"]}
+
+    baseline_ab = {"audited_page_names": ["p.png"], "pages": [{"page_name": "p.png", "issues": [pair_a_b]}]}
+    for perm in itertools.permutations([pair_a_none, pair_none_b, pair_a_b]):
+        diff_perm = diff_qa_audits(
+            baseline_ab,
+            {"audited_page_names": ["p.png"], "pages": [{"page_name": "p.png", "issues": list(perm)}]},
+        )
+        assert diff_perm["after_error_count"] == 1
+        assert diff_perm["newly_introduced_error_count"] == 0
+        assert diff_perm["passed"] is True
+
+    for partial_only in ([pair_a_none, pair_none_b], [pair_none_b, pair_a_none]):
+        diff_partial_only = diff_qa_audits(
+            baseline_ab,
+            {"audited_page_names": ["p.png"], "pages": [{"page_name": "p.png", "issues": partial_only}]},
+        )
+        assert diff_partial_only["after_error_count"] == 2
+        assert diff_partial_only["newly_introduced_error_count"] == 1
+        assert diff_partial_only["passed"] is False

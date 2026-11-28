@@ -745,7 +745,7 @@ def _read_consistent_page_state(
             continue
         raw_parsed = json.loads(raw_bytes_1.decode("utf-8"))
         _, img_data = _parse_loaded_page_json(raw_parsed, canonical_key)
-        rev = compute_page_revision(p_after, json_bytes=raw_bytes_1)
+        rev = compute_page_revision(p_after, json_bytes=raw_bytes_1, inpainted_stat=inp_stat_1)
         content_sig = _non_export_content_digest(raw_parsed, inp_stat_1)
         return p_after, rev, img_data, content_sig, inp_stat_1
     return None

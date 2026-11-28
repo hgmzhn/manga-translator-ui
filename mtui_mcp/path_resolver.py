@@ -288,7 +288,71 @@ class PagePaths:
     snapshots_dir: Path
 
 
-def _resolve_inpainted_sidecar(inpainted_dir: Path, stem: str, ext: str) -> tuple[Path, bool]:
+def _is_same_source_entry(src_dir: Path, req_name: str, other_entry: Any) -> bool:
+    other_name = str(getattr(other_entry, "name", ""))
+    if other_name == req_name:
+        return True
+    if os.path.normcase(other_name) != os.path.normcase(req_name):
+        return False
+    try:
+        return os.path.samefile(src_dir / req_name, other_entry)
+    except (OSError, TypeError, ValueError):
+        return False
+
+
+def _inpainted_belongs_to_other_source_page(
+    inpainted_entry: Any,
+    src_dir: Optional[Path],
+    req_stem: str,
+    req_ext: str,
+    *,
+    src_entries: Optional[list[Any]] = None,
+) -> bool:
+    """Return True if ``inpainted_entry`` corresponds to another existing source page in ``src_dir``."""
+    if src_dir is None or not src_dir.is_dir():
+        return False
+    cand_stem = str(getattr(inpainted_entry, "stem", ""))
+    if not cand_stem.lower().endswith("_inpainted"):
+        return False
+    cand_src_stem = cand_stem[: -len("_inpainted")]
+    cand_ext = str(getattr(inpainted_entry, "suffix", ""))
+    req_name = f"{req_stem}{req_ext}"
+    if f"{cand_src_stem}{cand_ext}" == req_name:
+        return False
+    if src_entries is None:
+        try:
+            src_entries = list(src_dir.iterdir())
+        except OSError:
+            return False
+    for src_entry in src_entries:
+        try:
+            if not src_entry.is_file():
+                continue
+        except OSError:
+            continue
+        src_suffix = str(getattr(src_entry, "suffix", ""))
+        if src_suffix.lower() not in SUPPORTED_IMAGE_EXTENSIONS:
+            continue
+        if _is_same_source_entry(src_dir, req_name, src_entry):
+            continue
+        src_name = str(getattr(src_entry, "name", ""))
+        if src_name == f"{cand_src_stem}{cand_ext}":
+            return True
+        src_stem = str(getattr(src_entry, "stem", ""))
+        if (
+            (src_stem == cand_src_stem or os.path.normcase(src_stem) == os.path.normcase(cand_src_stem))
+            and src_suffix.lower() == cand_ext.lower()
+        ):
+            return True
+    return False
+
+
+def _resolve_inpainted_sidecar(
+    inpainted_dir: Path,
+    stem: str,
+    ext: str,
+    src_dir: Optional[Path] = None,
+) -> tuple[Path, bool]:
     """Resolve `<stem>_inpainted<ext>`, keeping exact primary match first then case-insensitive extension fallback."""
     primary = inpainted_dir / f"{stem}_inpainted{ext}"
     if primary.is_file():
@@ -298,6 +362,7 @@ def _resolve_inpainted_sidecar(inpainted_dir: Path, stem: str, ext: str) -> tupl
 
     expected_stem = f"{stem}_inpainted"
     candidates: list[Path] = []
+    cached_src_entries: Optional[list[Any]] = None
     try:
         for entry in inpainted_dir.iterdir():
             if not entry.is_file():
@@ -306,6 +371,20 @@ def _resolve_inpainted_sidecar(inpainted_dir: Path, stem: str, ext: str) -> tupl
             if ext_low not in _INPAINTED_FALLBACK_EXT_RANK:
                 continue
             if entry.stem == expected_stem or os.path.normcase(entry.stem) == os.path.normcase(expected_stem):
+                if src_dir is not None and src_dir.is_dir():
+                    if cached_src_entries is None:
+                        try:
+                            cached_src_entries = list(src_dir.iterdir())
+                        except OSError:
+                            cached_src_entries = []
+                    if _inpainted_belongs_to_other_source_page(
+                        entry,
+                        src_dir,
+                        stem,
+                        ext,
+                        src_entries=cached_src_entries,
+                    ):
+                        continue
                 candidates.append(entry)
     except OSError:
         candidates = []
@@ -372,6 +451,7 @@ def resolve_page_paths(
         work_dir / INPAINTED_SUBDIR,
         stem,
         ext,
+        src_dir=src_dir,
     )
 
     paint_overlay_path = work_dir / PAINT_OVERLAY_SUBDIR / f"{stem}_overlay.png"

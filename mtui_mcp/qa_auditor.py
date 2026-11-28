@@ -2953,7 +2953,7 @@ def _audit_single_page_with_context(
             w_pages = w_cache.get("pages") if isinstance(w_cache, dict) else None
             if _parse_ym_cache_version(w_cache) >= CACHE_VERSION and isinstance(w_pages, dict):
                 cand_page_cache = w_pages.get(paths.source_path.stem)
-                if isinstance(cand_page_cache, dict):
+                if isinstance(cand_page_cache, dict) and _page_ym_cache_matches_base_image(paths, cand_page_cache):
                     yuzumarker_page_cache = cand_page_cache
         struct_findings = _detect_structural_and_border_cv_issues(
             base_rgb,
@@ -3008,6 +3008,35 @@ def _norm_audit_page_path(path_val: str | Path) -> str:
     return os.path.normcase(os.path.abspath(str(path_val)))
 
 
+def _page_ym_cache_matches_base_image(p: PagePaths, p_entry: dict[str, Any]) -> bool:
+    """Verify worker ``base_image_sig`` / ``display_base_name`` against current ``p.display_base_path`` (`R4-F11`)."""
+    if "base_image_sig" not in p_entry and "display_base_name" not in p_entry:
+        return True
+    try:
+        if not p.display_base_path.is_file():
+            return False
+        bst = p.display_base_path.stat()
+    except OSError:
+        return False
+    if "display_base_name" in p_entry:
+        if p_entry.get("display_base_name") != p.display_base_path.name:
+            return False
+    if "base_image_sig" in p_entry:
+        raw_sig = p_entry.get("base_image_sig")
+        if (
+            not isinstance(raw_sig, (list, tuple))
+            or len(raw_sig) != 2
+            or isinstance(raw_sig[0], bool)
+            or isinstance(raw_sig[1], bool)
+            or not isinstance(raw_sig[0], int)
+            or not isinstance(raw_sig[1], int)
+        ):
+            return False
+        if int(raw_sig[0]) != int(bst.st_size) or int(raw_sig[1]) != int(bst.st_mtime_ns):
+            return False
+    return True
+
+
 def _page_ym_cache_needs_scan(p: PagePaths, w_cache: Any) -> bool:
     if not p.json_exists:
         return False
@@ -3021,7 +3050,8 @@ def _page_ym_cache_needs_scan(p: PagePaths, w_cache: Any) -> bool:
         return True
 
     has_worker_meta = any(
-        k in p_entry for k in ("region_count", "total_regions", "base_image_sig", "regions_state_sig")
+        k in p_entry
+        for k in ("region_count", "total_regions", "base_image_sig", "display_base_name", "regions_state_sig")
     )
     has_any_preds = bool(p_entry.get("by_ridx")) or bool(p_entry.get("by_bbox_sig"))
     if not has_worker_meta and not has_any_preds:
@@ -3034,6 +3064,8 @@ def _page_ym_cache_needs_scan(p: PagePaths, w_cache: Any) -> bool:
     regs = img_data.get("regions")
     if not isinstance(regs, list) or not regs:
         return False
+    if not _page_ym_cache_matches_base_image(p, p_entry):
+        return True
     total_regs = len(regs)
     for r_idx, reg in enumerate(regs):
         if not isinstance(reg, dict):
@@ -3100,7 +3132,11 @@ def run_qa_audit(
             w_pages_map = w_ym_cache.get("pages") if isinstance(w_ym_cache, dict) else None
             if _parse_ym_cache_version(w_ym_cache) >= CACHE_VERSION and isinstance(w_pages_map, dict):
                 cand_p_ym = w_pages_map.get(p.source_path.stem)
-                p_ym_cache = cand_p_ym if isinstance(cand_p_ym, dict) else {}
+                p_ym_cache = (
+                    cand_p_ym
+                    if isinstance(cand_p_ym, dict) and _page_ym_cache_matches_base_image(p, cand_p_ym)
+                    else {}
+                )
             else:
                 p_ym_cache = {}
         else:
@@ -3442,6 +3478,14 @@ def _report_has_path_metadata(report: dict[str, Any]) -> bool:
     return False
 
 
+def _target_spec_uid_count(spec: tuple[bool, Any]) -> int:
+    is_pair, val = spec
+    if is_pair:
+        r0, r1 = val
+        return int(not r0[0] and r0[1] is not None) + int(not r1[0] and r1[1] is not None)
+    return int(not val[0] and val[1] is not None)
+
+
 def diff_qa_audits(
     before_report: dict[str, Any],
     after_report: dict[str, Any],
@@ -3456,7 +3500,6 @@ def diff_qa_audits(
     identity rather than list index, distinguishing multiple overlap pairs per region, and verifying that all
     in-scope baseline pages were actually audited in `after_report`.
     """
-    use_path_identity = _report_has_path_metadata(before_report) and _report_has_path_metadata(after_report)
     normalized_filter_tokens = (
         tuple(sorted({str(p).strip() for p in pages if str(p).strip()})) if pages is not None else None
     )
@@ -3468,13 +3511,15 @@ def diff_qa_audits(
             return True
         return any(_matches_page_filter_token(tok, pname, pnorm) for tok in normalized_filter_tokens)
 
-    def _extract_report_page_roster(report: dict[str, Any]) -> list[tuple[str, str, Optional[str]]]:
-        """Return ordered unique ``(page_id, page_name, norm_path)`` entries for all audited pages in ``report``."""
+    def _extract_raw_report_pages(
+        report: dict[str, Any],
+    ) -> tuple[list[tuple[str, Optional[str]]], dict[str, set[str]], set[str]]:
+        """Extract raw ``(page_name, norm_path_or_None)`` entries, known paths per name, and intramurally ambiguous names."""
         raw_paths = report.get("audited_page_paths")
         raw_names = report.get("audited_page_names")
 
-        # Map unambiguous page_name -> norm_path from both `audited_page_paths` and `pages[*]["source_path"]`
         paths_by_name: dict[str, set[str]] = {}
+        intramural_ambig: set[str] = set()
         if isinstance(raw_paths, list):
             for idx, rp in enumerate(raw_paths):
                 sp = str(rp or "").strip()
@@ -3488,6 +3533,16 @@ def diff_qa_audits(
                 )
                 if nm:
                     paths_by_name.setdefault(nm, set()).add(np_s)
+        elif isinstance(raw_names, list):
+            name_counts: dict[str, int] = {}
+            for rn in raw_names:
+                nm = str(rn or "").strip()
+                if nm:
+                    name_counts[nm] = name_counts.get(nm, 0) + 1
+                    if name_counts[nm] > 1:
+                        intramural_ambig.add(nm)
+
+        pathless_rep_counts: dict[str, int] = {}
         for p_rep in report.get("pages") or []:
             if not isinstance(p_rep, dict):
                 continue
@@ -3495,19 +3550,39 @@ def diff_qa_audits(
             nm = str(p_rep.get("page_name") or "").strip() or (Path(sp).name if sp else "")
             if sp and nm:
                 paths_by_name.setdefault(nm, set()).add(_norm_audit_page_path(sp))
+            elif nm:
+                pathless_rep_counts[nm] = pathless_rep_counts.get(nm, 0) + 1
+                if pathless_rep_counts[nm] > 1:
+                    intramural_ambig.add(nm)
 
-        unique_path_for_name = {nm: next(iter(pset)) for nm, pset in paths_by_name.items() if len(pset) == 1}
-        seen_by_id: dict[str, tuple[str, str, Optional[str]]] = {}
+        for nm, pset in paths_by_name.items():
+            if len(pset) > 1:
+                intramural_ambig.add(nm)
 
-        def _add_page(nm: str, np_opt: Optional[str]) -> None:
+        unique_local_path = {
+            nm: next(iter(pset))
+            for nm, pset in paths_by_name.items()
+            if len(pset) == 1 and nm not in intramural_ambig
+        }
+
+        items: list[tuple[str, Optional[str]]] = []
+        seen_paths: set[str] = set()
+        seen_single_pathless: set[str] = set()
+
+        def _record(nm: str, np_opt: Optional[str], *, allow_dup_pathless: bool = False) -> None:
             if not nm and np_opt:
                 nm = Path(np_opt).name
             if not nm:
                 return
-            eff_np = np_opt or unique_path_for_name.get(nm)
-            pid = (eff_np or nm) if use_path_identity else nm
-            if pid not in seen_by_id:
-                seen_by_id[pid] = (pid, nm, eff_np)
+            eff_np = np_opt or unique_local_path.get(nm)
+            if eff_np is not None:
+                if eff_np not in seen_paths:
+                    seen_paths.add(eff_np)
+                    items.append((nm, eff_np))
+            else:
+                if allow_dup_pathless or nm not in seen_single_pathless:
+                    seen_single_pathless.add(nm)
+                    items.append((nm, None))
 
         if isinstance(raw_paths, list):
             for idx, rp in enumerate(raw_paths):
@@ -3520,32 +3595,86 @@ def diff_qa_audits(
                     if isinstance(raw_names, list) and idx < len(raw_names) and str(raw_names[idx] or "").strip()
                     else Path(sp).name
                 )
-                _add_page(nm, np_s)
+                _record(nm, np_s)
         elif isinstance(raw_names, list):
             for rn in raw_names:
                 nm = str(rn or "").strip()
                 if nm:
-                    _add_page(nm, unique_path_for_name.get(nm))
+                    _record(nm, None, allow_dup_pathless=nm in intramural_ambig)
 
+        has_explicit_roster = isinstance(raw_paths, list) or isinstance(raw_names, list)
         for p_rep in report.get("pages") or []:
             if isinstance(p_rep, dict):
                 sp = str(p_rep.get("source_path") or "").strip()
                 nm = str(p_rep.get("page_name") or "").strip()
-                _add_page(nm, _norm_audit_page_path(sp) if sp else None)
+                _record(
+                    nm,
+                    _norm_audit_page_path(sp) if sp else None,
+                    allow_dup_pathless=(not has_explicit_roster and nm in intramural_ambig),
+                )
 
-        return list(seen_by_id.values())
+        return items, paths_by_name, intramural_ambig
 
-    before_roster = _extract_report_page_roster(before_report)
-    after_roster = _extract_report_page_roster(after_report)
+    raw_before_pages, before_paths_by_name, before_ambig = _extract_raw_report_pages(before_report)
+    raw_after_pages, after_paths_by_name, after_ambig = _extract_raw_report_pages(after_report)
+
+    before_counts_by_name: dict[str, int] = {}
+    for nm, _ in raw_before_pages:
+        before_counts_by_name[nm] = before_counts_by_name.get(nm, 0) + 1
+    after_counts_by_name: dict[str, int] = {}
+    for nm, _ in raw_after_pages:
+        after_counts_by_name[nm] = after_counts_by_name.get(nm, 0) + 1
+
+    all_names = set(before_counts_by_name) | set(after_counts_by_name)
+    all_paths_by_name: dict[str, set[str]] = {}
+    for nm in all_names:
+        combined_paths = set(before_paths_by_name.get(nm, ())) | set(after_paths_by_name.get(nm, ()))
+        if combined_paths:
+            all_paths_by_name[nm] = combined_paths
+
+    # R4-F13: Keep known path identities; allow legacy bare-name fallback ONLY when `page_name` maps unambiguously
+    # to at most one page in each report and at most one canonical path across both reports.
+    ambiguous_names: set[str] = set(before_ambig) | set(after_ambig)
+    unique_global_path_for_name: dict[str, str] = {}
+    for nm in all_names:
+        known_p = all_paths_by_name.get(nm, set())
+        if (
+            nm in ambiguous_names
+            or len(known_p) > 1
+            or before_counts_by_name.get(nm, 0) > 1
+            or after_counts_by_name.get(nm, 0) > 1
+        ):
+            ambiguous_names.add(nm)
+        elif len(known_p) == 1:
+            unique_global_path_for_name[nm] = next(iter(known_p))
+
+    def _finalize_roster(
+        raw_items: list[tuple[str, Optional[str]]],
+        side_tag: str,
+    ) -> list[tuple[str, str, Optional[str]]]:
+        roster: list[tuple[str, str, Optional[str]]] = []
+        seen_ids: set[str] = set()
+        for idx, (nm, np_opt) in enumerate(raw_items):
+            eff_np = np_opt
+            if eff_np is None and nm not in ambiguous_names:
+                eff_np = unique_global_path_for_name.get(nm)
+            if eff_np is not None:
+                pid = f"path:{eff_np}"
+            elif nm in ambiguous_names:
+                pid = f"unverified:{side_tag}:{idx}:{nm}"
+            else:
+                pid = f"name:{nm}"
+            if pid not in seen_ids:
+                seen_ids.add(pid)
+                roster.append((pid, nm, eff_np))
+        return roster
+
+    before_roster = _finalize_roster(raw_before_pages, "before")
+    after_roster = _finalize_roster(raw_after_pages, "after")
     after_audited_ids = {pid for pid, _, _ in after_roster}
 
-    all_paths_by_name: dict[str, set[str]] = {}
-    for _, nm, np_opt in (*before_roster, *after_roster):
-        if nm and np_opt:
-            all_paths_by_name.setdefault(nm, set()).add(np_opt)
-
     def _display_label_for_page(nm: str, np_opt: Optional[str]) -> str:
-        if use_path_identity and np_opt and len(all_paths_by_name.get(nm, set())) > 1:
+        if np_opt and (len(all_paths_by_name.get(nm, set())) > 1 or nm in ambiguous_names):
             return np_opt
         return nm or (np_opt or "")
 
@@ -3558,11 +3687,18 @@ def diff_qa_audits(
     for b_pid, (b_name, b_np) in baseline_scope_pages.items():
         if b_pid not in after_audited_ids:
             disp = _display_label_for_page(b_name, b_np)
+            if disp in unaudited_dict and b_np is None:
+                disp = f"{disp}#{b_pid}"
             unaudited_dict.setdefault(disp, (b_name, b_np))
 
     if normalized_filter_tokens is not None:
         for req_p in normalized_filter_tokens:
-            covered = any(_matches_page_filter_token(req_p, a_name, a_np) for _, a_name, a_np in after_roster)
+            req_is_path = ("/" in req_p) or ("\\" in req_p) or os.path.isabs(req_p)
+            covered = any(
+                (not (req_is_path and a_np is None and a_name in ambiguous_names))
+                and _matches_page_filter_token(req_p, a_name, a_np)
+                for _, a_name, a_np in after_roster
+            )
             if not covered and req_p not in unaudited_dict:
                 if not any(
                     _matches_page_filter_token(req_p, u_name, u_np)
@@ -3574,14 +3710,22 @@ def diff_qa_audits(
     def _resolve_page_rep_identity(
         p_rep: dict[str, Any],
         roster_lookup: dict[str, list[tuple[str, str, Optional[str]]]],
+        side_tag: str,
+        rep_idx: int,
     ) -> tuple[str, str, Optional[str]]:
         raw_sp = str(p_rep.get("source_path") or "").strip()
         np_opt = _norm_audit_page_path(raw_sp) if raw_sp else None
         pname = str(p_rep.get("page_name") or "").strip() or (Path(raw_sp).name if raw_sp else "")
-        if np_opt is None and pname and len(roster_lookup.get(pname, ())) == 1:
-            np_opt = roster_lookup[pname][0][2]
-        pid = (np_opt or pname) if use_path_identity else pname
-        return pid, pname, np_opt
+        if np_opt is None and pname and pname not in ambiguous_names:
+            cands = roster_lookup.get(pname, ())
+            if len(cands) == 1:
+                return cands[0]
+            np_opt = unique_global_path_for_name.get(pname)
+        if np_opt is not None:
+            return f"path:{np_opt}", pname, np_opt
+        if pname in ambiguous_names:
+            return f"unverified:{side_tag}:rep{rep_idx}:{pname}", pname, None
+        return f"name:{pname}", pname, None
 
     before_by_name: dict[str, list[tuple[str, str, Optional[str]]]] = {}
     for item in before_roster:
@@ -3593,12 +3737,14 @@ def diff_qa_audits(
     def _collect_errors(
         report: dict[str, Any],
         roster_lookup: dict[str, list[tuple[str, str, Optional[str]]]],
+        side_tag: str,
     ) -> list[tuple[tuple[str, str, str], tuple[bool, Any], dict[str, Any], str]]:
-        collected: list[tuple[tuple[str, str, str], tuple[bool, Any], dict[str, Any], str]] = []
-        for p_rep in report.get("pages") or []:
+        raw_candidates: list[tuple[int, tuple[str, str, str], tuple[bool, Any], dict[str, Any], str]] = []
+        seq_idx = 0
+        for rep_idx, p_rep in enumerate(report.get("pages") or []):
             if not isinstance(p_rep, dict):
                 continue
-            page_id, pname, pnorm = _resolve_page_rep_identity(p_rep, roster_lookup)
+            page_id, pname, pnorm = _resolve_page_rep_identity(p_rep, roster_lookup, side_tag, rep_idx)
             if not _page_in_scope(pname, pnorm):
                 continue
             for iss in p_rep.get("issues") or []:
@@ -3613,25 +3759,35 @@ def diff_qa_audits(
                 raw_sp = str(p_rep.get("source_path") or "").strip()
                 if raw_sp:
                     entry.setdefault("source_path", raw_sp)
-                dup_idx: Optional[int] = None
-                prefer_new = False
-                for c_idx, (bk, ts, _, _) in enumerate(collected):
-                    if bk != bucket_key:
-                        continue
-                    is_dup, pref_n = _same_report_issue_dedup(ts, target_spec)
-                    if is_dup:
-                        dup_idx = c_idx
-                        prefer_new = pref_n
-                        break
-                if dup_idx is not None:
-                    if prefer_new:
-                        collected[dup_idx] = (bucket_key, target_spec, entry, page_id)
+                raw_candidates.append((seq_idx, bucket_key, target_spec, entry, page_id))
+                seq_idx += 1
+
+        # R4-F14: Process fuller UID specs (e.g. 2-UID overlap pairs `(A, B)`) before partial specs (`(A, None)`, `(None, B)`)
+        # within each bucket so deduplication is completely independent of issue arrival order while preserving
+        # unmerged complementary partial pairs when no full UID pair is present.
+        raw_candidates.sort(key=lambda item: (-_target_spec_uid_count(item[2]), item[0]))
+
+        collected: list[tuple[tuple[str, str, str], tuple[bool, Any], dict[str, Any], str]] = []
+        for _, bucket_key, target_spec, entry, page_id in raw_candidates:
+            dup_indices: list[tuple[int, bool]] = []
+            for c_idx, (bk, ts, _, _) in enumerate(collected):
+                if bk != bucket_key:
                     continue
-                collected.append((bucket_key, target_spec, entry, page_id))
+                is_dup, pref_n = _same_report_issue_dedup(ts, target_spec)
+                if is_dup:
+                    dup_indices.append((c_idx, pref_n))
+            if dup_indices:
+                first_idx, first_pref = dup_indices[0]
+                if first_pref:
+                    collected[first_idx] = (bucket_key, target_spec, entry, page_id)
+                    for extra_idx, _ in reversed(dup_indices[1:]):
+                        del collected[extra_idx]
+                continue
+            collected.append((bucket_key, target_spec, entry, page_id))
         return collected
 
-    before_items = _collect_errors(before_report, before_by_name)
-    after_items = _collect_errors(after_report, after_by_name)
+    before_items = _collect_errors(before_report, before_by_name, "before")
+    after_items = _collect_errors(after_report, after_by_name, "after")
 
     matched_before: set[int] = set()
     matched_after: set[int] = set()

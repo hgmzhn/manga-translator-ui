@@ -12,6 +12,7 @@ import os
 import socket
 import threading
 import time
+import weakref
 from pathlib import Path
 from typing import Any, Optional
 
@@ -27,6 +28,36 @@ from .server import mcp
 from .worker.client import get_worker_client
 
 logger = logging.getLogger("mtui_mcp.embedded_server")
+
+_EMBEDDED_WARMUP_LOCK = threading.RLock()
+_EMBEDDED_SERVERS_LOCK = threading.Lock()
+_ACTIVE_EMBEDDED_SERVERS: weakref.WeakSet[EmbeddedMcpHttpServer] = weakref.WeakSet()
+
+
+def _shutdown_worker_if_owned(
+    wc: Any,
+    *,
+    expected_proc: Any,
+    has_proc_attr: bool,
+) -> None:
+    shutdown_fn = getattr(wc, "shutdown", None)
+    if not callable(shutdown_fn):
+        return
+    if has_proc_attr:
+        if expected_proc is None:
+            return
+        try:
+            params = inspect.signature(shutdown_fn).parameters
+        except (TypeError, ValueError):
+            params = {}
+        if "expected_proc" in params or any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+        ):
+            shutdown_fn(expected_proc=expected_proc)
+            return
+        if getattr(wc, "_proc", None) is not expected_proc:
+            return
+    shutdown_fn()
 
 
 def _format_url_host(host: str) -> str:
@@ -336,6 +367,46 @@ class EmbeddedMcpHttpServer:
                 and expected_thread.is_alive()
             )
 
+    def _has_other_active_embedded_server(self, current_server: uvicorn.Server) -> bool:
+        with self._lock:
+            if (
+                self._server is not None
+                and self._server is not current_server
+                and not self._server.should_exit
+            ):
+                return True
+        with _EMBEDDED_SERVERS_LOCK:
+            peers = list(_ACTIVE_EMBEDDED_SERVERS)
+        for peer in peers:
+            if peer is self:
+                continue
+            with peer._lock:
+                if peer._server is not None and not peer._server.should_exit:
+                    return True
+        return False
+
+    @staticmethod
+    def _stop_detached_handles(
+        server: Optional[uvicorn.Server],
+        thread: Optional[threading.Thread],
+        sock: Optional[socket.socket],
+        *,
+        timeout: float,
+    ) -> None:
+        if server is not None:
+            server.should_exit = True
+
+        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
+            join_timeout = max(0.1, float(timeout))
+            thread.join(timeout=join_timeout)
+            if thread.is_alive() and server is not None:
+                server.force_exit = True
+                thread.join(timeout=0.5)
+
+        if sock is not None:
+            with contextlib.suppress(OSError):
+                sock.close()
+
     def start(self, timeout: float = 5.0) -> bool:
         with self._lock:
             if self.is_running:
@@ -414,7 +485,20 @@ class EmbeddedMcpHttpServer:
                 daemon=True,
             )
             self._thread = thread
-            thread.start()
+            with _EMBEDDED_SERVERS_LOCK:
+                _ACTIVE_EMBEDDED_SERVERS.add(self)
+            try:
+                thread.start()
+            except BaseException:
+                self._server = None
+                self._thread = None
+                self._socket = None
+                self._bound_port = None
+                with _EMBEDDED_SERVERS_LOCK:
+                    _ACTIVE_EMBEDDED_SERVERS.discard(self)
+                with contextlib.suppress(OSError):
+                    sock.close()
+                raise
 
         deadline = time.monotonic() + max(0.1, float(timeout))
         while time.monotonic() < deadline:
@@ -422,30 +506,68 @@ class EmbeddedMcpHttpServer:
                 return False
             if server.started and not server.should_exit:
                 if self._warm_up and settings.is_engine_available:
-                    if not self._is_start_generation_active(my_gen, server, thread):
+                    with _EMBEDDED_WARMUP_LOCK:
+                        if not self._is_start_generation_active(my_gen, server, thread):
+                            return False
+                        wc = get_worker_client()
+                        had_proc_attr = hasattr(wc, "_proc")
+                        proc_before = getattr(wc, "_proc", None)
+                        proc_before_alive = proc_before is not None and (
+                            not callable(getattr(proc_before, "poll", None))
+                            or proc_before.poll() is None
+                        )
+                        was_running_before = bool(getattr(wc, "is_running", False)) and (
+                            proc_before_alive if had_proc_attr else True
+                        )
+                        warmup_ok = False
+                        try:
+                            wc.ensure_started()
+                            warmup_ok = True
+                        except Exception as exc:
+                            logger.warning("Initial worker warm-up failed during embedded start: %s", exc)
+
+                        wc_after = get_worker_client()
+                        has_proc_now = had_proc_attr or hasattr(wc_after, "_proc")
+                        proc_after = getattr(wc_after, "_proc", None)
+                        if not warmup_ok:
+                            started_by_this_call = False
+                        elif has_proc_now:
+                            started_by_this_call = (proc_after is not None) and not (
+                                was_running_before and proc_after is proc_before
+                            )
+                        else:
+                            started_by_this_call = not was_running_before
+
+                        with self._lock:
+                            still_active = bool(
+                                self._start_generation == my_gen
+                                and self._server is server
+                                and server.started
+                                and not server.should_exit
+                                and self._thread is thread
+                                and thread.is_alive()
+                            )
+                        if not still_active:
+                            if started_by_this_call and not self._has_other_active_embedded_server(server):
+                                _shutdown_worker_if_owned(
+                                    wc_after,
+                                    expected_proc=proc_after,
+                                    has_proc_attr=has_proc_now,
+                                )
+                            return False
+                else:
+                    with self._lock:
+                        still_active = bool(
+                            self._start_generation == my_gen
+                            and self._server is server
+                            and server.started
+                            and not server.should_exit
+                            and self._thread is thread
+                            and thread.is_alive()
+                        )
+                    if not still_active:
                         return False
-                    try:
-                        get_worker_client().ensure_started()
-                    except Exception as exc:
-                        logger.warning("Initial worker warm-up failed during embedded start: %s", exc)
-                with self._lock:
-                    still_active = bool(
-                        self._start_generation == my_gen
-                        and self._server is server
-                        and server.started
-                        and not server.should_exit
-                        and self._thread is thread
-                        and thread.is_alive()
-                    )
-                    has_newer_active_server = bool(
-                        self._server is not None
-                        and self._server is not server
-                        and not self._server.should_exit
-                    )
-                if not still_active:
-                    if not has_newer_active_server:
-                        get_worker_client().shutdown()
-                    return False
+
                 logger.info(
                     "Embedded MCP HTTP server listening on %s (SSE: %s)",
                     self.streamable_http_url,
@@ -456,10 +578,24 @@ class EmbeddedMcpHttpServer:
                 break
             time.sleep(0.01)
 
+        detached_server: Optional[uvicorn.Server] = None
+        detached_thread: Optional[threading.Thread] = None
+        detached_sock: Optional[socket.socket] = None
         with self._lock:
-            should_stop_this_gen = (
-                self._start_generation == my_gen and self._server is server
-            )
+            if self._start_generation == my_gen and self._server is server:
+                self._start_generation += 1
+                detached_server = self._server
+                detached_thread = self._thread
+                detached_sock = self._socket
+                self._server = None
+                self._thread = None
+                self._socket = None
+                self._bound_port = None
+                with _EMBEDDED_SERVERS_LOCK:
+                    _ACTIVE_EMBEDDED_SERVERS.discard(self)
+                should_stop_this_gen = True
+            else:
+                should_stop_this_gen = False
         if should_stop_this_gen:
             logger.warning(
                 "Embedded MCP HTTP server on %s:%s did not become ready within %.1fs.",
@@ -467,7 +603,12 @@ class EmbeddedMcpHttpServer:
                 bound_port,
                 timeout,
             )
-            self.stop(timeout=1.0)
+            self._stop_detached_handles(
+                detached_server,
+                detached_thread,
+                detached_sock,
+                timeout=1.0,
+            )
         return False
 
     def stop(self, timeout: float = 5.0) -> None:
@@ -480,19 +621,8 @@ class EmbeddedMcpHttpServer:
             self._thread = None
             self._socket = None
             self._bound_port = None
+            with _EMBEDDED_SERVERS_LOCK:
+                _ACTIVE_EMBEDDED_SERVERS.discard(self)
 
-        if server is not None:
-            server.should_exit = True
-
-        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
-            join_timeout = max(0.1, float(timeout))
-            thread.join(timeout=join_timeout)
-            if thread.is_alive() and server is not None:
-                server.force_exit = True
-                thread.join(timeout=0.5)
-
-        if sock is not None:
-            with contextlib.suppress(OSError):
-                sock.close()
-
+        self._stop_detached_handles(server, thread, sock, timeout=timeout)
         get_worker_client().shutdown()

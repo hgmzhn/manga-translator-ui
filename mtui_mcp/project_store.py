@@ -29,6 +29,7 @@ from .font_catalog import check_missing_glyphs, check_region_missing_glyphs
 from .path_resolver import (
     SUPPORTED_IMAGE_EXTENSIONS,
     PagePaths,
+    _inpainted_belongs_to_other_source_page,
     list_manga_pages_in_path,
     resolve_page_paths,
 )
@@ -287,9 +288,15 @@ def encode_mask_base64(mask: np.ndarray) -> str:
 
 
 _UNSET_JSON_BYTES = object()
+_UNSET_INPAINTED_STAT = object()
 
 
-def compute_page_revision(paths: PagePaths, *, json_bytes: Any = _UNSET_JSON_BYTES) -> str:
+def compute_page_revision(
+    paths: PagePaths,
+    *,
+    json_bytes: Any = _UNSET_JSON_BYTES,
+    inpainted_stat: Any = _UNSET_INPAINTED_STAT,
+) -> str:
     """Compute a deterministic optimistic-concurrency token (`rev_<16hex>`) over JSON + inpainted sidecar."""
     h = hashlib.sha256()
     if json_bytes is _UNSET_JSON_BYTES:
@@ -305,12 +312,28 @@ def compute_page_revision(paths: PagePaths, *, json_bytes: Any = _UNSET_JSON_BYT
         pass
     else:
         raise TypeError(f"Unsupported json_bytes type: {type(json_bytes).__name__}")
-    if paths.inpainted_exists and paths.inpainted_path.is_file():
-        try:
-            st = paths.inpainted_path.stat()
-            h.update(f"|inpaint:{st.st_size}:{st.st_mtime_ns}".encode("ascii"))
-        except OSError:
-            pass
+
+    if inpainted_stat is _UNSET_INPAINTED_STAT:
+        if paths.inpainted_exists and paths.inpainted_path.is_file():
+            try:
+                st = paths.inpainted_path.stat()
+                h.update(f"|inpaint:{st.st_size}:{st.st_mtime_ns}".encode("ascii"))
+            except OSError:
+                pass
+    elif inpainted_stat is None:
+        # Explicitly absent inpainted sidecar: do not re-stat a concurrently created file on disk
+        pass
+    elif (
+        isinstance(inpainted_stat, (tuple, list))
+        and len(inpainted_stat) == 2
+        and not isinstance(inpainted_stat[0], bool)
+        and not isinstance(inpainted_stat[1], bool)
+        and isinstance(inpainted_stat[0], int)
+        and isinstance(inpainted_stat[1], int)
+    ):
+        h.update(f"|inpaint:{inpainted_stat[0]}:{inpainted_stat[1]}".encode("ascii"))
+    else:
+        raise TypeError(f"Unsupported inpainted_stat: {inpainted_stat!r}")
     return f"rev_{h.hexdigest()[:16]}"
 
 
@@ -1250,11 +1273,18 @@ def _validate_and_plan_snapshot_restore(
                     f"Snapshot manifest entry 'inpainted' ({orig_raw!r}) does not belong to page {paths.source_path.name}"
                 )
             target_suffix = orig_p.suffix if orig_p.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS else src.suffix
+            src_ext_cur = paths.source_path.suffix or ".png"
             dst = (
                 paths.inpainted_path
                 if (
                     _norm_abs_path_str(paths.inpainted_path.parent) == inpainted_dir_norm
                     and paths.inpainted_path.suffix.lower() == target_suffix.lower()
+                    and not _inpainted_belongs_to_other_source_page(
+                        paths.inpainted_path,
+                        paths.source_path.parent,
+                        paths.source_path.stem,
+                        src_ext_cur,
+                    )
                 )
                 else (inpainted_dir / f"{paths.source_path.stem}_inpainted{target_suffix}")
             )
@@ -1318,6 +1348,14 @@ def _validate_and_plan_snapshot_restore(
     return copies
 
 
+class SnapshotRollbackError(OSError):
+    """Raised when restoring a page snapshot fails and rolling back modified files also fails."""
+
+
+class _NoMatchingSnapshotError(FileNotFoundError):
+    """Raised pre-mutation when a page has no snapshot (or none matching the requested label)."""
+
+
 def restore_snapshot(
     target_path: str | Path,
     snapshot_id: Optional[str] = None,
@@ -1334,8 +1372,13 @@ def restore_snapshot(
         for p in pages:
             try:
                 page_results.append(restore_snapshot(p.source_path, snapshot_id=None, label=label))
-            except FileNotFoundError:
+            except _NoMatchingSnapshotError:
                 continue
+            except BaseException as exc:
+                if isinstance(exc, Exception):
+                    exc.restored_pages = [r["page"] for r in page_results]  # type: ignore[attr-defined]
+                    exc.failed_page = p.source_path.name  # type: ignore[attr-defined]
+                raise
         if not page_results:
             raise FileNotFoundError(
                 f"No snapshots matching label={label!r} found under directory {raw_target}"
@@ -1362,7 +1405,7 @@ def restore_snapshot(
                     )
                 ]
             if not candidates:
-                raise FileNotFoundError(
+                raise _NoMatchingSnapshotError(
                     f"No snapshot matching label={label!r} found for {paths.source_path.name}"
                     if label
                     else f"No snapshots found for {paths.source_path.name}"
@@ -1428,19 +1471,35 @@ def restore_snapshot(
                 json_copy_entry = (c_src, c_dst, c_kind, c_extra)
 
         conflicting_inpainted_siblings: list[Path] = []
-        if inpainted_dst is not None and inpainted_dir.exists():
-            if inpainted_dir.is_symlink():
+        src_ext_cur = paths.source_path.suffix or ".png"
+        inpainted_dst_owned_by_other = False
+        if inpainted_dst is not None:
+            if inpainted_dir.exists() and inpainted_dir.is_symlink():
                 raise ValueError(f"Snapshot restore target directory {inpainted_dir} must not be a symlink")
-            for entry in sorted(inpainted_dir.iterdir(), key=lambda p: p.name):
-                if entry.name.startswith("."):
-                    continue
-                if (entry.is_file() or entry.is_symlink()) and entry.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS:
-                    if (
-                        os.path.normcase(entry.stem) == expected_inp_stem
-                        and _norm_abs_path_str(entry) != _norm_abs_path_str(inpainted_dst)
-                    ):
-                        _assert_safe_restore_target(entry, src_dir_real, src_real)
-                        conflicting_inpainted_siblings.append(entry)
+            inpainted_dst_owned_by_other = _inpainted_belongs_to_other_source_page(
+                inpainted_dst,
+                paths.source_path.parent,
+                paths.source_path.stem,
+                src_ext_cur,
+            )
+            if not inpainted_dst_owned_by_other and inpainted_dir.exists():
+                for entry in sorted(inpainted_dir.iterdir(), key=lambda p: p.name):
+                    if entry.name.startswith("."):
+                        continue
+                    if (entry.is_file() or entry.is_symlink()) and entry.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS:
+                        if (
+                            os.path.normcase(entry.stem) == expected_inp_stem
+                            and _norm_abs_path_str(entry) != _norm_abs_path_str(inpainted_dst)
+                        ):
+                            if not entry.is_symlink() and _inpainted_belongs_to_other_source_page(
+                                entry,
+                                paths.source_path.parent,
+                                paths.source_path.stem,
+                                src_ext_cur,
+                            ):
+                                continue
+                            _assert_safe_restore_target(entry, src_dir_real, src_real)
+                            conflicting_inpainted_siblings.append(entry)
 
         json_override_bytes: Optional[bytes] = None
         standalone_json_sync_dst: Optional[Path] = None
@@ -1474,6 +1533,8 @@ def restore_snapshot(
                 all_target_paths.append(tp)
 
         for _src, dst, _kind, extra_sync in copies:
+            if _kind == "inpainted" and inpainted_dst_owned_by_other:
+                continue
             _register_target(dst)
             if extra_sync is not None and _norm_abs_path_str(extra_sync) != _norm_abs_path_str(dst):
                 _register_target(extra_sync)
@@ -1506,7 +1567,15 @@ def restore_snapshot(
                     )
                     os.close(fd)
                     bak_p = Path(bak_name)
-                    shutil.copy2(tp, bak_p)
+                    try:
+                        shutil.copy2(tp, bak_p)
+                    except BaseException:
+                        if bak_p.exists():
+                            try:
+                                bak_p.unlink()
+                            except OSError:
+                                pass
+                        raise
                     rollback_state[tn] = (tp, True, bak_p)
                 else:
                     rollback_state[tn] = (tp, False, None)
@@ -1514,6 +1583,11 @@ def restore_snapshot(
             try:
                 restored: list[str] = []
                 for src, dst, kind, extra_sync in copies:
+                    if kind == "inpainted" and inpainted_dst_owned_by_other:
+                        raise RuntimeError(
+                            f"Restored inpainted path {dst} for {paths.source_path.name} conflicts with "
+                            f"another existing source page in {paths.source_path.parent}"
+                        )
                     _mark_touched(dst)
                     if kind == "json" and json_override_bytes is not None:
                         _write_bytes_atomic(json_override_bytes, dst)
@@ -1597,14 +1671,12 @@ def restore_snapshot(
                             rollback_errors.append(f"{tp}: {rb_exc} (uncommitted file remains on disk)")
                 if rollback_errors:
                     diag = (
-                        f"Snapshot restore rollback failed for {'; '.join(rollback_errors)}"
+                        f"Snapshot restore rollback failed on {paths.source_path.name} for {'; '.join(rollback_errors)}"
                         + (f"; preserved backups: {', '.join(preserved_paths)}" if preserved_paths else "")
                     )
                     logger.error("%s", diag)
-                    if isinstance(orig_exc, OSError):
-                        raise OSError(orig_exc.errno, f"{orig_exc} [{diag}]") from orig_exc
                     if isinstance(orig_exc, Exception):
-                        raise RuntimeError(f"{orig_exc} [{diag}]") from orig_exc
+                        raise SnapshotRollbackError(f"{orig_exc} [{diag}]") from orig_exc
                     orig_exc.add_note(diag)
                 raise
         finally:
@@ -2020,7 +2092,7 @@ def get_page_details_dict(page_path: str | Path, include_polygons: bool = False)
             else:
                 image_data = {"regions": []}
                 raw_bytes = None
-            revision = compute_page_revision(paths, json_bytes=raw_bytes)
+            revision = compute_page_revision(paths, json_bytes=raw_bytes, inpainted_stat=inp_before)
             paths_after = resolve_page_paths(page_path)
             inp_after = _inpainted_stat_sig(paths_after)
             if (

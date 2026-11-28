@@ -118,23 +118,111 @@ def _file_stat_sig(path: Path) -> Optional[list[int]]:
         return None
 
 
+def _prev_mask_sync_state(
+    image_data: dict[str, Any],
+    prev_mask_sha1: str,
+    inpainted_path: Path,
+) -> Literal["synced", "untracked", "unsynced"]:
+    """Classify pre-existing `inpainted_path` sync status (`R2-F47`, `R3-F12`, `R4-F01`).
+
+    - `"synced"`: `inpainted_path` exists and matches both saved `mask_inpainted_sha1` and `mask_inpainted_stat`.
+    - `"untracked"`: `inpainted_path` exists, and neither `mask_inpainted_sha1` nor `mask_inpainted_stat` is recorded
+      in `image_data` (normal desktop/CLI project saved by `manga-translator-ui`).
+    - `"unsynced"`: `inpainted_path` is missing, or sync metadata IS recorded in `image_data` and disagrees with
+      `prev_mask_sha1` or `inpainted_path`'s current file stat.
+    """
+    cur_stat = _file_stat_sig(inpainted_path)
+    if cur_stat is None:
+        return "unsynced"
+    has_sha1 = image_data.get("mask_inpainted_sha1") is not None
+    has_stat = image_data.get("mask_inpainted_stat") is not None
+    if not has_sha1 and not has_stat:
+        return "untracked"
+    saved_sha1 = image_data.get("mask_inpainted_sha1")
+    saved_stat = image_data.get("mask_inpainted_stat")
+    if (
+        bool(saved_sha1)
+        and saved_sha1 == prev_mask_sha1
+        and saved_stat is not None
+        and cur_stat == saved_stat
+    ):
+        return "synced"
+    return "unsynced"
+
+
 def _is_prev_mask_synced(
     image_data: dict[str, Any],
     prev_mask_sha1: str,
     inpainted_path: Path,
 ) -> bool:
     """Return True iff `inpainted_path` exists and matches both saved mask SHA1 and file stat (R2-F47, R3-F12)."""
-    cur_stat = _file_stat_sig(inpainted_path)
-    if cur_stat is None:
-        return False
-    saved_sha1 = image_data.get("mask_inpainted_sha1")
-    saved_stat = image_data.get("mask_inpainted_stat")
-    return bool(
-        saved_sha1
-        and saved_sha1 == prev_mask_sha1
-        and saved_stat is not None
-        and cur_stat == saved_stat
-    )
+    return _prev_mask_sync_state(image_data, prev_mask_sha1, inpainted_path) == "synced"
+
+
+def _unrepaired_prev_mask_components(
+    base_rgb: Any,
+    prev_inpaint: Any,
+    prev_mask: Any,
+) -> tuple[Any, bool]:
+    """Identify connected components of `prev_mask > 0` where `prev_inpaint` still equals `base_rgb` (`R4-F01`, `R3-F12`)."""
+    import cv2
+    import numpy as np
+
+    h, w = base_rgb.shape[:2]
+    unrepaired = np.zeros((h, w), dtype=np.uint8)
+    if prev_mask is None:
+        return unrepaired, True
+    prev_bin = np.where(np.asarray(prev_mask) > 0, 1, 0).astype(np.uint8)
+    if not np.any(prev_bin):
+        return unrepaired, True
+
+    n_comp, comp_lbl = cv2.connectedComponents(prev_bin, connectivity=8)
+    any_inpainted = False
+    for cid in range(1, n_comp):
+        comp = comp_lbl == cid
+        if np.array_equal(prev_inpaint[comp], base_rgb[comp]):
+            unrepaired[comp] = 255
+        else:
+            any_inpainted = True
+    return unrepaired, any_inpainted
+
+
+def _resolve_prev_inpaint_plan(
+    *,
+    sync_state: Literal["synced", "untracked", "unsynced"],
+    full_reinpaint: bool,
+    inpainted_path: Path,
+    base_rgb: Any,
+    prev_mask: Any,
+    new_mask: Any,
+    added_delta: Any,
+) -> tuple[Optional[Any], bool, Any]:
+    """Resolve `(prev_inpaint_rgb, worker_prev_synced, effective_added_delta)` (`R4-F01` vs `R3-F12`)."""
+    import numpy as np
+
+    if full_reinpaint or sync_state == "unsynced" or not inpainted_path.is_file():
+        return None, False, added_delta
+
+    prev_inpaint = open_rgb_image(inpainted_path)
+    if prev_inpaint.shape[:2] != base_rgb.shape[:2]:
+        return None, False, added_delta
+
+    if sync_state == "synced":
+        return prev_inpaint, True, added_delta
+
+    # `sync_state == "untracked"`: normal desktop/CLI project without `mask_inpainted_sha1` / `mask_inpainted_stat`.
+    # Preserve `prev_inpaint` on components that already differ from `base_rgb` (protecting neural LaMa artwork!),
+    # while repairing any components where `prev_inpaint == base_rgb` (un-inpainted raw copy in `R3-F12`).
+    unrepaired_prev, any_inpainted_comp = _unrepaired_prev_mask_components(base_rgb, prev_inpaint, prev_mask)
+    if not any_inpainted_comp and np.array_equal(prev_inpaint, base_rgb):
+        return None, False, added_delta
+
+    effective_added = np.where(
+        (added_delta > 0) | ((unrepaired_prev > 0) & (new_mask > 0)),
+        255,
+        0,
+    ).astype(np.uint8)
+    return prev_inpaint, True, effective_added
 
 
 def _is_trusted_external_python_target(target_resolved: Path) -> bool:
@@ -912,7 +1000,7 @@ def mtui_edit_mask_and_inpaint(
         regions = image_data.get("regions", [])
         prev_mask = decode_mask_base64(image_data.get("mask_raw"), base_rgb.shape[:2])
         prev_mask_sha1 = _mask_sha1_hex(prev_mask, base_rgb.shape[:2])
-        prev_mask_synced = _is_prev_mask_synced(image_data, prev_mask_sha1, paths.inpainted_path)
+        sync_state = _prev_mask_sync_state(image_data, prev_mask_sha1, paths.inpainted_path)
 
         new_mask, added_delta, removed_delta = apply_mask_operations(
             prev_mask,
@@ -932,6 +1020,16 @@ def mtui_edit_mask_and_inpaint(
         new_mask_b64 = encode_mask_base64(new_mask)
         added_px = int((added_delta > 0).sum())
         removed_px = int((removed_delta > 0).sum())
+        prev_inpaint_rgb, worker_prev_synced, effective_added_delta = _resolve_prev_inpaint_plan(
+            sync_state=sync_state,
+            full_reinpaint=full_reinpaint,
+            inpainted_path=paths.inpainted_path,
+            base_rgb=base_rgb,
+            prev_mask=prev_mask,
+            new_mask=new_mask,
+            added_delta=added_delta,
+        )
+        effective_added_px = int((effective_added_delta > 0).sum())
 
         prev_inpaint_had_file = paths.inpainted_path.is_file()
         inpaint_backup_tmp = ""
@@ -957,22 +1055,18 @@ def mtui_edit_mask_and_inpaint(
                         "display_base_path": str(paths.display_base_path),
                         "inpainted_path": str(paths.inpainted_path),
                         "current_mask_b64": new_mask_b64,
-                        "added_mask_b64": encode_mask_base64(added_delta) if added_px > 0 else "",
+                        "added_mask_b64": encode_mask_base64(effective_added_delta) if effective_added_px > 0 else "",
                         "removed_mask_b64": encode_mask_base64(removed_delta) if removed_px > 0 else "",
                         "inpainter": neural_inpainter,
                         "blur_radius": blur_radius,
                         "full_reinpaint": full_reinpaint,
-                        "prev_mask_synced": prev_mask_synced,
+                        "prev_mask_synced": worker_prev_synced,
                     },
                 )
                 actual_inp_path = Path(str(inpaint_info.get("inpainted_path") or paths.inpainted_path))
             else:
                 fallback_method = "telea" if inpaint_method == "neural" else inpaint_method
-                prev_inpaint = (
-                    None
-                    if full_reinpaint or not prev_mask_synced or not paths.inpainted_exists
-                    else open_rgb_image(paths.inpainted_path)
-                )
+                prev_inpaint = prev_inpaint_rgb
                 repair_kwargs: dict[str, Any] = {}
                 resolved_blur_radius: Optional[int] = None
                 if fallback_method == "blur":
@@ -987,7 +1081,7 @@ def mtui_edit_mask_and_inpaint(
                     base_rgb,
                     prev_inpaint,
                     new_mask,
-                    added_delta,
+                    effective_added_delta,
                     removed_delta,
                     method=fallback_method,
                     **repair_kwargs,
@@ -1109,8 +1203,12 @@ def mtui_add_region(
         pre_paths = resolve_page_paths(init_paths.source_path)
         pre_mask: Any = None
         pre_mask_sha1 = ""
+        pre_sync_state: Literal["synced", "untracked", "unsynced"] = "unsynced"
         prev_mask_synced = False
+        unrepaired_pre_mask: Any = None
         if auto_mask_ink and pre_paths.display_base_path.is_file():
+            import numpy as np
+
             pre_base_rgb = open_rgb_image(pre_paths.display_base_path)
             pre_shape_hw = pre_base_rgb.shape[:2]
             pre_img_data: dict[str, Any] = {}
@@ -1118,7 +1216,17 @@ def mtui_add_region(
                 _, pre_img_data = load_page_json(pre_paths)
             pre_mask = decode_mask_base64(pre_img_data.get("mask_raw"), pre_shape_hw)
             pre_mask_sha1 = _mask_sha1_hex(pre_mask, pre_shape_hw)
-            prev_mask_synced = _is_prev_mask_synced(pre_img_data, pre_mask_sha1, pre_paths.inpainted_path)
+            pre_sync_state = _prev_mask_sync_state(pre_img_data, pre_mask_sha1, pre_paths.inpainted_path)
+            if pre_sync_state == "synced":
+                prev_mask_synced = True
+            elif pre_sync_state == "untracked" and pre_paths.inpainted_path.is_file():
+                pre_cand_inp = open_rgb_image(pre_paths.inpainted_path)
+                if pre_cand_inp.shape[:2] == pre_shape_hw:
+                    unrepaired_pre, any_inp_pre = _unrepaired_prev_mask_components(
+                        pre_base_rgb, pre_cand_inp, pre_mask
+                    )
+                    unrepaired_pre_mask = unrepaired_pre
+                    prev_mask_synced = bool(any_inp_pre or not np.array_equal(pre_cand_inp, pre_base_rgb))
 
         refreshed, reg_summary = add_region_to_page(
             page_path,
@@ -1154,6 +1262,17 @@ def mtui_add_region(
                     else:
                         added_m = np.where(cur_mask > 0, 255, 0).astype(np.uint8)
                         removed_m = np.zeros_like(cur_mask)
+                    if (
+                        prev_mask_synced
+                        and unrepaired_pre_mask is not None
+                        and unrepaired_pre_mask.shape == cur_mask.shape
+                        and np.any(unrepaired_pre_mask > 0)
+                    ):
+                        added_m = np.where(
+                            (added_m > 0) | ((unrepaired_pre_mask > 0) & (cur_mask > 0)),
+                            255,
+                            0,
+                        ).astype(np.uint8)
                     try:
                         inp_res = get_worker_client().call(
                             "incremental_neural_inpaint",
@@ -1177,12 +1296,17 @@ def mtui_add_region(
                         raise
                     refreshed = resolve_page_paths(refreshed.source_path)
             elif local_method in ("solid_fill", "telea"):
-                if prev_mask_synced and refreshed.inpainted_path.is_file():
+                import numpy as np
+
+                all_prev_repaired = prev_mask_synced and (
+                    unrepaired_pre_mask is None or not bool(np.any(unrepaired_pre_mask > 0))
+                )
+                if all_prev_repaired and refreshed.inpainted_path.is_file():
                     img_data["mask_inpainted_sha1"] = cur_mask_sha1
                     img_data["mask_inpainted_stat"] = _file_stat_sig(refreshed.inpainted_path)
                     save_page_json_atomic(refreshed, img_key, img_data, auto_initial_snapshot=False)
                     refreshed = resolve_page_paths(refreshed.source_path)
-                elif not prev_mask_synced and "mask_inpainted_sha1" in img_data:
+                elif not all_prev_repaired and "mask_inpainted_sha1" in img_data:
                     img_data["mask_inpainted_sha1"] = ""
                     img_data["mask_inpainted_stat"] = _file_stat_sig(refreshed.inpainted_path)
                     save_page_json_atomic(refreshed, img_key, img_data, auto_initial_snapshot=False)
@@ -1308,6 +1432,67 @@ def mtui_manage_paste_overlays(
 # ===========================================================================
 
 
+def _resolve_committed_pages_from_batch_error(target_path: str, exc: BaseException) -> list[PagePaths]:
+    """Extract ordered, deduplicated committed `PagePaths` from a partial `batch_edit_chapter_pages` error (`R4-F41`)."""
+    resolved_pages: list[PagePaths] = []
+    seen_sources: set[str] = set()
+    covered_names: set[str] = set()
+
+    def _add_page(pp: PagePaths) -> None:
+        norm_src = os.path.normcase(os.path.abspath(str(pp.source_path)))
+        if norm_src in seen_sources:
+            return
+        seen_sources.add(norm_src)
+        covered_names.add(pp.source_path.name)
+        covered_names.add(os.path.normcase(pp.source_path.name))
+        resolved_pages.append(pp)
+
+    raw_paths = getattr(exc, "committed_page_paths", None)
+    if isinstance(raw_paths, (list, tuple)):
+        for item in raw_paths:
+            try:
+                if isinstance(item, PagePaths):
+                    _add_page(resolve_page_paths(item.source_path))
+                elif isinstance(item, (str, Path)) and str(item).strip():
+                    _add_page(resolve_page_paths(item))
+            except Exception:
+                if isinstance(item, PagePaths):
+                    _add_page(item)
+
+    raw_names = getattr(exc, "committed_pages", None)
+    if isinstance(raw_names, (list, tuple)) and raw_names:
+        missing_names = [
+            str(n)
+            for n in raw_names
+            if str(n).strip()
+            and str(n) not in covered_names
+            and os.path.normcase(str(n)) not in covered_names
+        ]
+        if missing_names:
+            try:
+                all_pages = list_manga_pages_in_path(target_path)
+            except Exception:
+                all_pages = []
+            by_exact_name: dict[str, list[PagePaths]] = {}
+            by_norm_name: dict[str, list[PagePaths]] = {}
+            for cand in all_pages:
+                by_exact_name.setdefault(cand.source_path.name, []).append(cand)
+                by_norm_name.setdefault(os.path.normcase(cand.source_path.name), []).append(cand)
+
+            target_p = Path(target_path).expanduser()
+            for name in missing_names:
+                cands = by_exact_name.get(name) or by_norm_name.get(os.path.normcase(name)) or []
+                if len(cands) == 1:
+                    _add_page(cands[0])
+                    continue
+                direct_cand = Path(name) if os.path.isabs(name) else (target_p / name)
+                if direct_cand.exists():
+                    with contextlib.suppress(Exception):
+                        _add_page(resolve_page_paths(direct_cand))
+
+    return resolved_pages
+
+
 @mcp.tool()
 def mtui_batch_edit_chapter(
     target_path: str,
@@ -1330,17 +1515,40 @@ def mtui_batch_edit_chapter(
     `rich_style` / `rich_spans` support all `richtext.v1` keys (including `blur`/`blurAngle`/`blurMotion` & `rubyInherit`).
     Set `dry_run=True` to preview all matching regions before writing changes.
     """
-    modified_pages, report = batch_edit_chapter_pages(
-        target_path,
-        filter_criteria=filter_criteria,
-        find_text=find_text,
-        replace_text=replace_text,
-        use_regex=use_regex,
-        set_fields=set_fields,
-        rich_style=rich_style,
-        rich_spans=rich_spans,
-        dry_run=dry_run,
-    )
+    try:
+        modified_pages, report = batch_edit_chapter_pages(
+            target_path,
+            filter_criteria=filter_criteria,
+            find_text=find_text,
+            replace_text=replace_text,
+            use_regex=use_regex,
+            set_fields=set_fields,
+            rich_style=rich_style,
+            rich_spans=rich_spans,
+            dry_run=dry_run,
+        )
+    except Exception as exc:
+        if not dry_run and re_render:
+            committed_to_render = _resolve_committed_pages_from_batch_error(target_path, exc)
+            if committed_to_render:
+                partial_rendered: list[str] = []
+                partial_render_errors: list[str] = []
+                for cp in committed_to_render:
+                    try:
+                        r_res = _render_single_page_via_worker(cp)
+                        partial_rendered.append(str(r_res.get("output_path") or ""))
+                    except Exception as render_exc:
+                        partial_render_errors.append(f"{cp.source_path.name}: {render_exc}")
+                exc.rendered_outputs = partial_rendered  # type: ignore[attr-defined]
+                exc.render_errors = partial_render_errors  # type: ignore[attr-defined]
+                note_parts = [f"rendered_outputs={partial_rendered!r}"]
+                if partial_render_errors:
+                    note_parts.append(f"render_errors={partial_render_errors!r}")
+                render_summary = ", ".join(note_parts)
+                exc.add_note(f"Partial-commit re-render summary: {render_summary}")
+                exc.args = (f"{exc} [{render_summary}]",)
+        raise
+
     rendered_files: list[str] = []
     if not dry_run and re_render and modified_pages:
         for p in modified_pages:

@@ -1932,6 +1932,21 @@ def _format_verify_crop_ym_line(
     return ym_line, ym_col, has_ym_hi_mismatch
 
 
+def _resize_binary_mask_preserve_thin(mask_u8: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
+    """Resize binary mask to `(target_w, target_h)` preserving every target pixel with any nonzero source coverage."""
+    src_h, src_w = mask_u8.shape[:2]
+    if (src_w, src_h) == (target_w, target_h):
+        return mask_u8
+    cur = (mask_u8 > 0).astype(np.float32)
+    down_w = min(src_w, target_w)
+    down_h = min(src_h, target_h)
+    if (down_w, down_h) != (src_w, src_h):
+        cur = (cv2.resize(cur, (down_w, down_h), interpolation=cv2.INTER_AREA) > 0.0).astype(np.float32)
+    if (down_w, down_h) != (target_w, target_h):
+        cur = cv2.resize(cur, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
+    return np.where(cur > 0.0, 255, 0).astype(np.uint8)
+
+
 def cmd_verify_crops(
     chapter_dir: Path,
     out_dir: Path,
@@ -2032,6 +2047,7 @@ def cmd_verify_crops(
         regs: list[dict] = []
         has_visible_regs = False
         has_mask_raw = False
+        probed_mask_u8: np.ndarray | None = None
         if not p.json_exists:
             missing_parts.append("missing_json")
         else:
@@ -2048,18 +2064,20 @@ def cmd_verify_crops(
                         dec_probe = decode_mask_base64(raw_m, None)
                     except Exception:
                         dec_probe = None
-                    if dec_probe is None:
+                    if dec_probe is None or dec_probe.ndim != 2 or dec_probe.size == 0:
                         missing_parts.append("corrupt_mask")
                     else:
+                        probed_mask_u8 = dec_probe
                         has_mask_raw = bool(np.any(dec_probe > 0))
                 elif isinstance(raw_m, list) and raw_m:
                     try:
                         dec_list = decode_mask_base64(raw_m, None)
                     except Exception:
                         dec_list = None
-                    if dec_list is None:
+                    if dec_list is None or dec_list.ndim != 2 or dec_list.size == 0:
                         missing_parts.append("corrupt_mask")
                     else:
+                        probed_mask_u8 = dec_list
                         has_mask_raw = bool(np.any(dec_list > 0))
                 elif raw_m is not None and not isinstance(raw_m, (str, list)):
                     missing_parts.append("corrupt_mask")
@@ -2121,7 +2139,11 @@ def cmd_verify_crops(
                     missing_artifact_pages.append(skip_rec)
                     continue
 
-        mask_u8 = decode_mask_base64(img_data.get("mask_raw"), (ih, iw))
+        mask_u8 = (
+            _resize_binary_mask_preserve_thin(probed_mask_u8, iw, ih)
+            if probed_mask_u8 is not None
+            else None
+        )
         in_bubbles = _classify_page_regions_in_bubble(inp_gray, regs) if (regs and inp_gray is not None) else []
         reg_stroke_hw, reg_stem_hw, regular_ref_hw = (
             measure_page_stroke_metrics(base_gray, inp_gray, regs) if regs else ({}, {}, 2.20)
@@ -2479,6 +2501,13 @@ def _pair_image_in_list(
     return None
 
 
+def _safe_normcase_abspath(raw_path: str) -> str | None:
+    try:
+        return os.path.normcase(os.path.abspath(raw_path))
+    except (OSError, TypeError, ValueError):
+        return None
+
+
 def _resolve_after_for_compare(
     src_p: Path,
     *,
@@ -2489,11 +2518,21 @@ def _resolve_after_for_compare(
     src_norm = os.path.normcase(os.path.abspath(str(src_p)))
     work_dir = src_p.parent / "manga_translator_work"
 
-    # 1. Inspect per-page JSON (`last_output_path` / `last_export_dir`) only if its entry matches `src_p` unambiguously
-    json_cands = [
+    # 1. Inspect per-page / legacy / chapter JSON (`last_output_path` / `last_export_dir`)
+    #    only if an entry matches `src_p` unambiguously (exact path across all entries first, then unique filename).
+    raw_json_cands = (
         work_dir / "json" / f"{src_p.stem}_translations.json",
+        src_p.parent / f"{src_p.stem}_translations.json",
         src_p.parent / f"{src_p.parent.name}_translations.json",
-    ]
+    )
+    seen_json_norms: set[str] = set()
+    json_cands: list[Path] = []
+    for cand_jp in raw_json_cands:
+        cand_norm = os.path.normcase(os.path.abspath(str(cand_jp)))
+        if cand_norm not in seen_json_norms:
+            seen_json_norms.add(cand_norm)
+            json_cands.append(cand_jp)
+
     for jp in json_cands:
         if not jp.is_file():
             continue
@@ -2503,23 +2542,40 @@ def _resolve_after_for_compare(
             continue
         if not isinstance(raw_json, dict) or not raw_json:
             continue
+        dict_entries: list[tuple[str, dict]] = [
+            (str(k), v) for k, v in raw_json.items() if isinstance(v, dict)
+        ]
+        if not dict_entries:
+            continue
+
         matched_meta: dict | None = None
-        for k, v in raw_json.items():
-            if not isinstance(v, dict):
-                continue
-            k_str = str(k)
-            k_name = Path(k_str).name
-            if (
-                os.path.normcase(os.path.abspath(k_str)) == src_norm
-                or k_name == src_p.name
-                or (target_name_cf_unique and k_name.casefold() == src_p.name.casefold())
-            ):
-                matched_meta = v
-                break
-        if matched_meta is None and target_stem_unique and len(raw_json) == 1:
-            only_val = next(iter(raw_json.values()))
-            if isinstance(only_val, dict):
-                matched_meta = only_val
+        exact_path_same_case = [
+            v
+            for k_str, v in dict_entries
+            if _safe_normcase_abspath(k_str) == src_norm and Path(k_str).name == src_p.name
+        ]
+        if exact_path_same_case:
+            matched_meta = exact_path_same_case[-1]
+        elif target_name_cf_unique:
+            exact_path_cf = [
+                v for k_str, v in dict_entries if _safe_normcase_abspath(k_str) == src_norm
+            ]
+            if len(exact_path_cf) == 1:
+                matched_meta = exact_path_cf[0]
+
+        if matched_meta is None:
+            exact_name_hits = [v for k_str, v in dict_entries if Path(k_str).name == src_p.name]
+            if len(exact_name_hits) == 1:
+                matched_meta = exact_name_hits[0]
+            elif len(exact_name_hits) == 0 and target_name_cf_unique:
+                cf_name_hits = [
+                    v
+                    for k_str, v in dict_entries
+                    if Path(k_str).name.casefold() == src_p.name.casefold()
+                ]
+                if len(cf_name_hits) == 1:
+                    matched_meta = cf_name_hits[0]
+
         if isinstance(matched_meta, dict):
             last_out = matched_meta.get("last_output_path")
             if isinstance(last_out, str) and last_out.strip():
@@ -2672,6 +2728,7 @@ def cmd_compare(
         chapter_cand: Path | None = None
         chapter_cand_files: list[Path] = []
         chapter_stem_counts: dict[str, int] = {}
+        chapter_name_cf_counts: dict[str, int] = {}
         if after_dir is not None:
             cand_dir = (
                 after_dir.parent.parent
@@ -2683,6 +2740,7 @@ def cmd_compare(
                 chapter_cand_files = _list_dir_images(cand_dir, exclude_translated_suffix=True)
                 for cp in chapter_cand_files:
                     chapter_stem_counts[cp.stem.casefold()] = chapter_stem_counts.get(cp.stem.casefold(), 0) + 1
+                    chapter_name_cf_counts[cp.name.casefold()] = chapter_name_cf_counts.get(cp.name.casefold(), 0) + 1
 
         for idx, bp in enumerate(before_files, 1):
             stem_unique = before_stem_counts.get(bp.stem.casefold(), 0) == 1
@@ -2702,10 +2760,13 @@ def cmd_compare(
                     target_name_cf_unique=name_cf_unique,
                 )
                 if src_cand is not None and src_cand.is_file():
+                    src_cf_unique = name_cf_unique and (
+                        chapter_name_cf_counts.get(src_cand.name.casefold(), 0) == 1
+                    )
                     ap = _resolve_after_for_compare(
                         src_cand,
                         target_stem_unique=stem_unique and chapter_stem_counts.get(src_cand.stem.casefold(), 0) == 1,
-                        target_name_cf_unique=name_cf_unique,
+                        target_name_cf_unique=src_cf_unique,
                     )
             if ap is None or not ap.is_file():
                 missing_after_pages.append(bp.name)

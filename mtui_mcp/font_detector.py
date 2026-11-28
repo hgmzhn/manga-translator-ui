@@ -640,13 +640,9 @@ def _parse_nonneg_int(val: Any) -> Optional[int]:
         return val if val >= 0 else None
     if isinstance(val, str):
         s = val.strip()
-        if not s:
+        if not s or not s.isascii() or not s.isdigit():
             return None
-        try:
-            parsed = int(s)
-        except ValueError:
-            return None
-        return parsed if parsed >= 0 else None
+        return int(s)
     return None
 
 
@@ -730,9 +726,13 @@ def lookup_cached_region_prediction(
             return None
         if total_regions is not None and cached_count != total_regions:
             return None
-    if total_regions is not None:
-        if any(int(k) >= total_regions for k in by_idx if str(k).isdigit()):
+    for raw_k in by_idx:
+        parsed_k = _parse_nonneg_int(raw_k)
+        if parsed_k is None:
             return None
+        if total_regions is not None and parsed_k >= total_regions:
+            return None
+    if total_regions is not None:
         if (page_cache.get("_from_disk_cache") or by_sig) and len(by_idx) != total_regions:
             return None
 

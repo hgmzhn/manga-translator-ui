@@ -942,6 +942,7 @@ class EngineRuntime:
             inpainted_path = os.path.abspath(params["inpainted_path"])
             padding = max(16, int(params.get("padding", 50)))
             full_reinpaint = bool(params.get("full_reinpaint", False))
+            prev_mask_sync_state = str(params.get("prev_mask_sync_state") or "").strip().lower()
             prev_mask_synced = bool(params.get("prev_mask_synced", False))
 
             with Image.open(display_base_path) as im:
@@ -1041,7 +1042,7 @@ class EngineRuntime:
                 os.path.isfile(inpainted_path)
                 and not full_reinpaint
                 and not is_blur_inpainter
-                and prev_mask_synced
+                and (prev_mask_synced or prev_mask_sync_state == "untracked")
             )
             prev_rgb: Optional[np.ndarray] = None
             if has_prev:
@@ -1049,6 +1050,31 @@ class EngineRuntime:
                     prev_rgb = np.array(pim.convert("RGB"), dtype=np.uint8, copy=True)
                 if prev_rgb.shape[:2] != (h, w):
                     prev_rgb = None
+                elif not prev_mask_synced and prev_mask_sync_state == "untracked":
+                    prev_raw_mask = (
+                        _decode_b64_mask(params.get("prev_mask_b64"))
+                        if params.get("prev_mask_b64") is not None
+                        else np.where((current_mask > 0) & (added_mask == 0), 255, 0).astype(np.uint8)
+                    )
+                    prev_bin = np.where(prev_raw_mask > 0, 1, 0).astype(np.uint8)
+                    any_inpainted_comp = not bool(np.any(prev_bin))
+                    if np.any(prev_bin):
+                        n_comp, comp_lbl = cv2.connectedComponents(prev_bin, connectivity=8)
+                        unrepaired = np.zeros((h, w), dtype=np.uint8)
+                        for cid in range(1, n_comp):
+                            comp = comp_lbl == cid
+                            if np.array_equal(prev_rgb[comp], base_rgb[comp]):
+                                unrepaired[comp] = 255
+                            else:
+                                any_inpainted_comp = True
+                        if np.any(unrepaired > 0):
+                            added_mask = np.where(
+                                (added_mask > 0) | ((unrepaired > 0) & (current_mask > 0)),
+                                255,
+                                0,
+                            ).astype(np.uint8)
+                    if not any_inpainted_comp and np.array_equal(prev_rgb, base_rgb):
+                        prev_rgb = None
 
             crop_box_used: Optional[list[int]] = None
             if prev_rgb is None:

@@ -955,15 +955,20 @@ def test_r2_f01_concurrent_same_page_render_and_inpaint_no_lock_inversion(
         except BaseException as exc:
             errors.append(exc)
 
-    # R3-F52: Run BOTH concurrent operations on bounded daemon threads sharing one test deadline
+    # R3-F52 & R4-F35: Run BOTH concurrent operations on bounded daemon threads sharing one test deadline,
+    # and only join threads in `finally:` that were actually started.
     t_render = threading.Thread(target=_run_render, daemon=True)
     t_inpaint = threading.Thread(target=_run_inpaint, daemon=True)
+    render_started = False
+    inpaint_started = False
     try:
         t_render.start()
+        render_started = True
         assert in_export.wait(timeout=2.0)
 
         test_deadline = time.monotonic() + 3.0
         t_inpaint.start()
+        inpaint_started = True
         t_inpaint.join(timeout=max(0.0, test_deadline - time.monotonic()))
         t_render.join(timeout=max(0.0, test_deadline - time.monotonic()))
         assert not t_inpaint.is_alive() and not t_render.is_alive(), (
@@ -975,8 +980,10 @@ def test_r2_f01_concurrent_same_page_render_and_inpaint_no_lock_inversion(
         assert render_out["res"]["metadata_saved"] is True
     finally:
         inpaint_waiting_runtime.set()
-        t_inpaint.join(timeout=0.5)
-        t_render.join(timeout=0.5)
+        if inpaint_started:
+            t_inpaint.join(timeout=0.5)
+        if render_started:
+            t_render.join(timeout=0.5)
 
 
 def test_r2_f14_f54_page_entry_ownership_and_legacy_list_metadata_persist(tmp_path: Path) -> None:
@@ -2121,22 +2128,26 @@ def test_r3_f11_f38_worker_client_lingering_proc_blocks_spawn_and_pre_spawn_dead
     assert spawn_count["n"] == 1
     client._proc = None
 
-    # 2. R3-F38: Old worker exits right AFTER `startup_timeout_sec` budget expires during `_wait_for_shutting_down_procs_locked`
+    # 2. R3-F38 & R4-F34: Deterministic controlled-clock & drain-double test where draining old workers succeeds
+    #    right as `deadline` expires, proving the pre-`Popen` budget check raises `TimeoutError` without calling `Popen`.
     spawn_count["n"] = 0
+    fake_clock = {"now": 1000.0}
     late_exit_proc = LingeringGpuProc()
     client._shutting_down_procs.add(late_exit_proc)  # type: ignore[arg-type]
 
-    def _flip_exit_after_budget() -> None:
-        time.sleep(0.14)
+    def _drain_succeeds_right_at_deadline(drain_deadline: float) -> None:
+        assert drain_deadline == pytest.approx(1000.1)
         late_exit_proc.alive = False
-        with client._lock:
-            client._state_cond.notify_all()
+        client._reap_shutting_down_procs_locked()
+        assert client._shutting_down_procs == set()
+        # Advance monotonic clock to `deadline` AFTER drain succeeded so only the pre-spawn check can fire!
+        fake_clock["now"] = drain_deadline
 
-    t_flip = threading.Thread(target=_flip_exit_after_budget, daemon=True)
-    t_flip.start()
-    with pytest.raises(TimeoutError):
-        client._ensure_started_instance(startup_timeout_sec=0.1)
-    t_flip.join(timeout=1.0)
+    with pytest.MonkeyPatch.context() as mp_clock:
+        mp_clock.setattr("mtui_mcp.worker.client.time.monotonic", lambda: fake_clock["now"])
+        mp_clock.setattr(client, "_wait_for_shutting_down_procs_locked", _drain_succeeds_right_at_deadline)
+        with pytest.raises(TimeoutError, match="before process spawn"):
+            client._ensure_started_instance(startup_timeout_sec=0.1)
     assert spawn_count["n"] == 0, "Must NOT call Popen after startup budget was already exhausted waiting for drain"
     client._shutting_down_procs.clear()
 
@@ -2359,3 +2370,523 @@ def test_r3_f15_f16_f17_f42_engine_worker_integrity_and_cli_guards(
         with pytest.raises(ValueError, match="rounds to 0"):
             rt.run_cli_pipeline({"inputs": [str(tmp_path / "raw")], "memory_percent": sub_one_pct})
     assert vram_evictions["count"] == 0
+
+
+# ===========================================================================
+# Round 4 Slice 3 Regression Tests (R4-F01, R4-F22, R4-F32, R4-F34, R4-F35, R4-F41)
+# ===========================================================================
+
+
+def test_r4_f01_desktop_untracked_inpaint_preserves_neural_background_and_repairs_raw_components(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify desktop/CLI pages without sync metadata preserve neural LaMa backgrounds while repairing un-inpainted components (`R4-F01` vs `R3-F12`)."""
+    ch_dir = tmp_path / "ch_r4_f01"
+    ch_dir.mkdir()
+    page_p = ch_dir / "001.png"
+
+    # Build a 220x220 comic page:
+    # - Bubble 1 (`[20:70, 20:70]`): complex colored artwork background + dark Japanese ink
+    # - Bubble 2 (`[120:190, 120:190]`): pure white speech bubble + dark text + leftover speck `[172:184, 140:155]`
+    # - Bubble 3 (`[20:60, 130:180]`): manually added mask component still holding raw un-erased ink in `inpainted_path`
+    yy, xx = np.mgrid[0:220, 0:220]
+    base_rgb = np.full((220, 220, 3), 255, dtype=np.uint8)
+    # Textured artwork region around Bubble 1 so any flat `solid_fill` would destroy the gradient/checkerboard
+    base_rgb[10:85, 10:85, 0] = np.clip(90 + (xx[10:85, 10:85] * 2) % 80, 0, 255).astype(np.uint8)
+    base_rgb[10:85, 10:85, 1] = np.clip(110 + (yy[10:85, 10:85] * 3) % 70, 0, 255).astype(np.uint8)
+    base_rgb[10:85, 10:85, 2] = 175
+    # Original ink strokes inside Bubble 1, Bubble 2, speck, and Bubble 3
+    base_rgb[30:60, 30:60] = (12, 14, 18)
+    base_rgb[135:165, 135:170] = (15, 15, 15)
+    base_rgb[172:184, 140:155] = (20, 20, 20)
+    base_rgb[28:52, 140:170] = (10, 10, 10)
+    Image.fromarray(base_rgb).save(page_p)
+
+    paths = resolve_page_paths(page_p)
+    paths.inpainted_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Desktop-saved `001_inpainted.png`:
+    # - Bubble 1 (`[20:70, 20:70]`) has complex neural LaMa reconstructed gradient (`prev_inpaint != base_rgb`)
+    # - Bubble 2 (`[130:168, 130:175]`) was cleaned to white
+    # - Bubble 3 (`[25:55, 135:175]`) was NOT inpainted yet (`prev_inpaint == base_rgb` on that component!)
+    desktop_inpaint = base_rgb.copy()
+    neural_lama_patch = np.dstack(
+        [
+            np.clip(120 + (xx[20:70, 20:70] + yy[20:70, 20:70]) % 60, 0, 255),
+            np.clip(145 + (xx[20:70, 20:70] * 2) % 50, 0, 255),
+            np.full((50, 50), 205, dtype=np.int32),
+        ]
+    ).astype(np.uint8)
+    desktop_inpaint[20:70, 20:70] = neural_lama_patch
+    desktop_inpaint[130:168, 130:175] = 255
+    Image.fromarray(desktop_inpaint).save(paths.inpainted_path)
+
+    prev_mask = np.zeros((220, 220), dtype=np.uint8)
+    prev_mask[20:70, 20:70] = 255  # Component 1: already neural-inpainted (`prev != base`)
+    prev_mask[130:168, 130:175] = 255  # Component 2: already inpainted (`prev != base`)
+    prev_mask[25:55, 135:175] = 255  # Component 3: un-inpainted raw component (`prev == base`)
+
+    # Normal desktop/CLI JSON does NOT write `mask_inpainted_sha1` or `mask_inpainted_stat`!
+    save_page_json_atomic(
+        paths,
+        str(page_p.resolve()),
+        {"mask_raw": encode_mask_base64(prev_mask), "regions": []},
+        auto_initial_snapshot=False,
+    )
+
+    _, unloaded_json = load_page_json(resolve_page_paths(page_p))
+    assert "mask_inpainted_sha1" not in unloaded_json
+    assert "mask_inpainted_stat" not in unloaded_json
+    assert (
+        server_mod._prev_mask_sync_state(
+            unloaded_json,
+            server_mod._mask_sha1_hex(prev_mask, (220, 220)),
+            paths.inpainted_path,
+        )
+        == "untracked"
+    )
+
+    # 1. Single-bubble `solid_fill` on Bubble 2's speck (`full_reinpaint=False`):
+    #    - MUST preserve Bubble 1's complex neural LaMa artwork bit-for-bit!
+    #    - MUST clean Bubble 2's newly added speck!
+    #    - MUST ALSO repair Bubble 3's un-inpainted raw component (`prev_inpaint == base_rgb`)!
+    server_mod.mtui_edit_mask_and_inpaint(
+        str(page_p),
+        add_rects=[[140, 172, 155, 184]],
+        inpaint_method="solid_fill",
+        full_reinpaint=False,
+        re_render=False,
+    )
+    after_local = np.asarray(Image.open(paths.inpainted_path).convert("RGB"))
+    assert np.array_equal(after_local[20:70, 20:70], neural_lama_patch), (
+        "Single-bubble solid_fill MUST NOT overwrite neural LaMa artwork on other desktop bubbles!"
+    )
+    assert float(np.mean(after_local[172:184, 140:155])) > 245.0, "Newly masked speck in Bubble 2 must be filled"
+    assert float(np.mean(after_local[28:52, 140:170])) > 245.0, "Un-inpainted raw component 3 must also be repaired"
+
+    # 2. Desktop page without sync metadata using `inpaint_method="neural"`:
+    #    passes `prev_mask_synced=True` and incremental `added_mask_b64` rather than discarding `prev_inpaint`!
+    _, post_json = load_page_json(resolve_page_paths(page_p))
+    post_json.pop("mask_inpainted_sha1", None)
+    post_json.pop("mask_inpainted_stat", None)
+    save_page_json_atomic(resolve_page_paths(page_p), str(page_p.resolve()), post_json, auto_initial_snapshot=False)
+
+    neural_calls: list[dict[str, Any]] = []
+
+    class DesktopNeuralWorkerStub:
+        is_running = True
+
+        def call(self, action: str, params: dict[str, Any] | None = None, timeout_sec: float = 30.0) -> dict[str, Any]:
+            assert action == "incremental_neural_inpaint"
+            neural_calls.append(dict(params or {}))
+            return {"status": "ok", "inpainted_path": str(paths.inpainted_path)}
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(server_mod, "get_worker_client", lambda: DesktopNeuralWorkerStub())
+        mp.setattr(type(server_mod.get_runtime_settings()), "is_engine_available", property(lambda _s: True))
+        server_mod.mtui_edit_mask_and_inpaint(
+            str(page_p),
+            add_rects=[[140, 185, 155, 195]],
+            inpaint_method="neural",
+            full_reinpaint=False,
+            re_render=False,
+        )
+    assert len(neural_calls) == 1
+    assert neural_calls[0]["prev_mask_synced"] is True
+    sent_added = server_mod.decode_mask_base64(neural_calls[0]["added_mask_b64"], (220, 220))
+    assert sent_added is not None
+    assert int(np.sum(sent_added[20:70, 20:70] > 0)) == 0, "Already-inpainted Bubble 1 must not be in added_mask_b64"
+    assert int(np.sum(sent_added[185:195, 140:155] > 0)) == 150
+
+    # 3. Explicit `full_reinpaint=True` DOES re-inpaint the whole mask from scratch when explicitly requested
+    server_mod.mtui_edit_mask_and_inpaint(
+        str(page_p),
+        inpaint_method="solid_fill",
+        full_reinpaint=True,
+        re_render=False,
+    )
+    after_full = np.asarray(Image.open(paths.inpainted_path).convert("RGB"))
+    assert not np.array_equal(after_full[20:70, 20:70], neural_lama_patch)
+
+    # 4. Direct `engine_worker.incremental_neural_inpaint(..., prev_mask_sync_state="untracked")` preserves
+    #    already-inpainted components while expanding `added_mask` to include un-inpainted raw components!
+    Image.fromarray(desktop_inpaint).save(paths.inpainted_path)
+
+    class FakeInpainter(str, Enum):
+        lama_large = "lama_large"
+        blur = "blur"
+
+    class FakePrecision(str, Enum):
+        fp32 = "fp32"
+
+    class FakeInpainterConfig:
+        def __init__(self) -> None:
+            self.inpainting_precision = FakePrecision.fp32
+            self.force_use_torch_inpainting = False
+            self.blur_radius = 0
+
+    worker_dispatches: list[dict[str, Any]] = []
+
+    async def _fake_worker_dispatch(**kwargs: Any) -> np.ndarray:
+        worker_dispatches.append(kwargs)
+        out_crop = kwargs["image"].copy()
+        out_crop[kwargs["mask"] > 0] = 250
+        return out_crop
+
+    with pytest.MonkeyPatch.context() as mp_ew:
+        mp_ew.setitem(
+            sys.modules,
+            "torch",
+            types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: False, empty_cache=lambda: None)),
+        )
+        mp_ew.setitem(sys.modules, "manga_translator", types.ModuleType("manga_translator"))
+        mp_ew.setitem(
+            sys.modules,
+            "manga_translator.config",
+            types.SimpleNamespace(
+                Inpainter=FakeInpainter,
+                InpainterConfig=FakeInpainterConfig,
+                InpaintPrecision=FakePrecision,
+            ),
+        )
+        mp_ew.setitem(sys.modules, "manga_translator.inpainting", types.SimpleNamespace(dispatch=_fake_worker_dispatch))
+        rt = engine_worker.EngineRuntime(str(tmp_path))
+        rt._initialized = True
+        mp_ew.setattr(rt, "_get_config_dict", lambda: {"inpainter": {"inpainter": "lama_large"}, "cli": {"use_gpu": False}})
+        saved_worker_imgs: list[np.ndarray] = []
+        rt._export_service = types.SimpleNamespace(
+            save_inpainted_image=lambda _p, img, _cfg: (saved_worker_imgs.append(img.copy()) or str(paths.inpainted_path))
+        )
+        cur_m_ew = prev_mask.copy()
+        add_m_ew = np.zeros((220, 220), dtype=np.uint8)
+        add_m_ew[172:184, 140:155] = 255
+        cur_m_ew[172:184, 140:155] = 255
+        ew_res = rt.incremental_neural_inpaint(
+            {
+                "display_base_path": str(paths.display_base_path),
+                "inpainted_path": str(paths.inpainted_path),
+                "current_mask_b64": encode_mask_base64(cur_m_ew),
+                "added_mask_b64": encode_mask_base64(add_m_ew),
+                "prev_mask_b64": encode_mask_base64(prev_mask),
+                "prev_mask_sync_state": "untracked",
+            }
+        )
+    assert ew_res["status"] == "ok"
+    assert len(saved_worker_imgs) == 1
+    assert np.array_equal(saved_worker_imgs[0][20:70, 20:70], neural_lama_patch)
+    assert float(np.mean(saved_worker_imgs[0][28:52, 140:170])) >= 249.0
+    assert float(np.mean(saved_worker_imgs[0][172:184, 140:155])) >= 249.0
+
+
+def test_r4_f22_worker_shutdown_does_not_deadlock_closing_pipes_with_blocked_readers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify `shutdown()` never calls `pipe.close()` synchronously while worker/readers hold `BufferedReader` lock (`R4-F22`)."""
+    monkeypatch.setattr("mtui_mcp.worker.client._SHUTDOWN_DRAIN_WAIT_SEC", 0.05)
+
+    r_out_fd, w_out_fd = os.pipe()
+    r_err_fd, w_err_fd = os.pipe()
+    stdout_pipe = io.TextIOWrapper(io.BufferedReader(io.FileIO(r_out_fd, "rb")), encoding="utf-8")
+    stderr_pipe = io.TextIOWrapper(io.BufferedReader(io.FileIO(r_err_fd, "rb")), encoding="utf-8")
+
+    class HungPipeWorkerProc:
+        pid = 77701
+        stdin = None
+
+        def __init__(self) -> None:
+            self.stdout = stdout_pipe
+            self.stderr = stderr_pipe
+            self.alive = True
+
+        def poll(self) -> int | None:
+            return None if self.alive else -9
+
+        def kill(self) -> None:
+            # Process stays stuck in uninterruptible sleep; write fds stay open so readers block in `readline()`
+            pass
+
+        def wait(self, timeout: float | None = None) -> int:
+            if self.alive:
+                raise subprocess.TimeoutExpired(cmd=["worker"], timeout=0.02)
+            return -9
+
+    client = MtuiWorkerClient()
+    hung_proc = HungPipeWorkerProc()
+
+    stdout_entered = threading.Event()
+    stderr_entered = threading.Event()
+
+    def _blocked_stdout_reader() -> None:
+        stdout_entered.set()
+        try:
+            for _ in iter(stdout_pipe.readline, ""):
+                pass
+        finally:
+            stdout_pipe.close()
+
+    def _blocked_stderr_reader() -> None:
+        stderr_entered.set()
+        try:
+            for _ in iter(stderr_pipe.readline, ""):
+                pass
+        finally:
+            stderr_pipe.close()
+
+    t_out = threading.Thread(target=_blocked_stdout_reader, daemon=True)
+    t_err = threading.Thread(target=_blocked_stderr_reader, daemon=True)
+    t_out.start()
+    t_err.start()
+    assert stdout_entered.wait(timeout=1.0) and stderr_entered.wait(timeout=1.0)
+    # Give both threads a brief moment to enter CPython's blocking `BufferedReader.readline()`
+    time.sleep(0.03)
+
+    client._proc = hung_proc  # type: ignore[assignment]
+    client._port = 45678
+    client._token = ""
+    client._proc_pipe_readers[hung_proc] = {"stdout": t_out, "stderr": t_err}
+
+    t_shutdown = threading.Thread(target=client.shutdown, daemon=True)
+    try:
+        t_shutdown.start()
+        t_shutdown.join(timeout=1.5)
+        assert not t_shutdown.is_alive(), "client.shutdown() deadlocked closing active stdout/stderr pipes!"
+        assert hung_proc in client._shutting_down_procs, "Still-alive worker must remain in _shutting_down_procs"
+        assert not stdout_pipe.closed and not stderr_pipe.closed
+
+        # Now simulate delayed worker OS exit (closing write ends of both pipes):
+        hung_proc.alive = False
+        os.close(w_out_fd)
+        w_out_fd = -1
+        os.close(w_err_fd)
+        w_err_fd = -1
+
+        t_out.join(timeout=1.5)
+        t_err.join(timeout=1.5)
+        assert not t_out.is_alive() and not t_err.is_alive()
+        assert stdout_pipe.closed and stderr_pipe.closed
+
+        with client._lock:
+            client._reap_shutting_down_procs_locked()
+        assert hung_proc not in client._shutting_down_procs
+        assert hung_proc not in client._proc_pipe_readers
+    finally:
+        for fd in (w_out_fd, w_err_fd):
+            if fd >= 0:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+        t_out.join(timeout=0.5)
+        t_err.join(timeout=0.5)
+        t_shutdown.join(timeout=0.5)
+
+
+def test_r4_f32_config_switch_respects_startup_timeout_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify config-switch shutdown in `_ensure_started_instance` obeys `startup_timeout_sec` (`R4-F32`)."""
+    root_a = tmp_path / "root_a"
+    root_b = tmp_path / "root_b"
+    root_c = tmp_path / "root_c"
+    for d in (root_a, root_b, root_c):
+        d.mkdir()
+
+    settings = get_runtime_settings()
+    monkeypatch.setattr(type(settings), "is_engine_available", property(lambda _s: True))
+    monkeypatch.setattr(settings, "mtui_root", root_b)
+    monkeypatch.setattr(settings, "mtui_python", Path(sys.executable))
+
+    old_exit_gate = threading.Event()
+    spawned_roots: list[str] = []
+
+    class SlowDrainingOldProc:
+        pid = 88001
+        stdout = None
+        stderr = None
+        stdin = None
+
+        def poll(self) -> int | None:
+            return 0 if old_exit_gate.is_set() else None
+
+        def wait(self, timeout: float | None = None) -> int:
+            if old_exit_gate.wait(timeout=timeout):
+                return 0
+            raise subprocess.TimeoutExpired(cmd=["old_worker"], timeout=timeout or 0.1)
+
+        def kill(self) -> None:
+            pass
+
+    class FastReadyNewProc:
+        def __init__(self, cmd: list[str], **kwargs: Any) -> None:
+            spawned_roots.append(str(kwargs.get("cwd") or ""))
+            self.pid = 88002 + len(spawned_roots)
+            self.stdout = io.StringIO(f'MTUI_WORKER_READY {{"port": {46000 + len(spawned_roots)}}}\n')
+            self.stderr = io.StringIO("")
+            self.stdin = None
+            self.returncode: int | None = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def wait(self, timeout: float | None = None) -> int:
+            self.returncode = 0
+            return 0
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+    class FakeShutdownResp:
+        def __enter__(self) -> "FakeShutdownResp":
+            return self
+
+        def __exit__(self, *_a: Any) -> None:
+            pass
+
+        def read(self) -> bytes:
+            return b'{"ok":true}'
+
+    monkeypatch.setattr("mtui_mcp.worker.client._LOOPBACK_OPENER.open", lambda *_a, **_kw: FakeShutdownResp())
+    monkeypatch.setattr("mtui_mcp.worker.client.subprocess.Popen", FastReadyNewProc)
+
+    client = MtuiWorkerClient()
+    old_proc = SlowDrainingOldProc()
+    client._proc = old_proc  # type: ignore[assignment]
+    client._port = 45999
+    client._token = "tok_old"
+    client._bound_root = root_a
+    client._bound_python = Path(sys.executable)
+
+    # 1. Old worker does NOT exit within `startup_timeout_sec=0.12`:
+    #    caller MUST get `TimeoutError` promptly (~0.12s, NOT `_SHUTDOWN_DRAIN_WAIT_SEC` = 14s!),
+    #    old worker MUST stay in `_shutting_down_procs`, and `Popen` MUST NOT run.
+    t0 = time.monotonic()
+    with pytest.raises(TimeoutError, match="88001"):
+        client._ensure_started_instance(startup_timeout_sec=0.12)
+    elapsed = time.monotonic() - t0
+    assert elapsed < 1.0, f"Config switch ignored startup_timeout_sec=0.12 (took {elapsed:.2f}s)"
+    assert old_proc in client._shutting_down_procs
+    assert spawned_roots == []
+
+    # 2. Once old worker exits, replacement worker for `root_b` spawns cleanly!
+    old_exit_gate.set()
+    _, port_b, _ = client._ensure_started_instance(startup_timeout_sec=2.0)
+    assert port_b == 46001
+    assert client._shutting_down_procs == set()
+    assert spawned_roots == [str(root_b)]
+
+    # 3. Config switch to `root_c` when `port_b` worker exits well within `startup_timeout_sec` succeeds in one call!
+    monkeypatch.setattr(settings, "mtui_root", root_c)
+    _, port_c, _ = client._ensure_started_instance(startup_timeout_sec=2.0)
+    assert port_c == 46002
+    assert spawned_roots == [str(root_b), str(root_c)]
+    client._proc = None
+
+
+def test_r4_f35_unstarted_inpaint_thread_cleanup_does_not_mask_timeout_error() -> None:
+    """Verify `R4-F35` thread-started flags prevent `RuntimeError('cannot join thread before it is started')`."""
+    render_done = threading.Event()
+    t_render = threading.Thread(target=lambda: render_done.wait(timeout=0.5), daemon=True)
+    t_inpaint = threading.Thread(target=lambda: None, daemon=True)
+    render_started = False
+    inpaint_started = False
+
+    with pytest.raises(AssertionError, match="simulated_export_wait_timeout"):
+        try:
+            t_render.start()
+            render_started = True
+            raise AssertionError("simulated_export_wait_timeout")
+        finally:
+            render_done.set()
+            if inpaint_started:
+                t_inpaint.join(timeout=0.5)
+            if render_started:
+                t_render.join(timeout=0.5)
+    assert not t_render.is_alive()
+
+
+def test_r4_f41_mtui_batch_edit_chapter_renders_committed_pages_on_partial_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify `mtui_batch_edit_chapter` renders already-committed pages before re-raising partial errors (`R4-F41`)."""
+    ch_dir = tmp_path / "ch_r4_f41"
+    ch_dir.mkdir()
+    p1 = _make_sample_page(ch_dir, "001.png", size_hw=(120, 120))
+    p2 = _make_sample_page(ch_dir, "002.png", size_hw=(120, 120))
+    paths1 = resolve_page_paths(p1)
+    paths2 = resolve_page_paths(p2)
+    for pp in (paths1, paths2):
+        save_page_json_atomic(pp, str(pp.source_path.resolve()), {"regions": []}, auto_initial_snapshot=False)
+    paths1 = resolve_page_paths(p1)
+    paths2 = resolve_page_paths(p2)
+
+    rendered_calls: list[str] = []
+
+    # 1. Partial error carrying `committed_page_paths` (`failure_stage='post_commit_summary'`):
+    #    both `001.png` and `002.png` are rendered before `RuntimeError` is re-raised with `failure_stage` preserved!
+    def _failing_batch_with_paths(*_a: Any, **_kw: Any) -> Any:
+        err = RuntimeError(
+            "Batch edit committed 002.png but post-commit summary reload failed "
+            "(committed_pages=['001.png', '002.png'], failed_page='002.png', failure_stage='post_commit_summary'): boom"
+        )
+        err.committed_pages = ["001.png", "002.png"]  # type: ignore[attr-defined]
+        err.committed_page_paths = [paths1, paths2]  # type: ignore[attr-defined]
+        err.failed_page = "002.png"  # type: ignore[attr-defined]
+        err.page_committed = True  # type: ignore[attr-defined]
+        err.failure_stage = "post_commit_summary"  # type: ignore[attr-defined]
+        raise err
+
+    def _render_ok(pp: Any, **_kw: Any) -> dict[str, Any]:
+        rendered_calls.append(pp.source_path.name)
+        return {"status": "ok", "output_path": str(pp.rendered_output_path)}
+
+    monkeypatch.setattr(server_mod, "batch_edit_chapter_pages", _failing_batch_with_paths)
+    monkeypatch.setattr(server_mod, "_render_single_page_via_worker", _render_ok)
+
+    with pytest.raises(RuntimeError, match="failure_stage='post_commit_summary'") as exc_info:
+        server_mod.mtui_batch_edit_chapter(str(ch_dir), find_text="旧", replace_text="新", re_render=True)
+    assert rendered_calls == ["001.png", "002.png"]
+    assert getattr(exc_info.value, "failure_stage", None) == "post_commit_summary"
+    assert getattr(exc_info.value, "rendered_outputs", None) == [
+        str(paths1.rendered_output_path),
+        str(paths2.rendered_output_path),
+    ]
+    assert "rendered_outputs=" in str(exc_info.value)
+
+    # 2. Fallback when `committed_page_paths` is absent (only `committed_pages`) AND one render fails:
+    #    renders resolved committed pages, records `render_errors` note + attribute, and preserves original `RuntimeError`!
+    rendered_calls.clear()
+
+    def _failing_batch_names_only(*_a: Any, **_kw: Any) -> Any:
+        err = RuntimeError(
+            "Batch edit failed on 002.png after committing committed_pages=['001.png', '002.png'] "
+            "(failed_page='002.png', failure_stage='commit'): disk error"
+        )
+        err.committed_pages = ["001.png", "002.png"]  # type: ignore[attr-defined]
+        err.failed_page = "002.png"  # type: ignore[attr-defined]
+        err.page_committed = False  # type: ignore[attr-defined]
+        err.failure_stage = "commit"  # type: ignore[attr-defined]
+        raise err
+
+    def _render_flaky(pp: Any, **_kw: Any) -> dict[str, Any]:
+        rendered_calls.append(pp.source_path.name)
+        if pp.source_path.name == "002.png":
+            raise RuntimeError("worker render timeout")
+        return {"status": "ok", "output_path": str(pp.rendered_output_path)}
+
+    monkeypatch.setattr(server_mod, "batch_edit_chapter_pages", _failing_batch_names_only)
+    monkeypatch.setattr(server_mod, "_render_single_page_via_worker", _render_flaky)
+
+    with pytest.raises(RuntimeError, match="failure_stage='commit'") as exc_info2:
+        server_mod.mtui_batch_edit_chapter(str(ch_dir), find_text="旧", replace_text="新", re_render=True)
+    assert rendered_calls == ["001.png", "002.png"]
+    assert getattr(exc_info2.value, "failure_stage", None) == "commit"
+    assert getattr(exc_info2.value, "rendered_outputs", None) == [str(paths1.rendered_output_path)]
+    assert getattr(exc_info2.value, "render_errors", None) == ["002.png: worker render timeout"]
+    assert "render_errors=" in str(exc_info2.value)
+    assert any("worker render timeout" in n for n in getattr(exc_info2.value, "__notes__", []))
+
+    # 3. `re_render=False` skips rendering on partial error
+    rendered_calls.clear()
+    with pytest.raises(RuntimeError, match="failure_stage='commit'"):
+        server_mod.mtui_batch_edit_chapter(str(ch_dir), find_text="旧", replace_text="新", re_render=False)
+    assert rendered_calls == []

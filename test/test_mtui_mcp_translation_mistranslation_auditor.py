@@ -168,10 +168,14 @@ def test_r3_compound_units_mixed_quantities_and_exact_decimal_units() -> None:
     assert audit_region_translation_accuracy(0, {"text": "予算は1万億だ", "translation": "预算是一万亿"}) == []
     assert audit_region_translation_accuracy(0, {"text": "被害1億2000万", "translation": "损失一亿二千万"}) == []
 
-    # R3-F56: Mixed compound `2万3千` / `2万3500` parsed as single quantity without backtracking to bare `2`
+    # R3-F56 / R4-F49: Mixed compound `2万3千` / `2万3500` parsed as single quantity (with negative control on `2万3千`)
     assert audit_region_translation_accuracy(0, {"text": "敵は2万3千人", "translation": "敌人有23000人"}) == []
     assert audit_region_translation_accuracy(0, {"text": "敵は2万3千人", "translation": "敌人有两万三千人"}) == []
     assert audit_region_translation_accuracy(0, {"text": "敵は2万3500人", "translation": "敌人有23500人"}) == []
+    wrong_2man3sen = audit_region_translation_accuracy(0, {"text": "敵は2万3千人", "translation": "敌人有2人"})
+    assert any(
+        i["category"] == "translation_number_mismatch" and i["missing_number"] == 23000 for i in wrong_2man3sen
+    )
     wrong_2man = audit_region_translation_accuracy(0, {"text": "敵は2万人", "translation": "敌人有2人"})
     assert any(i["category"] == "translation_number_mismatch" and i["missing_number"] == 20000 for i in wrong_2man)
 
@@ -185,3 +189,57 @@ def test_r3_compound_units_mixed_quantities_and_exact_decimal_units() -> None:
         0, {"text": "相手は2人だ", "translation": "对手有0.000000019999999999亿人"}
     )
     assert any(i["category"] == "translation_number_mismatch" and i["missing_number"] == 2 for i in non_int_tr)
+
+
+def test_r4_multi_comma_thousand_groups_and_high_precision_decimal_units() -> None:
+    from mtui_mcp.translation_auditor import (
+        _parse_decimal_with_units_exact,
+        _strip_thousand_commas,
+        _translation_contains_number,
+        audit_region_translation_accuracy,
+    )
+
+    # R4-F21: Full thousand-group token normalization strips all internal commas on valid groups (`234,567`, `1,234,567`)
+    # without splitting `1,234,567` into `1` and `234567` or mutating malformed groupings (`1234,567`, `12,34,567`).
+    assert _strip_thousand_commas("234,567") == "234567"
+    assert _strip_thousand_commas("1,234,567") == "1234567"
+    assert _strip_thousand_commas("1,234.5万") == "1234.5万"
+    assert _strip_thousand_commas("1234,567") == "1234,567"
+    assert _strip_thousand_commas("12,34,567") == "12,34,567"
+    assert _strip_thousand_commas("1,234,56") == "1,234,56"
+
+    dropped_million = audit_region_translation_accuracy(
+        0, {"text": "賞金は1,234,567ヴァリスだ", "translation": "赏金非常丰厚"}
+    )
+    assert any(
+        i["category"] == "translation_number_mismatch" and i["missing_number"] == 1_234_567 for i in dropped_million
+    )
+    assert (
+        audit_region_translation_accuracy(
+            0, {"text": "賞金は1,234,567ヴァリスだ", "translation": "赏金是1,234,567法利"}
+        )
+        == []
+    )
+    assert (
+        audit_region_translation_accuracy(
+            0, {"text": "賞金は1,234,567ヴァリスだ", "translation": "赏金是1234567法利"}
+        )
+        == []
+    )
+    assert (
+        audit_region_translation_accuracy(0, {"text": "賞金は234,567ヴァリスだ", "translation": "赏金是234567法利"})
+        == []
+    )
+    assert _translation_contains_number("对手有1,234,567人", 234_567) is False
+
+    # R4-F42: Preserve exact rational value beyond Decimal's default 28-digit arithmetic precision
+    almost_2_dec = "2." + "0" * 28 + "1"
+    assert _parse_decimal_with_units_exact(almost_2_dec, "万") is None
+    assert _parse_decimal_with_units_exact("2." + "0" * 35, "万") == 20_000
+    assert _parse_decimal_with_units_exact("2.5", "万") == 25_000
+    non_int_28prec = audit_region_translation_accuracy(
+        0, {"text": "賞金20000ヴァリス", "translation": f"赏金{almost_2_dec}万法利"}
+    )
+    assert any(
+        i["category"] == "translation_number_mismatch" and i["missing_number"] == 20_000 for i in non_int_28prec
+    )

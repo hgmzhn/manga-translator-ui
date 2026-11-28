@@ -46,6 +46,7 @@ from .richtext_builder import (
 )
 
 GLOSSARY_CATEGORIES = ("Person", "Location", "Org", "Item", "Skill", "Creature")
+_TXT_LINE_SEPARATORS = frozenset({"\n", "\r", "\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029"})
 ALLOWED_BATCH_SET_FIELDS = frozenset(
     {
         "font_size",
@@ -303,6 +304,17 @@ def manage_glossary_entries(
         with _glossary_file_lock(target_path):
             raw_lines = target_path.read_text(encoding="utf-8").splitlines() if target_path.is_file() else []
             if action == "upsert":
+                for item in entries or []:
+                    if not isinstance(item, dict):
+                        continue
+                    raw_orig = str(item.get("original", ""))
+                    raw_trans = str(item.get("translation", ""))
+                    if any(ch in _TXT_LINE_SEPARATORS for ch in raw_orig) or any(
+                        ch in _TXT_LINE_SEPARATORS for ch in raw_trans
+                    ):
+                        raise ValueError(
+                            "TXT glossary entries must be single-line and must not contain line separators"
+                        )
                 out_lines = list(raw_lines)
                 # Map original -> (first_line_index, leading_ws, separator) and drop duplicate entry lines on update
                 orig_locs: dict[str, tuple[int, str, str]] = {}
@@ -825,10 +837,11 @@ def batch_edit_chapter_pages(
                             continue
                         image_key, image_data, page_hits, _ = re_staged
                     saved_json = save_page_json_atomic(cur_paths, image_key, image_data)
-                    committed_pages.append(paths.source_path.name)
+                    committed_pages.append(cur_paths.source_path.name)
+                    modified_page_paths.append(cur_paths)
                     page_committed_now = True
                     refreshed = resolve_page_paths(saved_json)
-                    modified_page_paths.append(refreshed)
+                    modified_page_paths[-1] = refreshed
                     _, saved_data = load_page_json(refreshed)
                     saved_regs = saved_data.get("regions", [])
                     for r_idx, uid, before_vis, fallback_reg in page_hits:
@@ -860,6 +873,7 @@ def batch_edit_chapter_pages(
                             f"failure_stage='commit'): {exc}"
                         )
                     partial_err.committed_pages = list(committed_pages)  # type: ignore[attr-defined]
+                    partial_err.committed_page_paths = list(modified_page_paths)  # type: ignore[attr-defined]
                     partial_err.failed_page = paths.source_path.name  # type: ignore[attr-defined]
                     partial_err.page_committed = page_committed_now  # type: ignore[attr-defined]
                     partial_err.failure_stage = (  # type: ignore[attr-defined]

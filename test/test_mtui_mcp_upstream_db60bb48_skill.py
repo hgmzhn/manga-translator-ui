@@ -833,23 +833,30 @@ def test_s6_r3_slice5_skipped_regions_corrupt_mask_ym_version_compare_pairing_an
     before_dup.mkdir()
     after_dup.mkdir()
 
-    img_a = np.full((80, 80, 3), (220, 220, 220), dtype=np.uint8)
-    img_b = np.full((80, 80, 3), (180, 200, 220), dtype=np.uint8)
-    img_c = np.full((80, 80, 3), (220, 140, 140), dtype=np.uint8)
+    raw_p1_png = np.full((80, 80, 3), (210, 40, 40), dtype=np.uint8)
+    raw_p1_jpg = np.full((80, 80, 3), (220, 190, 30), dtype=np.uint8)
+    bef_p1_png = np.full((80, 80, 3), (40, 200, 50), dtype=np.uint8)
+    bef_p1_jpg = np.full((80, 80, 3), (190, 40, 200), dtype=np.uint8)
+    bef_p2_png = np.full((80, 80, 3), (120, 90, 40), dtype=np.uint8)
+    aft_p1_png = np.full((80, 80, 3), (40, 60, 220), dtype=np.uint8)
+    aft_p1_jpg = np.full((80, 80, 3), (30, 200, 210), dtype=np.uint8)
+    aft_p2_png = np.full((80, 80, 3), (50, 130, 110), dtype=np.uint8)
+    raw_ambig_bmp = np.full((80, 80, 3), (170, 170, 230), dtype=np.uint8)
 
     # Raw has BOTH `001.png` and `001.jpg`; Before & After only have `001.png` + stale orphan `002.png`.
-    Image.fromarray(img_a).save(raw_dup / "001.png")
-    Image.fromarray(img_a).save(raw_dup / "001.jpg", quality=95)
-    Image.fromarray(img_b).save(before_dup / "001.png")
-    Image.fromarray(img_b).save(before_dup / "002.png")
-    Image.fromarray(img_c).save(after_dup / "001.png")
-    Image.fromarray(img_c).save(after_dup / "002.png")
+    Image.fromarray(raw_p1_png).save(raw_dup / "001.png")
+    Image.fromarray(raw_p1_jpg).save(raw_dup / "001.jpg", quality=98)
+    Image.fromarray(bef_p1_png).save(before_dup / "001.png")
+    Image.fromarray(bef_p2_png).save(before_dup / "002.png")
+    Image.fromarray(aft_p1_png).save(after_dup / "001.png")
+    Image.fromarray(aft_p2_png).save(after_dup / "002.png")
 
+    cmp_dup_inc_dir = tmp_path / "cmp_dup_incomplete"
     cmp_dup_res = aac.cmd_compare(
         raw_dir=raw_dup,
         before_dir=before_dup,
         after_dir=after_dup,
-        out_dir=tmp_path / "cmp_dup_incomplete",
+        out_dir=cmp_dup_inc_dir,
     )
     assert cmp_dup_res["expected_page_count"] == 2
     assert cmp_dup_res["compared_page_count"] == 1
@@ -857,15 +864,21 @@ def test_s6_r3_slice5_skipped_regions_corrupt_mask_ym_version_compare_pairing_an
     assert cmp_dup_res["missing_before_pages"] == ["001.jpg"]
     assert cmp_dup_res["missing_after_pages"] == ["001.jpg"]
     assert cmp_dup_res["complete_coverage"] is False
+    # Verify center pixels of Raw / Before / After columns (`x = 54, 150, 246`, `y = 96`) match `001.png`'s distinct colors
+    inc_sheet_rgb = np.asarray(Image.open(cmp_dup_inc_dir / "cmp_p02_001.png").convert("RGB"))
+    assert np.allclose(inc_sheet_rgb[96, 54], raw_p1_png[0, 0], atol=3)
+    assert np.allclose(inc_sheet_rgb[96, 150], bef_p1_png[0, 0], atol=3)
+    assert np.allclose(inc_sheet_rgb[96, 246], aft_p1_png[0, 0], atol=3)
 
     # Once `001.jpg` is also present in Before and After, both raw pages pair cleanly by exact filename.
-    Image.fromarray(img_b).save(before_dup / "001.jpg", quality=95)
-    Image.fromarray(img_c).save(after_dup / "001.jpg", quality=95)
+    Image.fromarray(bef_p1_jpg).save(before_dup / "001.jpg", quality=98)
+    Image.fromarray(aft_p1_jpg).save(after_dup / "001.jpg", quality=98)
+    cmp_dup_ok_dir = tmp_path / "cmp_dup_complete"
     cmp_dup_ok = aac.cmd_compare(
         raw_dir=raw_dup,
         before_dir=before_dup,
         after_dir=after_dup,
-        out_dir=tmp_path / "cmp_dup_complete",
+        out_dir=cmp_dup_ok_dir,
     )
     assert cmp_dup_ok["expected_page_count"] == 2
     assert cmp_dup_ok["compared_page_count"] == 2
@@ -873,11 +886,20 @@ def test_s6_r3_slice5_skipped_regions_corrupt_mask_ym_version_compare_pairing_an
     assert cmp_dup_ok["missing_before_pages"] == []
     assert cmp_dup_ok["missing_after_pages"] == []
     assert cmp_dup_ok["complete_coverage"] is True
+    # `001.jpg` sorts before `001.png` (`cmp_p01_001.png` = `001.jpg`, `cmp_p02_001.png` = `001.png`); verify both sheets' column pixels!
+    jpg_sheet_rgb = np.asarray(Image.open(cmp_dup_ok_dir / "cmp_p01_001.png").convert("RGB"))
+    assert np.allclose(jpg_sheet_rgb[96, 54], raw_p1_jpg[0, 0], atol=8)
+    assert np.allclose(jpg_sheet_rgb[96, 150], bef_p1_jpg[0, 0], atol=8)
+    assert np.allclose(jpg_sheet_rgb[96, 246], aft_p1_jpg[0, 0], atol=8)
+    png_sheet_rgb = np.asarray(Image.open(cmp_dup_ok_dir / "cmp_p02_001.png").convert("RGB"))
+    assert np.allclose(png_sheet_rgb[96, 54], raw_p1_png[0, 0], atol=3)
+    assert np.allclose(png_sheet_rgb[96, 150], bef_p1_png[0, 0], atol=3)
+    assert np.allclose(png_sheet_rgb[96, 246], aft_p1_png[0, 0], atol=3)
 
     # Ambiguous duplicate stems in `before_dir` (`001.png` + `001.jpg`) must not guess-match `raw / 001.bmp`.
     raw_ambig = tmp_path / "raw_ambig_target"
     raw_ambig.mkdir()
-    Image.fromarray(img_a).save(raw_ambig / "001.bmp")
+    Image.fromarray(raw_ambig_bmp).save(raw_ambig / "001.bmp")
     cmp_ambig = aac.cmd_compare(
         raw_dir=raw_ambig,
         before_dir=before_dup,
@@ -907,14 +929,345 @@ def test_s6_r3_slice5_skipped_regions_corrupt_mask_ym_version_compare_pairing_an
             out_dir=tmp_path / "cmp_file_raw",
         )
 
+    cmp_2col_dir = tmp_path / "cmp_2col_ok"
     cmp_2col = aac.cmd_compare(
         raw_dir=None,
         before_dir=before_dup,
         after_dir=after_dup,
-        out_dir=tmp_path / "cmp_2col_ok",
+        out_dir=cmp_2col_dir,
     )
     assert cmp_2col["expected_page_count"] == 3
     assert cmp_2col["compared_page_count"] == 3
     assert cmp_2col["complete_coverage"] is True
-    with Image.open(next((tmp_path / "cmp_2col_ok").glob("cmp_*.png"))) as im_2c:
+    with Image.open(next(cmp_2col_dir.glob("cmp_*.png"))) as im_2c:
         assert im_2c.width < 80 * 3 + 40
+    # Verify 2-column Before/After center pixels (`x = 54, 150`, `y = 96`) for all 3 pages including `002.png`
+    c2_jpg = np.asarray(Image.open(cmp_2col_dir / "cmp_p01_001.png").convert("RGB"))
+    assert np.allclose(c2_jpg[96, 54], bef_p1_jpg[0, 0], atol=8)
+    assert np.allclose(c2_jpg[96, 150], aft_p1_jpg[0, 0], atol=8)
+    c2_png = np.asarray(Image.open(cmp_2col_dir / "cmp_p02_001.png").convert("RGB"))
+    assert np.allclose(c2_png[96, 54], bef_p1_png[0, 0], atol=3)
+    assert np.allclose(c2_png[96, 150], aft_p1_png[0, 0], atol=3)
+    c2_p2 = np.asarray(Image.open(cmp_2col_dir / "cmp_p03_002.png").convert("RGB"))
+    assert np.allclose(c2_p2[96, 54], bef_p2_png[0, 0], atol=3)
+    assert np.allclose(c2_p2[96, 150], aft_p2_png[0, 0], atol=3)
+
+
+def test_s7_r4_slice5_thin_orphan_mask_zero_dim_mask_compare_json_and_doc_contracts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rt = get_runtime_settings()
+    monkeypatch.setattr(rt, "mtui_root", None)
+    monkeypatch.setattr(rt, "load_mtui_config_dict", lambda: {"app": {"last_output_path": ""}, "cli": {}})
+    aac = _load_aac_module(monkeypatch)
+
+    # 1. R4-F20, R4-F44, R4-F45, R4-F47: SKILL.md & unattended_batch_ops.md contract assertions
+    skill_dir = _bootstrap.ROOT / "mtui_mcp" / "skills" / "mtui-manga-proofreading"
+    skill_md = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+    batch_md = (skill_dir / "references" / "unattended_batch_ops.md").read_text(encoding="utf-8")
+
+    # R4-F44: review scope strictly follows current manifest `sheets` list (never leftover globbed files)
+    assert "严格以当前 `verify_crops_manifest.json` 的 `sheets` 列表为准" in skill_md
+    assert "本轮最新 `verify_crops_manifest.json` 的 `sheets` 列表" in skill_md
+    # R4-F45: `crops_too_small` pages allowed in `skipped_pages` after full region fallback verification; `no_visible_regions` still requires Raw check
+    assert "crops_too_small" in skill_md and "no_visible_regions" in skill_md
+    assert "crops_too_small" in batch_md and "no_visible_regions" in batch_md
+    # R4-F20: both initial Gate B and modified_pages re-check specify full-page Raw + Rendered fallback + coordinate fix + Gate B block
+    assert skill_md.count("整页原图与成图核实") >= 2
+    assert "不得通过 Gate B 门禁" in skill_md
+    assert "仍无法确认时不得通过门禁" in skill_md
+    # R4-F47: unattended_batch_ops.md restores by recorded `snapshot_id`, not `label="pre_gate_b"`
+    assert 'mtui_snapshots(target_path="<PAGE>", action="restore", snapshot_id="<RECORDED_ID>")' in batch_md
+    assert 'action="restore", label="pre_gate_b"' not in batch_md
+
+    # 2. R4-F15: `cmd_verify_crops` reuses probed mask with thin-preserving downscale (preserving 1px odd column `x=1001`
+    #    on `2000x2000 -> 1000x1000`) and skips resizing when mask dimensions already match `(ih, iw)`.
+    ch_thin = tmp_path / "ch_thin_orphan"
+    ch_thin.mkdir()
+    p_thin = ch_thin / "001.png"
+    raw_1k = np.full((1000, 1000, 3), 190, dtype=np.uint8)
+    ren_1k = raw_1k.copy()
+    ren_1k[200:800, 498:503] = (20, 30, 220)
+    Image.fromarray(raw_1k).save(p_thin)
+    thin_paths = resolve_page_paths(p_thin)
+    save_rgb_image_atomic(raw_1k, thin_paths.inpainted_path)
+    save_rgb_image_atomic(ren_1k, thin_paths.rendered_output_path)
+
+    mask_2k = np.zeros((2000, 2000), dtype=np.uint8)
+    mask_2k[200:1800, 1001] = 255  # 1px-wide odd column: dropped completely by INTER_NEAREST, 800px under INTER_AREA > 0
+    save_page_json_atomic(
+        thin_paths,
+        str(p_thin.resolve()),
+        {"mask_raw": encode_mask_base64(mask_2k), "regions": []},
+        auto_initial_snapshot=False,
+    )
+    mf_thin = aac.cmd_verify_crops(ch_thin, tmp_path / "vc_thin_odd")
+    assert mf_thin["missing_artifact_pages"] == []
+    assert mf_thin["orphan_mask_zones_exported"] == 1
+    assert mf_thin["verify_sheet_count"] == 1
+
+    # Equal-size `1000x1000` mask must NOT invoke `cv2.resize` for mask scaling
+    mask_1k = np.zeros((1000, 1000), dtype=np.uint8)
+    mask_1k[200:700, 500:502] = 255
+    save_page_json_atomic(
+        thin_paths,
+        str(p_thin.resolve()),
+        {"mask_raw": encode_mask_base64(mask_1k), "regions": []},
+        auto_initial_snapshot=False,
+    )
+    real_cv2_resize = aac.cv2.resize
+    resize_calls_1k: list[tuple[int, int]] = []
+
+    def spy_cv2_resize(src, dsize, *args, **kwargs):
+        resize_calls_1k.append(tuple(dsize))
+        return real_cv2_resize(src, dsize, *args, **kwargs)
+
+    with monkeypatch.context() as mp_eq:
+        mp_eq.setattr(aac.cv2, "resize", spy_cv2_resize)
+        mf_eq = aac.cmd_verify_crops(ch_thin, tmp_path / "vc_thin_eq")
+    assert mf_eq["orphan_mask_zones_exported"] == 1
+    assert (1000, 1000) not in resize_calls_1k
+
+    # 3. R4-F16: Zero-size decoded array `mask_raw=[[]]` is recorded as `corrupt_mask` without aborting subsequent pages,
+    #    while a valid all-zero 2D list mask passes cleanly as `no_visible_regions`.
+    ch_zmask = tmp_path / "ch_zero_dim_mask"
+    ch_zmask.mkdir()
+    pz1 = ch_zmask / "001.png"
+    pz2 = ch_zmask / "002.png"
+    pz3 = ch_zmask / "003.png"
+    base_z = np.full((160, 160, 3), 240, dtype=np.uint8)
+    cv2.rectangle(base_z, (30, 30), (130, 130), (10, 10, 10), 2)
+    for pz in (pz1, pz2, pz3):
+        Image.fromarray(base_z).save(pz)
+        pz_paths = resolve_page_paths(pz)
+        save_rgb_image_atomic(base_z, pz_paths.inpainted_path)
+        save_rgb_image_atomic(base_z, pz_paths.rendered_output_path)
+
+    pz1_paths = resolve_page_paths(pz1)
+    pz1_paths.json_path.parent.mkdir(parents=True, exist_ok=True)
+    pz1_paths.json_path.write_text(
+        json.dumps({str(pz1.resolve()): {"mask_raw": [[]], "regions": []}}),
+        encoding="utf-8",
+    )
+    pz2_paths = resolve_page_paths(pz2)
+    pz2_paths.json_path.write_text(
+        json.dumps({str(pz2.resolve()): {"mask_raw": [[0] * 160 for _ in range(160)], "regions": []}}),
+        encoding="utf-8",
+    )
+    pz3_paths = resolve_page_paths(pz3)
+    save_page_json_atomic(
+        pz3_paths,
+        str(pz3.resolve()),
+        {
+            "regions": [
+                {
+                    "lines": [[[45.0, 45.0], [115.0, 45.0], [115.0, 115.0], [45.0, 115.0]]],
+                    "center": [80.0, 80.0],
+                    "text": "よし",
+                    "translation": "好",
+                    "font_family": "FZHei-B01",
+                    "font_size": 20,
+                    "direction": "v",
+                    "alignment": "left",
+                }
+            ]
+        },
+        auto_initial_snapshot=False,
+    )
+    vc_zmask_dir = tmp_path / "vc_zero_dim_mask"
+    mf_zmask = aac.cmd_verify_crops(ch_zmask, vc_zmask_dir)
+    assert (vc_zmask_dir / "verify_crops_manifest.json").is_file()
+    assert mf_zmask["missing_artifact_pages"] == [
+        {"page": "001.png", "page_number": 1, "reason": "corrupt_mask"}
+    ]
+    assert {"page": "002.png", "page_number": 2, "reason": "no_visible_regions"} in mf_zmask["skipped_pages"]
+    assert mf_zmask["exported_pages"] == ["003.png"]
+
+    # 4. R4-F17: Check ALL exact normalized paths before filename fallback; require unique filename on fallback.
+    ch_f17 = tmp_path / "ch_f17"
+    before_f17 = tmp_path / "before_f17"
+    out_f17_store = tmp_path / "out_f17_store"
+    ch_f17.mkdir()
+    before_f17.mkdir()
+    out_f17_store.mkdir()
+
+    raw_f17 = np.full((80, 80, 3), (210, 210, 210), dtype=np.uint8)
+    bef_f17 = np.full((80, 80, 3), (40, 185, 65), dtype=np.uint8)
+    old_aft_rgb = np.full((80, 80, 3), (220, 35, 35), dtype=np.uint8)
+    cur_aft_rgb = np.full((80, 80, 3), (35, 75, 225), dtype=np.uint8)
+    Image.fromarray(raw_f17).save(ch_f17 / "001.png")
+    Image.fromarray(bef_f17).save(before_f17 / "001.png")
+    old_aft_p = out_f17_store / "old_after.png"
+    cur_aft_p = out_f17_store / "cur_after.png"
+    Image.fromarray(old_aft_rgb).save(old_aft_p)
+    Image.fromarray(cur_aft_rgb).save(cur_aft_p)
+
+    ch_f17_json = ch_f17 / "ch_f17_translations.json"
+    ch_f17_json.write_text(
+        json.dumps(
+            {
+                str((tmp_path / "old_chapter" / "001.png").resolve()): {"last_output_path": str(old_aft_p.resolve())},
+                str((ch_f17 / "001.png").resolve()): {"last_output_path": str(cur_aft_p.resolve())},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    cmp_f17_dir = tmp_path / "cmp_f17_exact_wins"
+    res_f17_exact = aac.cmd_compare(raw_dir=ch_f17, before_dir=before_f17, after_dir=None, out_dir=cmp_f17_dir)
+    assert res_f17_exact["complete_coverage"] is True
+    assert res_f17_exact["sheets_generated"] == 1
+    f17_sheet = np.asarray(Image.open(cmp_f17_dir / "cmp_p01_001.png").convert("RGB"))
+    assert np.allclose(f17_sheet[96, 246], cur_aft_rgb[0, 0], atol=3)
+
+    # Ambiguous duplicate non-matching filenames in chapter JSON must NOT match
+    ch_f17_json.write_text(
+        json.dumps(
+            {
+                str((tmp_path / "old_a" / "001.png").resolve()): {"last_output_path": str(old_aft_p.resolve())},
+                str((tmp_path / "old_b" / "001.png").resolve()): {"last_output_path": str(cur_aft_p.resolve())},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    res_f17_ambig = aac.cmd_compare(
+        raw_dir=ch_f17,
+        before_dir=before_f17,
+        after_dir=None,
+        out_dir=tmp_path / "cmp_f17_ambig",
+    )
+    assert res_f17_ambig["missing_after_pages"] == ["001.png"]
+    assert res_f17_ambig["complete_coverage"] is False
+
+    # Single migrated entry with unique filename still falls back cleanly
+    ch_f17_json.write_text(
+        json.dumps(
+            {
+                str((tmp_path / "migrated_prev" / "001.png").resolve()): {
+                    "last_output_path": str(cur_aft_p.resolve())
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    cmp_f17_mig_dir = tmp_path / "cmp_f17_migrated"
+    res_f17_mig = aac.cmd_compare(raw_dir=ch_f17, before_dir=before_f17, after_dir=None, out_dir=cmp_f17_mig_dir)
+    assert res_f17_mig["complete_coverage"] is True
+    assert res_f17_mig["sheets_generated"] == 1
+    f17_mig_sheet = np.asarray(Image.open(cmp_f17_mig_dir / "cmp_p01_001.png").convert("RGB"))
+    assert np.allclose(f17_mig_sheet[96, 246], cur_aft_rgb[0, 0], atol=3)
+
+    # 5. R4-F18: Single-entry chapter JSON recording `002.png` must NEVER be treated as `001.png`'s metadata.
+    ch_f18 = tmp_path / "ch_f18"
+    before_f18 = tmp_path / "before_f18"
+    ch_f18.mkdir()
+    before_f18.mkdir()
+    for fn in ("001.png", "002.png"):
+        Image.fromarray(raw_f17).save(ch_f18 / fn)
+        Image.fromarray(bef_f17).save(before_f18 / fn)
+    p2_only_after = out_f17_store / "p2_only_after.png"
+    Image.fromarray(cur_aft_rgb).save(p2_only_after)
+    (ch_f18 / "ch_f18_translations.json").write_text(
+        json.dumps(
+            {str((ch_f18 / "002.png").resolve()): {"last_output_path": str(p2_only_after.resolve())}},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    res_f18 = aac.cmd_compare(
+        raw_dir=ch_f18,
+        before_dir=before_f18,
+        after_dir=None,
+        out_dir=tmp_path / "cmp_f18",
+    )
+    assert res_f18["compared_page_count"] == 1
+    assert res_f18["missing_after_pages"] == ["001.png"]
+    assert res_f18["complete_coverage"] is False
+
+    # 6. R4-F46: Legacy single-page `<stem>_translations.json` in source directory is searched while preserving
+    #    exact page identity when duplicate stems (`001.png` + `001.jpg`) exist.
+    ch_f46 = tmp_path / "ch_f46"
+    before_f46 = tmp_path / "before_f46"
+    ch_f46.mkdir()
+    before_f46.mkdir()
+    Image.fromarray(raw_f17).save(ch_f46 / "001.png")
+    Image.fromarray(raw_f17).save(ch_f46 / "001.jpg", quality=98)
+    Image.fromarray(bef_f17).save(before_f46 / "001.png")
+    Image.fromarray(bef_f17).save(before_f46 / "001.jpg", quality=98)
+    legacy_png_after = out_f17_store / "legacy_001_png_after.webp"
+    Image.fromarray(cur_aft_rgb).save(legacy_png_after, lossless=True)
+    (ch_f46 / "001_translations.json").write_text(
+        json.dumps(
+            {str((ch_f46 / "001.png").resolve()): {"last_output_path": str(legacy_png_after.resolve())}},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    cmp_f46_dir = tmp_path / "cmp_f46_legacy"
+    res_f46 = aac.cmd_compare(raw_dir=ch_f46, before_dir=before_f46, after_dir=None, out_dir=cmp_f46_dir)
+    assert res_f46["expected_page_count"] == 2
+    assert res_f46["compared_page_count"] == 1
+    assert res_f46["sheets_generated"] == 1
+    assert res_f46["missing_after_pages"] == ["001.jpg"]
+    assert res_f46["complete_coverage"] is False
+    f46_sheet = np.asarray(Image.open(cmp_f46_dir / "cmp_p02_001.png").convert("RGB"))
+    assert np.allclose(f46_sheet[96, 246], cur_aft_rgb[0, 0], atol=3)
+
+    # 7. R4-F19: Second-hop `target_name_cf_unique` in `raw_dir=None` mode is computed from `chapter_cand_files`.
+    ch_f19 = tmp_path / "ch_f19"
+    res_f19 = ch_f19 / "manga_translator_work" / "result"
+    sib_f19 = tmp_path / "ch_f19-translated"
+    before_f19 = tmp_path / "before_f19"
+    res_f19.mkdir(parents=True)
+    sib_f19.mkdir()
+    before_f19.mkdir()
+    Image.fromarray(raw_f17).save(ch_f19 / "001.PNG")
+    Image.fromarray(bef_f17).save(before_f19 / "001.PNG")
+    Image.fromarray(cur_aft_rgb).save(sib_f19 / "001.png")
+
+    real_list_dir_images = aac._list_dir_images
+
+    def fake_case_sensitive_chapter_list(d: Path, *, exclude_translated_suffix: bool = False) -> list[Path]:
+        if os.path.normcase(os.path.abspath(str(d))) == os.path.normcase(os.path.abspath(str(ch_f19))):
+            # Simulate case-sensitive chapter directory containing BOTH `001.PNG` and `001.png`
+            return [ch_f19 / "001.PNG", ch_f19 / "001.png"]
+        return real_list_dir_images(d, exclude_translated_suffix=exclude_translated_suffix)
+
+    with monkeypatch.context() as mp_f19:
+        mp_f19.setattr(aac, "_list_dir_images", fake_case_sensitive_chapter_list)
+        res_f19_ambig = aac.cmd_compare(
+            raw_dir=None,
+            before_dir=before_f19,
+            after_dir=res_f19,
+            out_dir=tmp_path / "cmp_f19_ambig",
+        )
+    assert res_f19_ambig["missing_after_pages"] == ["001.PNG"]
+    assert res_f19_ambig["complete_coverage"] is False
+
+    # When `<chapter>-translated` has exact-case `001.PNG`, exact filename match still pairs cleanly
+    (sib_f19 / "001.png").unlink()
+    Image.fromarray(cur_aft_rgb).save(sib_f19 / "001.PNG")
+    with monkeypatch.context() as mp_f19_exact:
+        mp_f19_exact.setattr(aac, "_list_dir_images", fake_case_sensitive_chapter_list)
+        res_f19_exact = aac.cmd_compare(
+            raw_dir=None,
+            before_dir=before_f19,
+            after_dir=res_f19,
+            out_dir=tmp_path / "cmp_f19_exact",
+        )
+    assert res_f19_exact["missing_after_pages"] == []
+    assert res_f19_exact["complete_coverage"] is True
+
+    # When `ch_f19` only has unique `001.PNG`, case-folded fallback to `sib_f19 / "001.png"` remains active
+    (sib_f19 / "001.PNG").unlink()
+    Image.fromarray(cur_aft_rgb).save(sib_f19 / "001.png")
+    res_f19_unique_cf = aac.cmd_compare(
+        raw_dir=None,
+        before_dir=before_f19,
+        after_dir=res_f19,
+        out_dir=tmp_path / "cmp_f19_unique_cf",
+    )
+    assert res_f19_unique_cf["missing_after_pages"] == []
+    assert res_f19_unique_cf["complete_coverage"] is True

@@ -437,14 +437,14 @@ def test_r3_font_catalog_shared_dir_index_lazy_system_and_order_consistency(tmp_
     assert demo_items[0]["file_name"] == "Z.ttf"
     assert fc_mod.check_missing_glyphs("DemoUnified", "甲乙", include_system=False) == []
 
-    # R3-F61: Shared directory index across distinct selectors + zero system font enumeration on project hit
+    # R3-F61 / R4-F07: Shared single-walk directory index across distinct selectors + zero system font enumeration on project hit
     iter_calls: list[Path] = []
     sys_dir_calls: list[bool] = []
-    orig_iter = fc_mod._iter_font_files
+    orig_scan = fc_mod._scan_font_dir_snapshot
 
-    def _spy_iter(d: Path):
+    def _spy_scan(d: Path):
         iter_calls.append(d)
-        return orig_iter(d)
+        return orig_scan(d)
 
     def _spy_sys_dirs():
         sys_dir_calls.append(True)
@@ -452,8 +452,9 @@ def test_r3_font_catalog_shared_dir_index_lazy_system_and_order_consistency(tmp_
 
     fc_mod._FONT_DIR_INDEX_CACHE.clear()
     fc_mod._FONT_DIR_SNAPSHOTS_BY_TOKEN.clear()
+    fc_mod._FONT_DIR_PATHS_BY_TOKEN.clear()
     fc_mod._resolve_target_font_codepoints.cache_clear()
-    monkeypatch.setattr(fc_mod, "_iter_font_files", _spy_iter)
+    monkeypatch.setattr(fc_mod, "_scan_font_dir_snapshot", _spy_scan)
     monkeypatch.setattr(fc_mod, "_system_font_dirs", _spy_sys_dirs)
 
     assert fc_mod.check_missing_glyphs("DemoUnified", "甲", include_system=True) == []
@@ -465,5 +466,333 @@ def test_r3_font_catalog_shared_dir_index_lazy_system_and_order_consistency(tmp_
     _build_ttf(fonts_dir / "ThirdFam.ttf", "ThirdFam", "丁")
     _build_ttf(fonts_dir / "SecondFam.ttf", "SecondFam", "丙戊")
     assert fc_mod.has_font("ThirdFam", include_system=False) is True
-    assert fc_mod.check_missing_glyphs("SecondFam", "丙戊", include_system=False) == []
+    # R4-F48: Include unmapped '己' so the assertion proves both `SecondFam` lookup hit AND `'戊'` coverage!
+    assert fc_mod.check_missing_glyphs("SecondFam", "丙戊己", include_system=False) == ["己"]
     assert len(iter_calls) == 2
+
+
+def test_r4_font_catalog_single_walk_consistency_eviction_and_cold_system_perf(tmp_path, monkeypatch) -> None:
+    import os
+    import time
+    from pathlib import Path
+
+    from fontTools.fontBuilder import FontBuilder
+    from fontTools.pens.ttGlyphPen import TTGlyphPen
+
+    import mtui_mcp.font_catalog as fc_mod
+    from mtui_mcp.config import get_runtime_settings
+
+    fake_root = Path(tmp_path) / "r4_fc_root"
+    fonts_dir = fake_root / "fonts"
+    fonts_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(get_runtime_settings(), "mtui_root", fake_root)
+
+    pen = TTGlyphPen(None)
+    pen.moveTo((100, 100))
+    pen.lineTo((800, 100))
+    pen.lineTo((800, 800))
+    pen.closePath()
+    g_box = pen.glyph()
+
+    def _build_ttf(dest: Path, fam: str, chars: str) -> None:
+        fb = FontBuilder(1000, isTTF=True)
+        fb.setupGlyphOrder([".notdef", "box"])
+        fb.setupCharacterMap({ord(c): "box" for c in chars})
+        fb.setupGlyf({".notdef": g_box, "box": g_box})
+        fb.setupHorizontalMetrics({".notdef": (1000, 0), "box": (1000, 100)})
+        fb.setupHorizontalHeader(ascent=800, descent=-200)
+        fb.setupNameTable({"familyName": fam, "styleName": "Regular"})
+        fb.setupOS2()
+        fb.setupPost()
+        fb.save(str(dest))
+
+    _build_ttf(fonts_dir / "BaseFam.ttf", "BaseFam", "甲乙")
+
+    fc_mod._FONT_DIR_INDEX_CACHE.clear()
+    fc_mod._FONT_DIR_SNAPSHOTS_BY_TOKEN.clear()
+    fc_mod._FONT_DIR_PATHS_BY_TOKEN.clear()
+    fc_mod._resolve_target_font_codepoints.cache_clear()
+
+    # R4-F07: Simulate a new font installed mid-scan right after `os.scandir` reads initial directory entries.
+    # The mid-mutation scan MUST NOT be published as a verified index or poison `@lru_cache`, and the next call
+    # MUST immediately see `MidScanFam`.
+    real_scandir = os.scandir
+    injected = {"done": False}
+    norm_fonts_key = os.path.normcase(os.path.abspath(str(fonts_dir)))
+
+    class _InjectAfterScandirCtx:
+        def __init__(self, inner_ctx):
+            self._inner = inner_ctx
+
+        def __enter__(self):
+            entries = list(self._inner.__enter__())
+            if not injected["done"]:
+                injected["done"] = True
+                _build_ttf(fonts_dir / "MidScanFam.ttf", "MidScanFam", "庚辛")
+            return iter(entries)
+
+        def __exit__(self, exc_type, exc, tb):
+            return self._inner.__exit__(exc_type, exc, tb)
+
+    def _mutating_scandir(p):
+        if os.path.normcase(os.path.abspath(str(p))) == norm_fonts_key and not injected["done"]:
+            return _InjectAfterScandirCtx(real_scandir(p))
+        return real_scandir(p)
+
+    monkeypatch.setattr(fc_mod.os, "scandir", _mutating_scandir)
+    assert fc_mod.has_font("MidScanFam", include_system=False) is False
+    assert norm_fonts_key not in fc_mod._FONT_DIR_INDEX_CACHE
+    assert fc_mod._resolve_target_font_codepoints.cache_info().currsize == 0
+
+    monkeypatch.setattr(fc_mod.os, "scandir", real_scandir)
+    assert fc_mod.has_font("MidScanFam", include_system=False) is True
+    assert fc_mod.check_missing_glyphs("MidScanFam", "庚辛壬", include_system=False) == ["壬"]
+    assert norm_fonts_key in fc_mod._FONT_DIR_INDEX_CACHE
+    assert fc_mod._FONT_DIR_INDEX_CACHE[norm_fonts_key].verified is True
+
+    # R4-F43 + Contract #5: Evicted `_FONT_DIR_SNAPSHOTS_BY_TOKEN` tokens never act as empty `()` or poison `@lru_cache`,
+    # while `.cache_clear()` and `.cache_info()` remain preserved on `_resolve_target_font_codepoints`.
+    tokens = fc_mod._get_font_dirs_tokens([fonts_dir])
+    assert len(tokens) == 1
+    fc_mod._resolve_target_font_codepoints.cache_clear()
+    assert fc_mod._resolve_target_font_codepoints.cache_info().currsize == 0
+
+    # Evict `tokens[0]` by inserting > `_MAX_DIR_SNAPSHOT_TOKENS` synthetic tokens AND clearing `_FONT_DIR_INDEX_CACHE`
+    for idx in range(fc_mod._MAX_DIR_SNAPSHOT_TOKENS + 8):
+        fc_mod._remember_snapshot_for_token(f"evict_tok_{idx}", ())
+    assert tokens[0] not in fc_mod._FONT_DIR_SNAPSHOTS_BY_TOKEN
+    fc_mod._FONT_DIR_INDEX_CACHE.clear()
+
+    resolved_after_evict = fc_mod._resolve_target_font_codepoints(tokens, "project", 0, "midscanfam", None)
+    assert resolved_after_evict is not None
+    assert resolved_after_evict[1] is not None and ord("庚") in resolved_after_evict[1]
+
+    # Unminted/unknown missing token must NOT populate `@lru_cache` with a poisoned `None`
+    fc_mod._resolve_target_font_codepoints.cache_clear()
+    assert fc_mod._resolve_target_font_codepoints(("unknown_missing_token",), "project", 0, "midscanfam", None) is None
+    assert fc_mod._resolve_target_font_codepoints.cache_info().currsize == 0
+
+    # Preserve <500ms cold Windows system font lookup performance
+    sys_dirs = fc_mod._system_font_dirs()
+    if sys_dirs:
+        fc_mod._FONT_DIR_INDEX_CACHE.clear()
+        fc_mod._FONT_DIR_SNAPSHOTS_BY_TOKEN.clear()
+        fc_mod._FONT_DIR_PATHS_BY_TOKEN.clear()
+        fc_mod._match_font_names_only.cache_clear()
+        fc_mod._inspect_font_file.cache_clear()
+        fc_mod._resolve_target_font_codepoints.cache_clear()
+        t0 = time.perf_counter()
+        _ = fc_mod.has_font("Arial", include_system=True)
+        elapsed = time.perf_counter() - t0
+        assert elapsed < 0.5, f"Cold system font lookup took {elapsed:.3f}s (>= 0.500s)"
+
+
+def test_r4_ym_cache_validates_base_image_sig_and_rejects_unicode_digit_keys(tmp_path, monkeypatch) -> None:
+    import json
+    from pathlib import Path
+
+    from PIL import Image
+
+    import mtui_mcp.qa_auditor as qa_mod
+    import mtui_mcp.worker.client as worker_client_mod
+    from mtui_mcp.config import get_runtime_settings
+    from mtui_mcp.font_detector import CACHE_VERSION
+    from mtui_mcp.path_resolver import resolve_page_paths
+    from mtui_mcp.project_store import (
+        load_page_json,
+        save_page_json_atomic,
+        save_rgb_image_atomic,
+    )
+    from mtui_mcp.qa_auditor import audit_single_page, run_qa_audit
+
+    monkeypatch.setattr(
+        get_runtime_settings(),
+        "load_mtui_config_dict",
+        lambda: {"app": {"last_output_path": ""}, "cli": {}},
+    )
+
+    reg_0 = {"lines": [[[20.0, 20.0], [120.0, 20.0], [120.0, 220.0], [20.0, 220.0]]], "text": "あ"}
+    # R4-F12: Unicode superscript digit `"²"` (`"²".isdigit() is True`, `int("²")` -> `ValueError`) in `by_ridx`
+    # MUST return `None` cleanly without raising `ValueError`, while valid ASCII keys still match by center.
+    assert "²".isdigit() is True
+    bad_unicode_ridx_cache = {
+        "region_count": 2,
+        "by_ridx": {
+            "0": {"center": [70.0, 120.0], "pred_family": "POP_CHISEL", "pred_conf": 0.99},
+            "²": {"center": [230.0, 120.0], "pred_family": "ANTIQUE", "pred_conf": 0.99},
+        },
+    }
+    assert lookup_cached_region_prediction(bad_unicode_ridx_cache, reg_0, 0, total_regions=2) is None
+    assert lookup_cached_region_prediction(bad_unicode_ridx_cache, reg_0, 0) is None
+
+    folder = Path(tmp_path) / "r4_ym_ch"
+    folder.mkdir()
+    img_p = folder / "001.png"
+    page_v1 = np.full((320, 360, 3), 255, dtype=np.uint8)
+    Image.fromarray(page_v1).save(img_p)
+    paths = resolve_page_paths(img_p)
+    save_rgb_image_atomic(page_v1, paths.inpainted_path)
+    save_page_json_atomic(
+        paths,
+        str(img_p.resolve()),
+        {
+            "regions": [
+                {
+                    "region_uid": "uid-same-1",
+                    "lines": [[[20.0, 20.0], [120.0, 20.0], [120.0, 220.0], [20.0, 220.0]]],
+                    "text": "テストです",
+                    "translation": "测试ましろ",
+                    "font_family": "FZHei-B01",
+                    "font_size": 26,
+                    "direction": "v",
+                }
+            ]
+        },
+        auto_initial_snapshot=False,
+    )
+
+    ym_file = paths.work_dir / ".yuzumarker_font_cache.json"
+    ym_file.parent.mkdir(parents=True, exist_ok=True)
+    ym_file.write_text(
+        json.dumps(
+            {
+                "version": CACHE_VERSION,
+                "pages": {
+                    "001": {
+                        "region_count": 1,
+                        "by_ridx": {
+                            "0": {"center": [70.0, 120.0], "pred_family": "POP_CHISEL", "pred_conf": 0.99},
+                            "²": {"center": [200.0, 120.0], "pred_family": "ANTIQUE", "pred_conf": 0.99},
+                        },
+                    }
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    refresh_calls: list[bool] = []
+    worker_mode = {"fail": False, "update_to_antique": False}
+
+    class _FakeWorker:
+        def detect_fonts(self, target_path, force_refresh=False):
+            refresh_calls.append(bool(force_refresh))
+            if worker_mode["fail"]:
+                raise RuntimeError("simulated worker failure")
+            if worker_mode["update_to_antique"]:
+                cur_paths = resolve_page_paths(img_p)
+                st_now = cur_paths.display_base_path.stat()
+                bsig = region_bbox_signature([20.0, 20.0, 120.0, 220.0])
+                rec = {
+                    "ridx": 0,
+                    "region_uid": "uid-same-1",
+                    "bbox_sig": bsig,
+                    "center": [70.0, 120.0],
+                    "pred_family": "ANTIQUE",
+                    "pred_conf": 0.99,
+                    "bold_prob": 0.2,
+                    "heavy_prob": 0.0,
+                    "family_probs": {"ANTIQUE": 0.99},
+                    "top_fonts": [{"font": "FOT-AnticCezannePro-DB.otf", "family": "ANTIQUE", "prob": 0.96}],
+                }
+                ym_file.write_text(
+                    json.dumps(
+                        {
+                            "version": CACHE_VERSION,
+                            "pages": {
+                                "001": {
+                                    "base_image_sig": [int(st_now.st_size), int(st_now.st_mtime_ns)],
+                                    "display_base_name": cur_paths.display_base_path.name,
+                                    "region_count": 1,
+                                    "total_regions": 1,
+                                    "by_bbox_sig": {bsig: rec},
+                                    "by_ridx": {"0": rec},
+                                }
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            return {"status": "ok"}
+
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setattr(qa_mod, "yuzumarker_models_available", lambda: True)
+    monkeypatch.setattr(worker_client_mod, "get_worker_client", lambda: _FakeWorker())
+
+    # R4-F12 end-to-end: `"²"` in `by_ridx` triggers clean refresh instead of crashing chapter audit!
+    rep_bad_idx = run_qa_audit(folder, check_inpaint_cv=True, check_font_glyphs=False)
+    assert len(refresh_calls) == 1
+    assert any(i["category"] == "untranslated_kana" for i in rep_bad_idx["pages"][0]["issues"])
+
+    # R4-F11: Populate worker-style cache with `base_image_sig` & `display_base_name` matching `page_v1`
+    st_v1 = resolve_page_paths(img_p).display_base_path.stat()
+    bsig0 = region_bbox_signature([20.0, 20.0, 120.0, 220.0])
+    pop_rec = {
+        "ridx": 0,
+        "region_uid": "uid-same-1",
+        "bbox_sig": bsig0,
+        "center": [70.0, 120.0],
+        "pred_family": "POP_CHISEL",
+        "pred_conf": 0.99,
+        "bold_prob": 1.0,
+        "heavy_prob": 0.0,
+        "family_probs": {"POP_CHISEL": 0.99},
+        "top_fonts": [{"font": "FOT-ComicReggaeStd-B.otf", "family": "POP_CHISEL", "prob": 0.96}],
+    }
+    ym_file.write_text(
+        json.dumps(
+            {
+                "version": CACHE_VERSION,
+                "pages": {
+                    "001": {
+                        "base_image_sig": [int(st_v1.st_size), int(st_v1.st_mtime_ns)],
+                        "display_base_name": "001.png",
+                        "region_count": 1,
+                        "total_regions": 1,
+                        "by_bbox_sig": {bsig0: pop_rec},
+                        "by_ridx": {"0": pop_rec},
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    # Editing ONLY translation reuses cache (`refresh_calls == 0`) while keeping `yuzumarker_font_mismatch` active
+    _, j_edit = load_page_json(resolve_page_paths(img_p))
+    j_edit["regions"][0]["translation"] = "仅改译文あ"
+    save_page_json_atomic(resolve_page_paths(img_p), str(img_p.resolve()), j_edit, auto_initial_snapshot=False)
+    refresh_calls.clear()
+    rep_same_img = run_qa_audit(folder, check_inpaint_cv=True, check_font_glyphs=False)
+    assert len(refresh_calls) == 0
+    assert any(i["category"] == "yuzumarker_font_mismatch" for i in rep_same_img["pages"][0]["issues"])
+
+    # Replace `001.png` in-place with a different image (different dimensions/bytes -> different `st_size`)
+    # while keeping `uid-same-1`, `lines`, and `.yuzumarker_font_cache.json` unchanged!
+    rng = np.random.default_rng(42)
+    page_v2 = rng.integers(200, 256, size=(360, 400, 3), dtype=np.uint8)
+    Image.fromarray(page_v2).save(img_p)
+    save_rgb_image_atomic(page_v2, resolve_page_paths(img_p).inpainted_path)
+    assert resolve_page_paths(img_p).display_base_path.stat().st_size != st_v1.st_size
+
+    # 1) When refresh fails, degrade cleanly: keep other checks (`untranslated_kana`), NEVER reuse stale `POP_CHISEL`!
+    refresh_calls.clear()
+    worker_mode["fail"] = True
+    rep_degraded = run_qa_audit(folder, check_inpaint_cv=True, check_font_glyphs=False)
+    assert len(refresh_calls) == 1
+    assert rep_degraded.get("yuzumarker_scan_degraded") is True
+    assert any(i["category"] == "untranslated_kana" for i in rep_degraded["pages"][0]["issues"])
+    assert not any(i["category"] == "yuzumarker_font_mismatch" for i in rep_degraded["pages"][0]["issues"])
+
+    single_stale = audit_single_page(resolve_page_paths(img_p), check_inpaint_cv=True, check_font_glyphs=False)
+    assert not any(i["category"] == "yuzumarker_font_mismatch" for i in single_stale["issues"])
+
+    # 2) When refresh succeeds, worker updates cache for `page_v2` (`ANTIQUE` matches `FZHei-B01`)
+    refresh_calls.clear()
+    worker_mode["fail"] = False
+    worker_mode["update_to_antique"] = True
+    rep_refreshed = run_qa_audit(folder, check_inpaint_cv=True, check_font_glyphs=False)
+    assert len(refresh_calls) == 1
+    assert not rep_refreshed.get("yuzumarker_scan_degraded")
+    assert not any(i["category"] == "yuzumarker_font_mismatch" for i in rep_refreshed["pages"][0]["issues"])

@@ -115,13 +115,12 @@ def _clip_polygon_to_rect(
 def _clipped_polygon_has_area(pts: list[tuple[float, float]]) -> bool:
     if len(pts) < 3:
         return False
-    x0, y0 = pts[0]
-    for i in range(1, len(pts) - 1):
-        x1, y1 = pts[i]
-        x2, y2 = pts[i + 1]
-        if 0.5 * abs((x1 - x0) * (y2 - y0) - (y1 - y0) * (x2 - x0)) > 1e-3:
-            return True
-    return False
+    area2 = 0.0
+    px, py = pts[-1]
+    for cx, cy in pts:
+        area2 += px * cy - cx * py
+        px, py = cx, cy
+    return 0.5 * abs(area2) > 1e-3
 
 
 def build_region_polygon_mask(

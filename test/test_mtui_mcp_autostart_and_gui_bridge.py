@@ -5,6 +5,7 @@ import _bootstrap  # noqa: F401, I001
 import concurrent.futures
 import inspect
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -650,7 +651,7 @@ def test_mcp_gui_bridge_server_qt_main_thread_roundtrip_and_cleanup(
                         pass
                 bridge.handshake_timeout = 0.4
 
-        # R2-F50 & R3-F41: Post-auth stalled request read is genuinely blocked and aborted within request_read_timeout
+        # R2-F50, R3-F41, R4-F24 & R4-F25: Post-auth stalled request read is genuinely blocked and aborted within request_read_timeout
         bridge.request_read_timeout = 0.18
         post_auth_entered = threading.Event()
         orig_auth_conn = bridge._authenticate_connection
@@ -661,18 +662,18 @@ def test_mcp_gui_bridge_server_qt_main_thread_roundtrip_and_cleanup(
                 post_auth_entered.set()
             return ok
 
-        partial_peer = Client(expected_addr, authkey=None)
+        partial_peer = None
         with monkeypatch.context() as mp_read:
             mp_read.setattr(bridge, "_authenticate_connection", _spy_auth_conn)
             try:
+                partial_peer = Client(expected_addr, authkey=None)
                 auth_bytes = expected_key.read_bytes()
                 answer_challenge(partial_peer, auth_bytes)
                 deliver_challenge(partial_peer, auth_bytes)
                 assert post_auth_entered.wait(timeout=2.0) is True
                 if os.name != "nt":
                     os.write(partial_peer.fileno(), b"\x00\x00")
-                # On Windows Named Pipes, keep partial_peer open with zero request bytes sent so poll/read genuinely blocks;
-                # verify request_read_timeout aborts the blocked handler thread cleanly.
+                # Keep real Named Pipe / socket test for idle poll() / partial header timeout
                 deadline_partial = time.monotonic() + 1.5
                 while time.monotonic() < deadline_partial:
                     time.sleep(0.05)
@@ -686,10 +687,57 @@ def test_mcp_gui_bridge_server_qt_main_thread_roundtrip_and_cleanup(
                 ] == []
             finally:
                 bridge.request_read_timeout = 5.0
-                try:
-                    partial_peer.close()
-                except Exception:
-                    pass
+                if partial_peer is not None:
+                    try:
+                        partial_peer.close()
+                    except Exception:
+                        pass
+
+        # R4-F25: Controlled connection on all platforms (including Windows) where poll() returns True
+        # and recv_bytes() blocks until read_timer's _safe_abort_conn() explicitly aborts it.
+        recv_entered_ev = threading.Event()
+        recv_aborted_ev = threading.Event()
+
+        class _ControlledBlockingRecvConn:
+            closed = False
+
+            @staticmethod
+            def fileno() -> int:
+                raise OSError("in-memory controlled connection")
+
+            @staticmethod
+            def poll(_timeout: float = 0.0) -> bool:
+                return True
+
+            def recv_bytes(self, _maxlength: Any = None) -> bytes:
+                recv_entered_ev.set()
+                if not recv_aborted_ev.wait(timeout=2.5):
+                    raise AssertionError("recv_bytes() was not aborted by request_read_timeout timer")
+                raise OSError("aborted blocking recv_bytes")
+
+            def close(self) -> None:
+                self.closed = True
+                recv_aborted_ev.set()
+
+        controlled_conn = _ControlledBlockingRecvConn()
+        bridge.request_read_timeout = 0.12
+        try:
+            with monkeypatch.context() as mp_ctrl_read:
+                mp_ctrl_read.setattr(bridge, "_authenticate_connection", lambda *_a, **_kw: True)
+                ctrl_thread = threading.Thread(
+                    target=bridge._handle_connection,
+                    args=(controlled_conn, b"k" * 32, bridge._bridge_generation),
+                    name="mtui-gui-bridge-conn-ctrl",
+                    daemon=True,
+                )
+                ctrl_thread.start()
+                assert recv_entered_ev.wait(timeout=1.5) is True
+                ctrl_thread.join(timeout=1.5)
+                assert ctrl_thread.is_alive() is False
+                assert recv_aborted_ev.is_set() is True
+                assert controlled_conn.closed is True
+        finally:
+            bridge.request_read_timeout = 5.0
 
         # 2. `wait_for_translation` polls until `translation_running` flips False
         def _finish_translation_soon() -> None:
@@ -2087,15 +2135,22 @@ def test_r3_round3_desktop_and_transport_regressions(
         assert reloaded_p1["page_name"] == "001.png"
         assert int(np.asarray(r3_model.get_image())[0, 0, 0]) == 95
 
-        # 3e. R3-F37: `_install_on_main` synchronizes with `page_edit_lock` so an external MCP writer holding the lock cannot race between check and install
+        # 3e. R3-F37 & R4-F26: `_try_install_on_main` synchronizes with `page_edit_lock` while writer holds lock
         writer_entered_lock = threading.Event()
+        install_reached_lock = threading.Event()
         release_writer_lock = threading.Event()
         writer_finished = threading.Event()
+        orig_try_lock = r3_bridge._try_acquire_open_page_lock_nonblocking
+
+        def _spy_try_lock(src_p: str):
+            install_reached_lock.set()
+            return orig_try_lock(src_p)
 
         def _external_locked_writer() -> None:
             with page_edit_lock(p1, timeout_sec=5.0):
                 writer_entered_lock.set()
-                release_writer_lock.wait(timeout=5.0)
+                assert install_reached_lock.wait(timeout=3.0) is True
+                assert release_writer_lock.wait(timeout=5.0) is True
                 pp_w = resolve_page_paths(p1)
                 save_page_json_atomic(
                     pp_w,
@@ -2120,33 +2175,48 @@ def test_r3_round3_desktop_and_transport_regressions(
         r3_load_gate["stall"] = True
         r3_load_gate["started"].clear()
         r3_load_gate["release"].clear()
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as lock_race_pool:
-            open_fut = lock_race_pool.submit(
-                call_live_gui,
-                "open_page",
-                session_name=r3_sess,
-                path=str(p1),
-                reload=True,
-                force=True,
-            )
-            deadline_lr = time.monotonic() + 5.0
-            while not r3_load_gate["started"].is_set() and time.monotonic() < deadline_lr:
-                _QAPP.processEvents()
-                time.sleep(0.005)
-            assert r3_load_gate["started"].is_set()
+        with monkeypatch.context() as mp_f26:
+            mp_f26.setattr(r3_bridge, "_try_acquire_open_page_lock_nonblocking", _spy_try_lock)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as lock_race_pool:
+                open_fut = lock_race_pool.submit(
+                    call_live_gui,
+                    "open_page",
+                    session_name=r3_sess,
+                    path=str(p1),
+                    reload=True,
+                    force=True,
+                )
+                deadline_lr = time.monotonic() + 5.0
+                while not r3_load_gate["started"].is_set() and time.monotonic() < deadline_lr:
+                    _QAPP.processEvents()
+                    time.sleep(0.005)
+                assert r3_load_gate["started"].is_set()
 
-            # Start external writer holding page_edit_lock(p1), release decode so _install_on_main reaches page_edit_lock
-            writer_fut = lock_race_pool.submit(_external_locked_writer)
-            assert writer_entered_lock.wait(timeout=2.0) is True
-            r3_load_gate["stall"] = False
-            r3_load_gate["release"].set()
-            time.sleep(0.04)
-            release_writer_lock.set()
-            writer_fut.result(timeout=2.0)
-            assert writer_finished.is_set() is True
+                # Start external writer holding page_edit_lock(p1) BEFORE JSON is overwritten, then release decode
+                writer_fut = lock_race_pool.submit(_external_locked_writer)
+                assert writer_entered_lock.wait(timeout=2.0) is True
+                r3_load_gate["stall"] = False
+                r3_load_gate["release"].set()
 
-            with pytest.raises(RuntimeError, match="changed while loading"):
-                _run_in_worker_pumping_qt(open_fut.result)
+                # Pump Qt events until install callback reaches the lock boundary while writer STILL holds page_edit_lock
+                reach_dl = time.monotonic() + 3.0
+                while not install_reached_lock.is_set() and time.monotonic() < reach_dl:
+                    _QAPP.processEvents()
+                    time.sleep(0.005)
+                assert install_reached_lock.is_set() is True
+
+                # Keep pumping Qt events while writer holds lock (JSON still unchanged!): open_fut MUST NOT complete!
+                for _ in range(10):
+                    _QAPP.processEvents()
+                    time.sleep(0.005)
+                assert open_fut.done() is False
+
+                release_writer_lock.set()
+                writer_fut.result(timeout=2.0)
+                assert writer_finished.is_set() is True
+
+                with pytest.raises(RuntimeError, match="changed while loading"):
+                    _run_in_worker_pumping_qt(open_fut.result)
 
         assert r3_model.get_regions()[0]["translation"] == "P1初版"
     finally:
@@ -2215,3 +2285,768 @@ def test_r3_round3_desktop_and_transport_regressions(
         assert race_srv2.start(timeout=5.0) is False
         assert race_srv2.is_running is False
         assert "ensure_started" not in worker_events
+
+
+def test_r4_round4_desktop_and_transport_regressions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cover R4-F02/R4-F03, R4-F04, R4-F06, R4-F27, R4-F28, R4-F29, R4-F30, and R4-F31."""
+    import contextlib
+    import socket
+
+    for proxy_key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+        monkeypatch.delenv(proxy_key, raising=False)
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
+    monkeypatch.setenv("no_proxy", "127.0.0.1,localhost")
+
+    # ------------------------------------------------------------------
+    # 1. R4-F02/R4-F03, R4-F04, R4-F27, R4-F28, R4-F29: Live GUI bridge regressions
+    # ------------------------------------------------------------------
+    r4_sess = f"pytest-r4-ipc-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+    monkeypatch.setenv("MTUI_MCP_SESSION", r4_sess)
+    ch_dir = tmp_path / "r4_ch"
+    ch_dir.mkdir(parents=True)
+    p1 = ch_dir / "001.png"
+    p2 = ch_dir / "002.png"
+    Image.fromarray(np.full((48, 48, 3), 240, dtype=np.uint8)).save(p1)
+    Image.fromarray(np.full((48, 48, 3), 180, dtype=np.uint8)).save(p2)
+    for page_p, txt in ((p1, "R4_P1台词"), (p2, "R4_P2台词")):
+        pp = resolve_page_paths(page_p)
+        save_page_json_atomic(
+            pp,
+            str(page_p.resolve()),
+            {
+                "regions": [
+                    {
+                        "lines": [[[4.0, 4.0], [44.0, 4.0], [44.0, 44.0], [4.0, 44.0]]],
+                        "center": [24.0, 24.0],
+                        "text": "原文",
+                        "translation": txt,
+                        "font_family": "FZHei-B01",
+                        "font_size": 18,
+                        "direction": "v",
+                    }
+                ]
+            },
+            auto_initial_snapshot=False,
+        )
+
+    r4_model = EditorModel()
+    r4_model.apply_document_snapshot(
+        DocumentSnapshot(
+            source_path=str(p2.resolve()),
+            image=np.full((48, 48, 3), 180, dtype=np.uint8),
+            display_image_path=str(p2.resolve()),
+            regions=[{"text": "原文", "translation": "R4_P2当前编辑器内容"}],
+        )
+    )
+    r4_hist = _GuiHistoryStub(r4_model)
+    aux_exec = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+    switched_views: list[Any] = []
+    clear_calls: list[int] = []
+    save_gate: dict[str, Any] = {
+        "sleep_sec": 0.0,
+        "started": threading.Event(),
+        "finished": threading.Event(),
+    }
+    load_gate: dict[str, Any] = {
+        "stall": False,
+        "started": threading.Event(),
+        "release": threading.Event(),
+    }
+
+    class _R4DocService:
+        def __init__(self) -> None:
+            self.controller = None
+            self._aux_load_executor = aux_exec
+            self._load_generation = 0
+
+        def _cancel_pending_load(self) -> int:
+            self._load_generation += 1
+            return self._load_generation
+
+        @staticmethod
+        def resolve_editor_image_paths(candidate_path: str) -> tuple[str, str]:
+            norm = str(Path(candidate_path).resolve())
+            return norm, norm
+
+        @staticmethod
+        def _auto_save_on_switch_enabled() -> bool:
+            return False
+
+        @staticmethod
+        def _auto_export_on_switch_enabled() -> bool:
+            return False
+
+        def clear_editor_state(self) -> None:
+            clear_calls.append(1)
+            self._cancel_pending_load()
+            r4_model.clear_document()
+            r4_hist.clear()
+
+        def apply_load_result(self, payload: tuple[int, Any]) -> None:
+            gen, snap = payload
+            if gen == self._load_generation and isinstance(snap, DocumentSnapshot):
+                r4_model.apply_document_snapshot(snap)
+                r4_hist.mark_clean()
+
+    r4_doc_service = _R4DocService()
+
+    class _R4Controller:
+        history_service = r4_hist
+        export_service = types.SimpleNamespace(
+            unfinished_count=lambda: 0,
+            has_unsaved_changes=lambda: not r4_hist.is_clean(),
+        )
+        document_service = r4_doc_service
+
+        @staticmethod
+        def commit_pending_edits() -> None:
+            pass
+
+        @staticmethod
+        def save_editor_state() -> bool:
+            save_gate["started"].set()
+            if save_gate["sleep_sec"] > 0:
+                time.sleep(save_gate["sleep_sec"])
+            r4_hist.mark_clean()
+            save_gate["finished"].set()
+            return True
+
+    mw_stub = types.SimpleNamespace(
+        editor_view=object(),
+        stacked_widget=None,
+        editor_controller=_R4Controller(),
+        editor_model=r4_model,
+        editor_logic=None,
+        app_logic=types.SimpleNamespace(
+            source_files=[str(p1.resolve()), str(p2.resolve())],
+            state_manager=types.SimpleNamespace(is_translating=lambda: False),
+            current_worker=None,
+        ),
+        switchTo=lambda view: switched_views.append(view),
+    )
+
+    def _r4_worker_load(worker_self):
+        src = Path(worker_self.image_path).resolve()
+        if load_gate["stall"]:
+            load_gate["started"].set()
+            load_gate["release"].wait(timeout=5.0)
+        arr = np.asarray(Image.open(src).convert("RGB"), dtype=np.uint8)
+        pp = resolve_page_paths(src)
+        raw = json.loads(pp.json_path.read_text(encoding="utf-8"))
+        img_data = next(iter(raw.values()))
+        return DocumentSnapshot(
+            source_path=str(src),
+            image=arr,
+            display_image_path=str(src),
+            regions=img_data.get("regions", []),
+        )
+
+    monkeypatch.setattr("editor.document_load_worker.DocumentLoadWorker.load", _r4_worker_load)
+
+    r4_bridge = McpGuiBridgeServer(
+        main_window=mw_stub,
+        session_name=r4_sess,
+        dispatch_timeout=25.0,
+    )
+    r4_addr, r4_key = gui_session_paths(r4_sess)
+    try:
+        assert r4_bridge.start() is True
+        auth_bytes = r4_key.read_bytes()
+
+        # 1a. R4-F27: Huge JSON integer deadlines/timeouts causing float() OverflowError return structured JSON error
+        for bad_payload, expected_field in (
+            (
+                '{"method":"list_pages","args":{},"deadline_monotonic":' + ("9" * 400) + "}",
+                "deadline_monotonic",
+            ),
+            (
+                '{"method":"list_pages","args":{},"deadline_monotonic":-' + ("9" * 400) + "}",
+                "deadline_monotonic",
+            ),
+            (
+                '{"method":"list_pages","args":{},"timeout_sec":' + ("9" * 400) + "}",
+                "timeout_sec",
+            ),
+        ):
+            peer_ovf = Client(r4_addr, authkey=None)
+            try:
+                answer_challenge(peer_ovf, auth_bytes)
+                deliver_challenge(peer_ovf, auth_bytes)
+                peer_ovf.send_bytes(bad_payload.encode("utf-8"))
+                assert peer_ovf.poll(2.0) is True
+                ovf_reply = json.loads(peer_ovf.recv_bytes().decode("utf-8"))
+                assert expected_field in ovf_reply["error"]
+                assert "must be a finite number" in ovf_reply["error"]
+            finally:
+                peer_ovf.close()
+
+        # 1b. R4-F29: Exact 256 KiB wire payload must NOT be rejected by overestimated probe timeout_sec
+        fixed_fake_mono = 123456.789012
+        with monkeypatch.context() as mp_f29:
+            mp_f29.setattr("mtui_mcp.gui_bridge.time.monotonic", lambda: fixed_fake_mono)
+            # Actual compact wire frame has timeout_sec=30.0 (4 chars "30.0"), whereas old probe had 30.123456 (9 chars)!
+            sample_wire = json.dumps(
+                {
+                    "method": "list_pages",
+                    "args": {"pad": ""},
+                    "timeout_sec": 30.0,
+                    "deadline_monotonic": math.floor((fixed_fake_mono + 30.0) * 1_000_000) / 1_000_000,
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            exact_pad_len = MAX_GUI_REQUEST_BYTES - len(sample_wire)
+            assert exact_pad_len > 0
+
+        # Use real monotonic clock with pad sized so compact wire frame fits <= 256 KiB (within 2 bytes of limit!)
+        now_probe = time.monotonic()
+        fixed_dl_probe = math.floor((now_probe + 30.0) * 1_000_000) / 1_000_000
+        worst_send_wire = json.dumps(
+            {
+                "method": "list_pages",
+                "args": {"pad": ""},
+                "timeout_sec": 29.123456,
+                "deadline_monotonic": fixed_dl_probe,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        tight_pad = "p" * (MAX_GUI_REQUEST_BYTES - len(worst_send_wire))
+        # Note: with old 30.123456 probe on budget=30.0 when send_remaining=29.5 ("29.5" = 4 chars vs "30.123456" = 9 chars),
+        # adding 3 extra chars still fits actual send when timeout_sec is e.g. 29.5; verify deterministic exact-fit via controlled clock!
+        mono_state = {"Calls": 0, "base": time.monotonic()}
+
+        def _controlled_mono() -> float:
+            # Keep clock advancing tiny step during handshake so send_remaining == 29.5 ("29.5" -> 4 bytes in JSON)
+            mono_state["Calls"] += 1
+            if mono_state["Calls"] == 1:
+                return mono_state["base"]
+            return mono_state["base"] + 0.5
+
+        exact_29_5_base = json.dumps(
+            {
+                "method": "list_pages",
+                "args": {"pad": ""},
+                "timeout_sec": 29.5,
+                "deadline_monotonic": math.floor((mono_state["base"] + 30.0) * 1_000_000) / 1_000_000,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        exact_256k_pad = "z" * (MAX_GUI_REQUEST_BYTES - len(exact_29_5_base))
+        with monkeypatch.context() as mp_f29_exact:
+            mp_f29_exact.setattr("mtui_mcp.gui_bridge.time.monotonic", _controlled_mono)
+            exact_res = _run_in_worker_pumping_qt(
+                lambda: call_live_gui(
+                    "list_pages",
+                    session_name=r4_sess,
+                    timeout_sec=30.0,
+                    pad=exact_256k_pad,
+                )
+            )
+            assert exact_res["status"] == "ok"
+
+        # Truly oversized wire payload (min_probe <= 256 KiB with timeout_sec=0, but actual send timeout_sec=29.123456 > 256 KiB) still raises ValueError!
+        mono_state2 = {"Calls": 0, "base": time.monotonic()}
+
+        def _controlled_mono_frac() -> float:
+            mono_state2["Calls"] += 1
+            if mono_state2["Calls"] == 1:
+                return mono_state2["base"]
+            return mono_state2["base"] + 0.876544  # send_remaining -> 29.123456 (9 bytes vs "0" = 1 byte)
+
+        min_zero_base = json.dumps(
+            {
+                "method": "list_pages",
+                "args": {"pad": ""},
+                "timeout_sec": 0,
+                "deadline_monotonic": math.floor((mono_state2["base"] + 30.0) * 1_000_000) / 1_000_000,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        overflow_on_wire_pad = "q" * (MAX_GUI_REQUEST_BYTES - len(min_zero_base))
+        with monkeypatch.context() as mp_f29_over:
+            mp_f29_over.setattr("mtui_mcp.gui_bridge.time.monotonic", _controlled_mono_frac)
+            with pytest.raises(ValueError, match="exceeds 256 KiB"):
+                _run_in_worker_pumping_qt(
+                    lambda: call_live_gui(
+                        "list_pages",
+                        session_name=r4_sess,
+                        timeout_sec=30.0,
+                        pad=overflow_on_wire_pad,
+                    )
+                )
+        assert len(tight_pad) > 0
+
+        # 1c. R4-F28: Standard `call_live_gui("save_page", timeout_sec=0.24)` receives `"in_progress"` BEFORE client receive deadline!
+        save_gate["sleep_sec"] = 0.45
+        save_gate["started"].clear()
+        save_gate["finished"].clear()
+        try:
+            in_prog = _run_in_worker_pumping_qt(
+                lambda: call_live_gui("save_page", session_name=r4_sess, timeout_sec=0.24)
+            )
+            assert in_prog["status"] == "in_progress"
+            assert in_prog["save_in_progress"] is True
+            assert save_gate["finished"].wait(timeout=1.5) is True
+        finally:
+            save_gate["sleep_sec"] = 0.0
+
+        # If reply delivery itself stalls past client deadline AFTER sending `save_page`, client marks save outcome as unknown
+        orig_send_r4 = r4_bridge._send_reply
+
+        def _lagged_send_reply(conn_obj: Any, payload_obj: dict[str, Any]) -> None:
+            time.sleep(0.25)
+            with contextlib.suppress(OSError, BrokenPipeError):
+                orig_send_r4(conn_obj, payload_obj)
+
+        with monkeypatch.context() as mp_f28_unk:
+            mp_f28_unk.setattr(r4_bridge, "_send_reply", _lagged_send_reply)
+            with pytest.raises(TimeoutError, match="save outcome is unknown"):
+                _run_in_worker_pumping_qt(
+                    lambda: call_live_gui("save_page", session_name=r4_sess, timeout_sec=0.12)
+                )
+
+        # 1d. R4-F02 / R4-F03: `_try_install_on_main` NEVER blocks Qt main thread while `page_edit_lock` is contended;
+        # retries in background and succeeds when lock releases, or times out cleanly without freezing GUI!
+        lock_try_durations: list[float] = []
+        first_try_seen = threading.Event()
+        orig_nonblocking_lock = r4_bridge._try_acquire_open_page_lock_nonblocking
+
+        @contextlib.contextmanager
+        def _timed_nonblocking_lock(src_p: str):
+            t_start = time.monotonic()
+            with orig_nonblocking_lock(src_p) as got_it:
+                lock_try_durations.append(time.monotonic() - t_start)
+                if not got_it:
+                    first_try_seen.set()
+                yield got_it
+
+        hold_entered = threading.Event()
+        release_hold = threading.Event()
+
+        def _hold_p1_lock_without_edit() -> None:
+            with page_edit_lock(p1, timeout_sec=5.0):
+                hold_entered.set()
+                release_hold.wait(timeout=5.0)
+
+        load_gate["stall"] = True
+        load_gate["started"].clear()
+        load_gate["release"].clear()
+        with monkeypatch.context() as mp_f02:
+            mp_f02.setattr(r4_bridge, "_try_acquire_open_page_lock_nonblocking", _timed_nonblocking_lock)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as f02_pool:
+                open_p1_fut = f02_pool.submit(
+                    call_live_gui,
+                    "open_page",
+                    session_name=r4_sess,
+                    path=str(p1),
+                    force=True,
+                    timeout_sec=3.0,
+                )
+                dl_load = time.monotonic() + 3.0
+                while not load_gate["started"].is_set() and time.monotonic() < dl_load:
+                    _QAPP.processEvents()
+                    time.sleep(0.005)
+                assert load_gate["started"].is_set()
+
+                holder_fut = f02_pool.submit(_hold_p1_lock_without_edit)
+                assert hold_entered.wait(timeout=2.0) is True
+                load_gate["stall"] = False
+                load_gate["release"].set()
+
+                dl_try = time.monotonic() + 3.0
+                while not first_try_seen.is_set() and time.monotonic() < dl_try:
+                    _QAPP.processEvents()
+                    time.sleep(0.005)
+                assert first_try_seen.is_set() is True
+                assert open_p1_fut.done() is False
+
+                # Qt main thread MUST remain responsive while p1 lock is held!
+                t_ui_probe = time.monotonic()
+                probe_pages = _run_in_worker_pumping_qt(
+                    lambda: call_live_gui("list_pages", session_name=r4_sess, timeout_sec=0.5)
+                )
+                assert probe_pages["status"] == "ok"
+                assert time.monotonic() - t_ui_probe < 0.4
+
+                # Release lock -> background retry dispatches onto main thread and installs p1!
+                release_hold.set()
+                holder_fut.result(timeout=2.0)
+                opened_p1_res = _run_in_worker_pumping_qt(open_p1_fut.result)
+                assert opened_p1_res["page_name"] == "001.png"
+                assert opened_p1_res["regions"][0]["translation"] == "R4_P1台词"
+                assert lock_try_durations and max(lock_try_durations) < 0.05
+
+            # Sub-case B: Timeout while page_edit_lock remains held -> GUI stays responsive and open_page raises TimeoutError
+            first_try_seen.clear()
+            lock_try_durations.clear()
+            hold_entered.clear()
+            release_hold.clear()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as f02_to_pool:
+                holder_fut2 = f02_to_pool.submit(_hold_p1_lock_without_edit)
+                assert hold_entered.wait(timeout=2.0) is True
+                try:
+                    # Acquire lock only on install (not pre-decode) by stalling decode BEFORE acquiring p2 lock
+                    load_gate["stall"] = True
+                    load_gate["started"].clear()
+                    load_gate["release"].clear()
+                    hold_p2_entered = threading.Event()
+                    release_p2_hold = threading.Event()
+
+                    def _hold_p2_lock() -> None:
+                        with page_edit_lock(p2, timeout_sec=5.0):
+                            hold_p2_entered.set()
+                            release_p2_hold.wait(timeout=5.0)
+
+                    open_p2_to_fut = f02_to_pool.submit(
+                        call_live_gui,
+                        "open_page",
+                        session_name=r4_sess,
+                        path=str(p2),
+                        force=True,
+                        timeout_sec=0.28,
+                    )
+                    dl_p2 = time.monotonic() + 2.0
+                    while not load_gate["started"].is_set() and time.monotonic() < dl_p2:
+                        _QAPP.processEvents()
+                        time.sleep(0.005)
+                    assert load_gate["started"].is_set()
+
+                    p2_holder_thr = threading.Thread(target=_hold_p2_lock, daemon=True)
+                    p2_holder_thr.start()
+                    assert hold_p2_entered.wait(timeout=2.0) is True
+                    load_gate["stall"] = False
+                    load_gate["release"].set()
+                    try:
+                        with pytest.raises((TimeoutError, RuntimeError), match=r"(?i)timed out"):
+                            _run_in_worker_pumping_qt(open_p2_to_fut.result)
+                        assert lock_try_durations and max(lock_try_durations) < 0.05
+                        assert os.path.normcase(r4_model.get_source_image_path()) == os.path.normcase(str(p1.resolve()))
+                    finally:
+                        release_p2_hold.set()
+                        p2_holder_thr.join(timeout=1.0)
+                finally:
+                    release_hold.set()
+                    holder_fut2.result(timeout=2.0)
+
+        # 1e. R4-F04: Atomic bridge ownership re-verification after page_edit_lock acquisition before snapshot commit!
+        # Sub-case A: Bridge stops while background retry waits on page_edit_lock (holder makes NO disk changes!)
+        switched_views.clear()
+        clear_calls.clear()
+        f04_hold_in = threading.Event()
+        f04_hold_rel = threading.Event()
+        f04_try_seen = threading.Event()
+
+        @contextlib.contextmanager
+        def _f04_spy_lock(src_p: str):
+            with orig_nonblocking_lock(src_p) as got_it:
+                if not got_it:
+                    f04_try_seen.set()
+                yield got_it
+
+        def _hold_p2_no_mutation() -> None:
+            with page_edit_lock(p2, timeout_sec=5.0):
+                f04_hold_in.set()
+                f04_hold_rel.wait(timeout=5.0)
+
+        load_gate["stall"] = True
+        load_gate["started"].clear()
+        load_gate["release"].clear()
+        with monkeypatch.context() as mp_f04a:
+            mp_f04a.setattr(r4_bridge, "_try_acquire_open_page_lock_nonblocking", _f04_spy_lock)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as f04_pool:
+                open_f04_fut = f04_pool.submit(
+                    call_live_gui,
+                    "open_page",
+                    session_name=r4_sess,
+                    path=str(p2),
+                    force=True,
+                )
+                dl_s = time.monotonic() + 2.0
+                while not load_gate["started"].is_set() and time.monotonic() < dl_s:
+                    _QAPP.processEvents()
+                    time.sleep(0.005)
+                assert load_gate["started"].is_set()
+
+                hold_thr = threading.Thread(target=_hold_p2_no_mutation, daemon=True)
+                hold_thr.start()
+                assert f04_hold_in.wait(timeout=2.0) is True
+                load_gate["stall"] = False
+                load_gate["release"].set()
+
+                dl_ts = time.monotonic() + 2.0
+                while not f04_try_seen.is_set() and time.monotonic() < dl_ts:
+                    _QAPP.processEvents()
+                    time.sleep(0.005)
+                assert f04_try_seen.is_set() is True
+
+                # Stop bridge while lock is held and page on disk is UNCHANGED, then release lock!
+                r4_bridge.stop()
+                f04_hold_rel.set()
+                hold_thr.join(timeout=1.5)
+
+                with pytest.raises(RuntimeError, match="stopped or restarted"):
+                    _run_in_worker_pumping_qt(open_f04_fut.result)
+                for _ in range(10):
+                    _QAPP.processEvents()
+                    time.sleep(0.005)
+                assert switched_views == []
+                assert clear_calls == []
+                assert os.path.normcase(r4_model.get_source_image_path()) == os.path.normcase(str(p1.resolve()))
+
+        # Sub-case B: Bridge stops AFTER `_try_install_on_main` ALREADY acquired `page_edit_lock` (during `_compute_disk_revision_safe`),
+        # right before `with self._lock:` commit -> MUST abort without calling `mw.switchTo` or `clear_editor_state`!
+        assert r4_bridge.start() is True
+        switched_views.clear()
+        clear_calls.clear()
+        orig_disk_rev = r4_bridge._compute_disk_revision_safe
+        disk_rev_calls = {"n": 0}
+
+        def _stop_bridge_post_lock_pre_commit(src_p: str, disp_p: Any = None) -> str:
+            rev = orig_disk_rev(src_p, disp_p)
+            disk_rev_calls["n"] += 1
+            if disk_rev_calls["n"] == 2:
+                # Call #1 is pre-decode; Call #2 is INSIDE `_try_install_on_main` AFTER acquiring `page_edit_lock`!
+                stopper = threading.Thread(target=r4_bridge.stop, daemon=True)
+                stopper.start()
+                stopper.join(timeout=2.0)
+            return rev
+
+        with monkeypatch.context() as mp_f04b:
+            mp_f04b.setattr(r4_bridge, "_compute_disk_revision_safe", _stop_bridge_post_lock_pre_commit)
+            with pytest.raises(RuntimeError, match="stopped or restarted"):
+                _run_in_worker_pumping_qt(
+                    lambda: call_live_gui("open_page", session_name=r4_sess, path=str(p2), force=True)
+                )
+        assert disk_rev_calls["n"] == 2
+        assert switched_views == []
+        assert clear_calls == []
+        assert os.path.normcase(r4_model.get_source_image_path()) == os.path.normcase(str(p1.resolve()))
+    finally:
+        load_gate["stall"] = False
+        load_gate["release"].set()
+        r4_bridge.stop()
+        aux_exec.shutdown(wait=True)
+
+    # ------------------------------------------------------------------
+    # 2. R4-F06: `thread.start()` failure in `EmbeddedMcpHttpServer.start()` closes bound socket immediately
+    # ------------------------------------------------------------------
+    captured_socks: list[socket.socket] = []
+    orig_bind_sock = EmbeddedMcpHttpServer._bind_listener_socket
+    orig_thr_start = threading.Thread.start
+
+    def _spy_bind_sock(self_srv: EmbeddedMcpHttpServer):
+        res = orig_bind_sock(self_srv)
+        if res is not None:
+            captured_socks.append(res[0])
+        return res
+
+    def _fail_http_thread_start(self_thr: threading.Thread) -> None:
+        if self_thr.name.startswith("mtui-mcp-http-"):
+            raise RuntimeError("simulated http thread.start failure")
+        orig_thr_start(self_thr)
+
+    fail_srv = EmbeddedMcpHttpServer(host="127.0.0.1", port=0, mtui_root=ROOT, warm_up=False)
+    with monkeypatch.context() as mp_f06:
+        mp_f06.setattr(EmbeddedMcpHttpServer, "_bind_listener_socket", _spy_bind_sock)
+        mp_f06.setattr(threading.Thread, "start", _fail_http_thread_start)
+        with pytest.raises(RuntimeError, match="simulated http thread.start failure"):
+            fail_srv.start(timeout=2.0)
+
+    assert len(captured_socks) == 1
+    leaked_candidate_sock = captured_socks[0]
+    assert leaked_candidate_sock.fileno() == -1  # Closed immediately without waiting for GC!
+    assert fail_srv.bound_port is None
+    assert fail_srv._server is None
+    assert fail_srv._thread is None
+    assert fail_srv._socket is None
+    assert fail_srv.is_running is False
+
+    # ------------------------------------------------------------------
+    # 3. R4-F30: Readiness timeout cleanup checks & detaches handles atomically in one critical section
+    # ------------------------------------------------------------------
+    # Sub-case A: No concurrent start -> readiness timeout detaches & stops its own unready server cleanly
+    unready_srv = EmbeddedMcpHttpServer(host="127.0.0.1", port=0, mtui_root=ROOT, warm_up=False)
+
+    class _NeverReadyUvicornServer:
+        started = False
+        should_exit = False
+        force_exit = False
+
+        @staticmethod
+        def install_signal_handlers() -> None:
+            return None
+
+        async def serve(self, sockets: Any = None) -> None:
+            while not self.should_exit and not self.force_exit:
+                await __import__("asyncio").sleep(0.01)
+
+    with monkeypatch.context() as mp_f30a:
+        mp_f30a.setattr("mtui_mcp.embedded_server.uvicorn.Server", lambda _cfg: _NeverReadyUvicornServer())
+        assert unready_srv.start(timeout=0.12) is False
+    assert unready_srv.is_running is False
+    assert unready_srv._server is None
+    assert unready_srv.bound_port is None
+
+    # Sub-case B: Concurrent start publishes a newer server right before Start #1 enters timeout cleanup ->
+    # Start #1 MUST NOT detach or stop Start #2's active server!
+    race_f30_srv = EmbeddedMcpHttpServer(host="127.0.0.1", port=0, mtui_root=ROOT, warm_up=False)
+    orig_uvicorn_server = __import__("uvicorn").Server
+    uvicorn_call_idx = {"n": 0}
+    start1_exited_loop = threading.Event()
+    start2_published = threading.Event()
+
+    def _f30_server_factory(cfg: Any):
+        uvicorn_call_idx["n"] += 1
+        if uvicorn_call_idx["n"] == 1:
+            return _NeverReadyUvicornServer()
+        return orig_uvicorn_server(cfg)
+
+    orig_gen_active_f30 = race_f30_srv._is_start_generation_active
+
+    def _hook_timeout_window(gen: int, srv_obj: Any, thr_obj: Any) -> bool:
+        return orig_gen_active_f30(gen, srv_obj, thr_obj)
+
+    with monkeypatch.context() as mp_f30b:
+        mp_f30b.setattr("mtui_mcp.embedded_server.uvicorn.Server", _f30_server_factory)
+        orig_sleep = time.sleep
+
+        def _sleep_and_trigger_start2(sec: float) -> None:
+            orig_sleep(sec)
+            if isinstance(race_f30_srv._server, _NeverReadyUvicornServer) and not start1_exited_loop.is_set():
+                start1_exited_loop.set()
+
+                def _run_start2() -> None:
+                    assert race_f30_srv.start(timeout=5.0) is True
+                    start2_published.set()
+
+                threading.Thread(target=_run_start2, daemon=True).start()
+                assert start2_published.wait(timeout=5.0) is True
+
+        mp_f30b.setattr("mtui_mcp.embedded_server.time.sleep", _sleep_and_trigger_start2)
+        assert _hook_timeout_window is not None
+        try:
+            assert race_f30_srv.start(timeout=0.12) is False
+            # Start #2's server MUST still be alive and serving /health!
+            assert race_f30_srv.is_running is True
+            with urllib.request.urlopen(race_f30_srv.health_url, timeout=3.0) as resp:
+                assert resp.status == 200
+        finally:
+            race_f30_srv.stop()
+
+    # ------------------------------------------------------------------
+    # 4. R4-F31: Rollback only stops workers owned by THIS `start()`, synchronized with newer generations
+    # ------------------------------------------------------------------
+    rt_settings = get_runtime_settings()
+    with monkeypatch.context() as mp_f31:
+        mp_f31.setattr(rt_settings, "mtui_root", ROOT)
+
+        # Sub-case A: Pre-existing external worker (`is_running=True`, `_proc=ext_proc`) is NEVER stopped when
+        # `warm_up=False` OR `warm_up=True` rolls back!
+        ext_proc = types.SimpleNamespace(poll=lambda: None)
+        ext_shutdown_calls: list[Any] = []
+        ext_wc = types.SimpleNamespace(
+            _proc=ext_proc,
+            is_running=True,
+            ensure_started=lambda: 9999,
+            shutdown=lambda expected_proc=None: ext_shutdown_calls.append(expected_proc),
+        )
+        mp_f31.setattr("mtui_mcp.embedded_server.get_worker_client", lambda: ext_wc)
+
+        for warm_flag in (False, True):
+            rb_srv = EmbeddedMcpHttpServer(host="127.0.0.1", port=0, mtui_root=ROOT, warm_up=warm_flag)
+            orig_srv_cls = __import__("uvicorn").Server
+
+            def _flip_inactive_after_started(cfg: Any):
+                real_s = orig_srv_cls(cfg)
+                orig_serve = real_s.serve
+
+                async def _wrapped_serve(sockets: Any = None) -> None:
+                    async def _auto_flip() -> None:
+                        while not real_s.started and not real_s.should_exit:
+                            await __import__("asyncio").sleep(0.005)
+                        # Invalidate generation without calling EmbeddedMcpHttpServer.stop() so rollback branch runs
+                        with rb_srv._lock:
+                            rb_srv._start_generation += 1
+                        real_s.should_exit = True
+
+                    task = __import__("asyncio").create_task(_auto_flip())
+                    try:
+                        await orig_serve(sockets=sockets)
+                    finally:
+                        task.cancel()
+
+                real_s.serve = _wrapped_serve  # type: ignore[method-assign]
+                return real_s
+
+            with monkeypatch.context() as mp_sub:
+                mp_sub.setattr("mtui_mcp.embedded_server.uvicorn.Server", _flip_inactive_after_started)
+                assert rb_srv.start(timeout=5.0) is False
+            # Clean up socket/thread without calling stop() (which intentionally stops worker on full server stop)
+            rb_srv._stop_detached_handles(rb_srv._server, rb_srv._thread, rb_srv._socket, timeout=1.0)
+            rb_srv._server = rb_srv._thread = rb_srv._socket = rb_srv._bound_port = None
+            assert ext_shutdown_calls == [], f"Rollback with warm_up={warm_flag} must not stop pre-existing worker!"
+
+        # Sub-case B: Gen 1 spawns `proc1`, rolls back while Gen 2 starts with `warm_up=True` and spawns `proc2` ->
+        # `_EMBEDDED_WARMUP_LOCK` + `expected_proc=proc1` stops ONLY `proc1` and leaves `proc2` running!
+        proc1 = types.SimpleNamespace(name="proc1", poll=lambda: None)
+        proc2 = types.SimpleNamespace(name="proc2", poll=lambda: None)
+        spawn_seq = [proc1, proc2]
+        shutdown_targets: list[Any] = []
+        gen1_in_warmup = threading.Event()
+        gen1_release_warmup = threading.Event()
+
+        class _OwnedWorkerStub:
+            def __init__(self) -> None:
+                self._proc: Any = None
+                self.is_running = False
+
+            def ensure_started(self) -> int:
+                nxt = spawn_seq.pop(0)
+                self._proc = nxt
+                self.is_running = True
+                if nxt is proc1:
+                    gen1_in_warmup.set()
+                    gen1_release_warmup.wait(timeout=5.0)
+                return 9876
+
+            def shutdown(self, expected_proc: Any = None) -> None:
+                if expected_proc is not None and self._proc is not expected_proc:
+                    return
+                if self._proc is not None:
+                    shutdown_targets.append(self._proc)
+                    self._proc = None
+                    self.is_running = False
+
+        owned_wc = _OwnedWorkerStub()
+        mp_f31.setattr("mtui_mcp.embedded_server.get_worker_client", lambda: owned_wc)
+
+        srv_gen1 = EmbeddedMcpHttpServer(host="127.0.0.1", port=0, mtui_root=ROOT, warm_up=True)
+        srv_gen2 = EmbeddedMcpHttpServer(host="127.0.0.1", port=0, mtui_root=ROOT, warm_up=True)
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as gen_pool:
+                fut_g1 = gen_pool.submit(srv_gen1.start, 5.0)
+                assert gen1_in_warmup.wait(timeout=5.0) is True
+                # Invalidate srv_gen1 while inside warm-up, and concurrently start srv_gen2!
+                with srv_gen1._lock:
+                    srv_gen1._start_generation += 1
+                fut_g2 = gen_pool.submit(srv_gen2.start, 5.0)
+                time.sleep(0.05)
+                gen1_release_warmup.set()
+                assert fut_g1.result(timeout=5.0) is False
+                assert fut_g2.result(timeout=5.0) is True
+
+            # Verify srv_gen2's proc2 is alive and running (even if srv_gen1 saw srv_gen2 active or shut down proc1 first,
+            # the final active worker MUST be running and proc2 MUST NOT be killed!)
+            assert srv_gen2.is_running is True
+            assert owned_wc.is_running is True
+            assert owned_wc._proc in (proc1, proc2)
+            assert proc2 not in shutdown_targets
+        finally:
+            srv_gen1._stop_detached_handles(srv_gen1._server, srv_gen1._thread, srv_gen1._socket, timeout=1.0)
+            srv_gen2.stop()

@@ -35,6 +35,7 @@ DEFAULT_MCP_PORT = 8765
 DEFAULT_IPC_HANDSHAKE_TIMEOUT = 5.0
 DEFAULT_IPC_REQUEST_READ_TIMEOUT = 5.0
 DEFAULT_OPEN_PAGE_TIMEOUT = 30.0
+_OPEN_PAGE_LOCK_BUSY = object()
 
 _TRUTHY_ENV = frozenset({"1", "true", "yes", "on"})
 _FALSY_ENV = frozenset({"0", "false", "no", "off"})
@@ -797,31 +798,25 @@ class McpGuiBridgeServer:
             request_deadline: Optional[float] = None
             raw_timeout = request.get("timeout_sec")
             if raw_timeout is not None:
-                if (
-                    isinstance(raw_timeout, bool)
-                    or not isinstance(raw_timeout, (int, float))
-                    or not math.isfinite(float(raw_timeout))
-                ):
+                parsed_timeout = self._parse_finite_float(raw_timeout)
+                if parsed_timeout is None:
                     self._send_reply(conn, {"error": "IPC request 'timeout_sec' must be a finite number"})
                     return
-                if float(raw_timeout) <= 0:
+                if parsed_timeout <= 0:
                     self._send_reply(conn, {"error": "Live GUI request timed out before execution"})
                     return
-                request_deadline = request_received_at + float(raw_timeout)
+                rel_deadline = request_received_at + parsed_timeout
+                request_deadline = rel_deadline if math.isfinite(rel_deadline) else sys.float_info.max
 
             raw_deadline_monotonic = request.get("deadline_monotonic")
             if raw_deadline_monotonic is not None:
-                if (
-                    isinstance(raw_deadline_monotonic, bool)
-                    or not isinstance(raw_deadline_monotonic, (int, float))
-                    or not math.isfinite(float(raw_deadline_monotonic))
-                ):
+                mono_deadline = self._parse_finite_float(raw_deadline_monotonic)
+                if mono_deadline is None:
                     self._send_reply(
                         conn,
                         {"error": "IPC request 'deadline_monotonic' must be a finite number"},
                     )
                     return
-                mono_deadline = float(raw_deadline_monotonic)
                 request_deadline = (
                     mono_deadline
                     if request_deadline is None
@@ -846,6 +841,18 @@ class McpGuiBridgeServer:
             self.logger.debug("Live GUI IPC connection handler failed: %s", exc)
         finally:
             _safe_close_conn()
+
+    @staticmethod
+    def _parse_finite_float(value: Any) -> Optional[float]:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if not math.isfinite(parsed):
+            return None
+        return parsed
 
     @staticmethod
     def _send_reply(conn: Any, payload: dict[str, Any]) -> None:
@@ -975,10 +982,26 @@ class McpGuiBridgeServer:
             dispatch_wait = min(dispatch_wait, rem)
 
         if method == "save_page":
+            save_reply_deadline: Optional[float] = None
+            save_dispatch_wait = dispatch_wait
+            if request_deadline is not None:
+                rem_now = request_deadline - time.monotonic()
+                if rem_now <= 0:
+                    raise TimeoutError("Live GUI request timed out before execution")
+                reply_headroom = min(0.08, max(0.02, rem_now * 0.25))
+                save_reply_deadline = max(
+                    time.monotonic() + 0.005,
+                    request_deadline - reply_headroom,
+                )
+                save_dispatch_wait = min(
+                    dispatch_wait,
+                    max(0.01, save_reply_deadline - time.monotonic()),
+                )
+
             def _on_save_running_timeout(call: _MainThreadCall) -> dict[str, Any]:
                 grace = min(0.25, max(0.02, self.dispatch_timeout * 0.25))
-                if request_deadline is not None:
-                    grace = max(0.0, min(grace, request_deadline - time.monotonic()))
+                if save_reply_deadline is not None:
+                    grace = max(0.0, min(grace, save_reply_deadline - time.monotonic()))
                 if grace > 0 and call.done.wait(grace):
                     if call.error is not None:
                         raise call.error
@@ -992,8 +1015,8 @@ class McpGuiBridgeServer:
 
             return self._dispatcher.dispatch(
                 lambda: self._dispatch_main_thread_method(method, args, bridge_generation),
-                timeout=dispatch_wait,
-                deadline=request_deadline,
+                timeout=save_dispatch_wait,
+                deadline=save_reply_deadline,
                 on_running_timeout=_on_save_running_timeout,
             )
 
@@ -1306,6 +1329,65 @@ class McpGuiBridgeServer:
         finally:
             fallback_lock.release()
 
+    @contextlib.contextmanager
+    def _try_acquire_open_page_lock_nonblocking(self, source_path: str) -> Iterator[bool]:
+        norm_key = os.path.normcase(os.path.abspath(os.path.normpath(source_path)))
+        try:
+            from mtui_mcp.project_store import page_edit_lock
+        except Exception:
+            page_edit_lock = None
+
+        if page_edit_lock is not None:
+            cm: Any = None
+            try:
+                cm = page_edit_lock(source_path, timeout_sec=0.0)
+                cm.__enter__()
+            except TimeoutError:
+                yield False
+                return
+            except OSError:
+                cm = None
+            if cm is not None:
+                try:
+                    yield True
+                except BaseException:
+                    if not cm.__exit__(*sys.exc_info()):
+                        raise
+                else:
+                    cm.__exit__(None, None, None)
+                return
+
+        with self._lock:
+            fallback_lock = self._fallback_page_locks.get(norm_key)
+            if fallback_lock is None:
+                fallback_lock = threading.RLock()
+                self._fallback_page_locks[norm_key] = fallback_lock
+        if not fallback_lock.acquire(blocking=False):
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            fallback_lock.release()
+
+    def _wait_for_open_page_lock_in_background(
+        self,
+        source_path: str,
+        *,
+        deadline: float,
+        bridge_generation: int,
+    ) -> None:
+        while True:
+            self._verify_bridge_generation(bridge_generation)
+            remaining = self._remaining_until_deadline(deadline)
+            step_deadline = time.monotonic() + min(0.05, remaining)
+            try:
+                with self._acquire_open_page_lock(source_path, step_deadline):
+                    return
+            except TimeoutError:
+                self._verify_bridge_generation(bridge_generation)
+                self._remaining_until_deadline(deadline)
+
     def _rpc_open_page(
         self,
         args: dict[str, Any],
@@ -1386,9 +1468,11 @@ class McpGuiBridgeServer:
             )
 
             if same_page and not reload_if_same:
-                self._remaining_until_deadline(deadline)
-                if mw is not None and getattr(mw, "editor_view", None) is not None:
-                    mw.switchTo(mw.editor_view)
+                with self._lock:
+                    self._verify_bridge_generation(bridge_generation)
+                    self._remaining_until_deadline(deadline)
+                    if mw is not None and getattr(mw, "editor_view", None) is not None:
+                        mw.switchTo(mw.editor_view)
                 return (
                     doc_service,
                     source_path,
@@ -1492,10 +1576,7 @@ class McpGuiBridgeServer:
         if not isinstance(load_result, DocumentSnapshot):
             raise RuntimeError(f"Unexpected editor load result for {source_path}")
 
-        self._verify_bridge_generation(bridge_generation)
-        install_remaining = self._remaining_until_deadline(deadline)
-
-        def _install_on_main() -> dict[str, Any]:
+        def _try_install_on_main() -> Any:
             self._verify_bridge_generation(bridge_generation)
             self._remaining_until_deadline(deadline)
             current_gen = int(getattr(doc_service, "_load_generation", expected_load_gen))
@@ -1516,7 +1597,10 @@ class McpGuiBridgeServer:
                     "Page open/reload aborted because editor content changed while loading"
                 )
 
-            with self._acquire_open_page_lock(source_path, deadline):
+            with self._try_acquire_open_page_lock_nonblocking(source_path) as lock_acquired:
+                if not lock_acquired:
+                    return _OPEN_PAGE_LOCK_BUSY
+
                 re_src_now, re_disp_now = doc_service.resolve_editor_image_paths(candidate_path)
                 if (
                     os.path.normcase(os.path.abspath(re_src_now)) != src_key
@@ -1531,36 +1615,48 @@ class McpGuiBridgeServer:
                         "Page open/reload aborted because on-disk page content changed while loading"
                     )
 
-                self._remaining_until_deadline(deadline)
-
-                if mw is not None and getattr(mw, "editor_view", None) is not None:
-                    mw.switchTo(mw.editor_view)
-
-                doc_service.clear_editor_state()
-                install_gen = int(getattr(doc_service, "_load_generation", expected_load_gen))
-                apply_load_result = getattr(doc_service, "apply_load_result", None)
-                if callable(apply_load_result):
-                    apply_load_result((install_gen, load_result))
-                else:
-                    doc_service.apply_loaded_data_to_model(load_result)
-
                 with self._lock:
+                    self._verify_bridge_generation(bridge_generation)
+                    self._remaining_until_deadline(deadline)
+
+                    if mw is not None and getattr(mw, "editor_view", None) is not None:
+                        mw.switchTo(mw.editor_view)
+
+                    doc_service.clear_editor_state()
+                    install_gen = int(getattr(doc_service, "_load_generation", expected_load_gen))
+                    apply_load_result = getattr(doc_service, "apply_load_result", None)
+                    if callable(apply_load_result):
+                        apply_load_result((install_gen, load_result))
+                    else:
+                        doc_service.apply_loaded_data_to_model(load_result)
+
                     self._loaded_image_sigs[src_key] = src_img_sig
                     self._loaded_image_sigs[disp_key] = disp_img_sig
 
-            if editor_logic is not None and getattr(editor_logic, "file_model", None) is not None:
-                if not editor_logic.file_model.get_file_item(source_path):
-                    try:
-                        editor_logic.add_files([source_path])
-                    except Exception:
-                        pass
+                    if editor_logic is not None and getattr(editor_logic, "file_model", None) is not None:
+                        if not editor_logic.file_model.get_file_item(source_path):
+                            try:
+                                editor_logic.add_files([source_path])
+                            except Exception:
+                                pass
+
             return self._rpc_read_page_main({"limit": 50})
 
-        return self._dispatcher.dispatch(
-            _install_on_main,
-            timeout=min(self.dispatch_timeout, install_remaining),
-            deadline=deadline,
-        )
+        while True:
+            self._verify_bridge_generation(bridge_generation)
+            install_remaining = self._remaining_until_deadline(deadline)
+            install_res = self._dispatcher.dispatch(
+                _try_install_on_main,
+                timeout=min(self.dispatch_timeout, install_remaining),
+                deadline=deadline,
+            )
+            if install_res is not _OPEN_PAGE_LOCK_BUSY:
+                return install_res
+            self._wait_for_open_page_lock_in_background(
+                source_path,
+                deadline=deadline,
+                bridge_generation=bridge_generation,
+            )
 
     def _rpc_history_step_main(self, args: dict[str, Any]) -> dict[str, Any]:
         action = str(args.get("action") or "").strip().lower()

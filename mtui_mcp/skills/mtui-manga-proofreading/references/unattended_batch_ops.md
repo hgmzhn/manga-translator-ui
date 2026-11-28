@@ -35,7 +35,7 @@
 | `translate-raw` 某页失败 | ① 重试；② 改用 `mtui_run_translation_pipeline` 单页翻译；③ 用 `mtui_ocr_or_translate_regions` 对这一页逐区域 OCR 和翻译 |
 | 区域修图不达标（接缝、残墨、糊斑） | 依次尝试不同方法：收紧 `tight_halo_rects` → 拆成多个小区域 → 换 `neural_inpainter` → 用 `mtui_manage_paste_overlays` 从相邻干净区域仿制修补 → 调整译文位置和白描边来遮瑕。选最好的一版 |
 | 版面怎么调都不理想（溢出、断句别扭） | 依次尝试：重新断句 → 微调虚词 → 调字号、行距、字距 → 在不改原意的前提下换一种更短的说法 |
-| 回归锁未通过（新增 error 或存在 `unaudited_pages`） | 先补齐未审页面确保 `unaudited_pages == []`，再分析新增 error 是哪次修改引入的并针对性修复；修不好就 `mtui_snapshots(target_path="<PAGE>", action="restore", label="pre_gate_b")` 回退这一页，再用另一种方式重做这次修改，直到 `regression_diff.passed == True` |
+| 回归锁未通过（新增 error 或存在 `unaudited_pages`） | 先补齐未审页面确保 `unaudited_pages == []`，再分析新增 error 是哪次修改引入的并针对性修复；修不好就用本轮 `created_snapshot_ids` 中该页对应的 `snapshot_id` 执行 `mtui_snapshots(target_path="<PAGE>", action="restore", snapshot_id="<RECORDED_ID>")` 回退这一页，再用另一种方式重做这次修改，直到 `regression_diff.passed == True` |
 | 有歧义、需要判断的翻译 | 结合画面和上下文，选最贴切的译法**直接写入**；在 `DECISIONS` 里记下原文、所选译文、备选译文和理由 |
 | 疑似漏检的文字（审计没报，但原图里有） | 直接用 `mtui_add_region` 补框，翻译并嵌字 |
 | 磁盘 / 路径 / 权限错误 | 先尝试修正路径或改用可写位置；确实无法读写这一话时才跳过，处理下一话 |
@@ -97,7 +97,7 @@ modified_pages: [3, 7, 13, 21]
 要求：
 - 逐框处理，零跳框；Gate B 阶段运行
   aac verify-crops --chapter-dir "<CHAPTER>" --out-dir "<QA>/verify_crops/shard_<A>_<B>" --page-start <A> --page-end <B>
-  然后逐张 read_file 看完全部 sheet，一张不跳；若 `verify_crops_manifest.json` 中 `skipped_regions` 非空，必须按其中的 `page` 和 `region_index` 逐个调用 `mtui_inspect_region_visual` 补查。
+  然后严格按当前 `verify_crops_manifest.json` 的 `sheets` 列表逐张 `read_file` 看完本轮全部 sheet（核对读取数等于 `verify_sheet_count`，不要读取目录内残留的旧文件），一张不跳；若 `verify_crops_manifest.json` 中 `skipped_regions` 非空，必须按其中的 `page` 和 `region_index` 逐条调用 `mtui_inspect_region_visual` 补查（若无法生成区域放大图如 `crop_too_small` 落在页外，则改用整页原图与成图核实区域位置，坐标错误时修正后重新出图并复查，仍无法确认则不得放行）。
 - Gate B 阶段若发现某单页需要修改，**先对该单页执行一次按需存档** `mtui_snapshots(target_path="<PAGE>", action="create", label="pre_gate_b")` 并将返回的 `snapshot_id` 记入 `created_snapshot_ids` 再动刀（严禁对没改动的页批量建快照浪费磁盘）。
 - 发现问题就自己判断最优方案并直接修复、验证，按 unattended_batch_ops.md 第 2 节处理；不要停下来提问，也不要只记录不处理。
 - 需要修改术语表时不要直接改，写进回报里交给主控。
@@ -107,7 +107,7 @@ modified_pages: [3, 7, 13, 21]
 "auto_fixed":[...], "decisions":[...], "glossary_proposals":[...], "unresolved":[...]}
 ```
 
-主控收到回报后，必须同时核对三项覆盖门禁：① **选中页集合核对**：回报中的 `pages` / `selected_pages` 必须完整覆盖派发的第 `A~B` 页，且 `verify_crops_manifest.json` 的 `missing_artifact_pages == []`（严禁出现选中页因缺成图/JSON/底图/损坏遮罩未生成卡片却只靠 sheet 数放行；若 `skipped_pages` 含 `no_visible_regions` 须核实确为无字页）；② **未导出可见区域补查**：若 `verify_crops_manifest.json` 的 `skipped_regions` 非空，必须核实其中每个 `{page, region_index}` 均已通过 `mtui_inspect_region_visual` 逐框补查完毕（严禁因 `crop_too_small` 漏检任何可见区域）；③ **Sheet 全量复核**：`sheets_reviewed == sheets_total`（`sheets_total` 必须取自 `verify_crops_manifest.json` 的 `verify_sheet_count`）。任一门禁未通过，必须先补齐缺失成图、补查 `skipped_regions` 或把漏看的 sheet 重新派回该分片；`unresolved` 里的项，主控可以换一种思路再试一次。
+主控收到回报后，必须同时核对三项覆盖门禁：① **选中页集合核对**：回报中的 `pages` / `selected_pages` 必须完整覆盖派发的第 `A~B` 页，且 `verify_crops_manifest.json` 的 `missing_artifact_pages == []`（严禁出现选中页因缺成图/JSON/底图/损坏遮罩未生成卡片却只靠 sheet 数放行；`skipped_pages` 仅允许经原图核实确无正文的 `no_visible_regions` 页，或全部记录区域均已完成补查并有确认结果的 `crops_too_small` 正文页）；② **未导出可见区域补查**：若 `verify_crops_manifest.json` 的 `skipped_regions` 非空，必须核实其中每个 `{page, region_index}` 均已通过 `mtui_inspect_region_visual` 逐框补查完毕（若 loupe 无法生成区域图如 `crop_too_small` 落在页外，须已改用整页原图与成图核实位置或修正坐标重出图复查完毕；仍无法确认时严禁通过门禁）；③ **Sheet 全量复核**：仅以当前 `verify_crops_manifest.json` 的 `sheets` 列表为复核范围，`sheets_reviewed == sheets_total`（`sheets_total` 必须取自 `verify_crops_manifest.json` 的 `verify_sheet_count`）。任一门禁未通过，必须先补齐缺失成图、补查 `skipped_regions` 或把漏看的 sheet 重新派回该分片；`unresolved` 里的项，主控可以换一种思路再试一次。
 
 ---
 

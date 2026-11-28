@@ -244,15 +244,26 @@ def _int_to_chinese_forms(n: int) -> set[str]:
     return {f for f in forms if f}
 
 
+_THOUSAND_GROUPED_INT_RE = re.compile(r"(?<!,,)(?<!\d,)(?<![\d.])\d{1,3}(?:,\d{3})+(?!,\d)(?!,,)(?!\d)")
+
+
+def _strip_thousand_commas(text: str) -> str:
+    """Strip commas strictly inside complete valid thousand-grouped numbers (e.g. ``1,234,567`` -> ``1234567``)."""
+    return _THOUSAND_GROUPED_INT_RE.sub(lambda m: m.group(0).replace(",", ""), text)
+
+
 def _parse_decimal_with_units_exact(dec_str: str, units_str: str) -> Optional[int]:
     """Convert ``<decimal><CN_units>`` using exact base-10 arithmetic; return ``int`` iff exact integer in ``[0, 10**18]``."""
-    if not dec_str or not units_str or len(dec_str) > 40 or len(units_str) > 8:
+    if not dec_str or not units_str or len(dec_str) > 128 or len(units_str) > 8:
         return None
     try:
         val = Decimal(dec_str)
     except InvalidOperation:
         return None
     if not val.is_finite() or val < 0:
+        return None
+    exp = val.as_tuple().exponent
+    if not isinstance(exp, int) or abs(exp) > 128:
         return None
     mult = 1
     for uch in units_str:
@@ -262,13 +273,11 @@ def _parse_decimal_with_units_exact(dec_str: str, units_str: str) -> Optional[in
         mult *= u_val
         if mult > _MAX_AUDIT_NUMBER:
             return None
-    prod = val * mult
-    if not prod.is_finite() or prod < 0 or prod > _MAX_AUDIT_NUMBER:
+    num, den = val.as_integer_ratio()
+    quot, rem = divmod(num * mult, den)
+    if rem != 0 or quot < 0 or quot > _MAX_AUDIT_NUMBER:
         return None
-    integral = prod.to_integral_value()
-    if prod != integral:
-        return None
-    return int(integral)
+    return int(quot)
 
 
 def _parse_num_span(span: str) -> Optional[int]:
@@ -391,7 +400,7 @@ def _parse_num_span(span: str) -> Optional[int]:
 def _extract_complete_numbers(text_norm: str) -> set[int]:
     """Extract complete integer quantities from NFKC-normalized text, honoring multiplier units (e.g. '2万' -> 20000)."""
     out: set[int] = set()
-    work = re.sub(r"(?<=\d),(?=\d{3}(?!\d))", "", text_norm)
+    work = _strip_thousand_commas(text_norm)
     work = re.sub(rf"(?<=\d)\s+(?=[{_CN_MULTIPLIER_CHARS}])", "", work)
 
     def _consume_dec_unit(m: re.Match[str]) -> str:
@@ -420,7 +429,7 @@ def _extract_complete_numbers(text_norm: str) -> set[int]:
 
 
 def _parse_source_number_token(raw_tok: str) -> Optional[int]:
-    tok = re.sub(r"(?<=\d),(?=\d{3}(?!\d))", "", raw_tok)
+    tok = _strip_thousand_commas(raw_tok)
     tok = re.sub(r"\s+", "", tok)
     m_dec_u = re.fullmatch(rf"(\d+\.\d+)([{_CN_MULTIPLIER_CHARS}]+)", tok)
     if m_dec_u:

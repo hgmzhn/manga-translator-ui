@@ -39,6 +39,7 @@ from mtui_mcp.path_resolver import (
     resolve_source_image_path,
 )
 from mtui_mcp.project_store import (
+    SnapshotRollbackError,
     align_regions_on_page,
     apply_region_updates_to_page,
     cleanup_snapshots_for_target,
@@ -1282,13 +1283,27 @@ def test_r2_path_resolver_inpaint_rotated_mask_rollback_and_centering(
             os.utime(bc_res_path, (nt + 2.0, nt + 2.0))
         return {"status": "ok", "metadata_saved": True, "output_path": str(bc_res_path)}
 
-    rep_loop_ok = run_closed_loop_bubble_centering(
-        bc_dir,
-        passes=3,
-        render_page_fn=_mock_render_ok,
-        render_results_out=render_out_ok,
-    )
+    real_partition_by_uid = bubble_centering._partition_lobes_by_uid
+    partition_seen_dirs: list[list[str]] = []
+
+    def _spy_partition_by_uid(inp_gray_arg, regs_arg):
+        partition_seen_dirs.append([str(r.get("direction") or "") for r in regs_arg if isinstance(r, dict)])
+        return real_partition_by_uid(inp_gray_arg, regs_arg)
+
+    monkeypatch.setattr(bubble_centering, "_partition_lobes_by_uid", _spy_partition_by_uid)
+    try:
+        rep_loop_ok = run_closed_loop_bubble_centering(
+            bc_dir,
+            passes=3,
+            render_page_fn=_mock_render_ok,
+            render_results_out=render_out_ok,
+        )
+    finally:
+        monkeypatch.setattr(bubble_centering, "_partition_lobes_by_uid", real_partition_by_uid)
     assert call_idx_ok["n"] == 2  # Pass 0 pre-render + Pass 0 post-update; Pass 1 entered & stopped because direction=="h"!
+    assert len(partition_seen_dirs) >= 2
+    assert partition_seen_dirs[0] == ["vertical"]
+    assert partition_seen_dirs[-1] == ["horizontal"]
     assert rep_loop_ok["001.png"][0]["render_status"] == "ok"
     assert isinstance(render_out_ok.get("001.png"), dict)
     assert render_out_ok["001.png"]["status"] == "ok"  # type: ignore[index]
@@ -1529,7 +1544,18 @@ def test_r3_f21_f23_f24_f25_store_richtext_null_blocks_and_transactional_restore
     ch_f24 = tmp_path / "r3_f24_ch"
     p_tx = _create_sample_manga_page(ch_f24, "001.png")
     snap_tx = create_snapshot(resolve_page_paths(p_tx), label="tx_base")
-    apply_region_updates_to_page(p_tx, [{"region_index": 0, "translation": "失败前保持的新译文"}])
+    apply_region_updates_to_page(
+        p_tx,
+        [
+            {"region_index": 0, "translation": "失败前保持的新译文"},
+            {"region_index": 1, "translation": "第二区域同样保持新译文"},
+        ],
+    )
+    tx_paths_pre = resolve_page_paths(p_tx)
+    ik_tx_pre, d_tx_pre = load_page_json(tx_paths_pre)
+    d_tx_pre["last_export_dir"] = str((tmp_path / "tx_custom_export").resolve())
+    save_page_json_atomic(tx_paths_pre, ik_tx_pre, d_tx_pre, auto_initial_snapshot=False)
+    expected_tx_json_bytes = resolve_page_paths(p_tx).json_path.read_bytes()
     new_inp_tx = np.full((800, 600, 3), 144, dtype=np.uint8)
     save_rgb_image_atomic(new_inp_tx, resolve_page_paths(p_tx).inpainted_path)
 
@@ -1545,8 +1571,11 @@ def test_r3_f21_f23_f24_f25_store_richtext_null_blocks_and_transactional_restore
         restore_snapshot(p_tx, snap_tx["snapshot_id"])
     monkeypatch.setattr(project_store, "_copy_file_atomic", real_copy_atomic)
 
+    assert resolve_page_paths(p_tx).json_path.read_bytes() == expected_tx_json_bytes
     _, tx_after = load_page_json(resolve_page_paths(p_tx))
     assert tx_after["regions"][0]["translation"] == "失败前保持的新译文"
+    assert tx_after["regions"][1]["translation"] == "第二区域同样保持新译文"
+    assert tx_after["last_export_dir"] == str((tmp_path / "tx_custom_export").resolve())
     assert np.array_equal(open_rgb_image(resolve_page_paths(p_tx).inpainted_path), new_inp_tx)
     assert list(resolve_page_paths(p_tx).json_path.parent.glob(".rollback_*")) == []
 
@@ -1915,7 +1944,9 @@ def test_r3_f02_f19_f48_f49_f50_f26_f45_centering_and_glossary_contracts(
         return {"status": "ok", "output_path": str(taint_out)}
 
     run_closed_loop_bubble_centering(taint_dir, passes=2, render_page_fn=_tainted_post_render)
+    assert taint_calls["n"] >= 2
     _, d_taint = load_page_json(resolve_page_paths(taint_img))
+    assert d_taint["regions"][0]["translation"] == "并发改稿"
     # Stale far-left ink (135..165) was tainted by concurrent edit, so center=200 was NOT pushed right to ~245!
     assert abs(d_taint["regions"][0]["center"][0] - 200.0) <= 5.0
 
@@ -1968,3 +1999,401 @@ def test_r3_f02_f19_f48_f49_f50_f26_f45_centering_and_glossary_contracts(
         entries=[{"original": "New York"}],
     )
     assert deleted_f45 == {"file": str(txt_f45), "format": "txt", "count": 0, "deleted": 1}
+
+
+def test_r4_slice2_store_centering_inpaint_and_glossary_regressions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import errno
+
+    # R4-F05: `compute_page_revision` & `_read_consistent_page_state` use the sampled `inpainted_stat`
+    # rather than re-statting a concurrently replaced inpainted file on disk.
+    f05_dir = tmp_path / "r4_f05_ch"
+    f05_dir.mkdir(parents=True)
+    f05_img = f05_dir / "001.png"
+    f05_canvas = np.full((500, 500, 3), 180, dtype=np.uint8)
+    cv2.rectangle(f05_canvas, (100, 100), (300, 340), (255, 255, 255), -1)
+    cv2.rectangle(f05_canvas, (100, 100), (300, 340), (0, 0, 0), 4)
+    Image.fromarray(f05_canvas).save(f05_img)
+    f05_paths = resolve_page_paths(f05_img)
+    save_rgb_image_atomic(f05_canvas, f05_paths.inpainted_path)
+    save_page_json_atomic(
+        f05_paths,
+        str(f05_img.resolve()),
+        {
+            "regions": [
+                {
+                    "lines": [[[215.0, 160.0], [275.0, 160.0], [275.0, 280.0], [215.0, 280.0]]],
+                    "center": [245.0, 220.0],
+                    "translation": "版本一致性",
+                    "font_size": 26,
+                    "direction": "v",
+                }
+            ]
+        },
+        auto_initial_snapshot=False,
+    )
+    f05_paths = resolve_page_paths(f05_img)
+    raw_f05_bytes = f05_paths.json_path.read_bytes()
+    st_f05 = f05_paths.inpainted_path.stat()
+    sampled_inp_stat = (st_f05.st_size, st_f05.st_mtime_ns)
+    rev_initial = compute_page_revision(f05_paths)
+    assert compute_page_revision(f05_paths, json_bytes=raw_f05_bytes, inpainted_stat=sampled_inp_stat) == rev_initial
+
+    with pytest.raises(TypeError, match="Unsupported inpainted_stat"):
+        compute_page_revision(f05_paths, json_bytes=raw_f05_bytes, inpainted_stat="invalid")
+
+    real_compute_rev = bubble_centering.compute_page_revision
+    f05_race_calls = {"n": 0}
+
+    def _race_inpaint_before_rev(paths_arg, **kwargs):
+        f05_race_calls["n"] += 1
+        if f05_race_calls["n"] == 2:
+            # Simulate concurrent replacement of `inpainted_path` right after `_read_consistent_page_state`'s
+            # stability checks (`inp_stat_1 == inp_stat_2`) and right before `compute_page_revision`.
+            shifted_canvas = np.full((500, 500, 3), 180, dtype=np.uint8)
+            cv2.rectangle(shifted_canvas, (220, 100), (420, 340), (255, 255, 255), -1)
+            cv2.rectangle(shifted_canvas, (220, 100), (420, 340), (0, 0, 0), 4)
+            save_rgb_image_atomic(shifted_canvas, paths_arg.inpainted_path)
+            cur_st = paths_arg.inpainted_path.stat()
+            os.utime(paths_arg.inpainted_path, (cur_st.st_atime, cur_st.st_mtime + 15.0))
+        return real_compute_rev(paths_arg, **kwargs)
+
+    monkeypatch.setattr(bubble_centering, "compute_page_revision", _race_inpaint_before_rev)
+    with pytest.raises(ValueError, match="Revision conflict"):
+        run_closed_loop_bubble_centering(f05_dir, passes=1, render_page_fn=None)
+    monkeypatch.setattr(bubble_centering, "compute_page_revision", real_compute_rev)
+
+    # Without concurrent replacement, centering commits cleanly against the current image on disk
+    run_closed_loop_bubble_centering(f05_dir, passes=1, render_page_fn=None)
+    _, d_f05_ok = load_page_json(resolve_page_paths(f05_img))
+    assert abs(d_f05_ok["regions"][0]["center"][0] - 320.0) <= 10.0
+
+    # R4-F08: Cross-extension/case fallback must NEVER claim an inpainted sidecar belonging to another existing source page
+    f08_dir = tmp_path / "r4_f08_ch"
+    p_f08_png = _create_sample_manga_page(f08_dir, "001.png")
+    p_f08_jpg = f08_dir / "001.jpg"
+    Image.fromarray(np.full((800, 600, 3), 240, dtype=np.uint8)).save(p_f08_jpg)
+    assert resolve_page_paths(p_f08_png).inpainted_exists is True
+    assert resolve_page_paths(p_f08_png).inpainted_path.name == "001_inpainted.png"
+    assert resolve_page_paths(p_f08_jpg).inpainted_exists is False
+
+    class _FakeEntry:
+        def __init__(self, name: str) -> None:
+            self.name = name
+            p = Path(name)
+            self.stem = p.stem
+            self.suffix = p.suffix
+
+        def is_file(self) -> bool:
+            return True
+
+    class _FakeCSDir:
+        def __init__(self, names: list[str]) -> None:
+            self._entries = [_FakeEntry(n) for n in names]
+
+        def __truediv__(self, child: str):
+            for e in self._entries:
+                if e.name == child:
+                    return e
+            missing = _FakeEntry(child)
+            missing.is_file = lambda: False  # type: ignore[method-assign]
+            return missing
+
+        def is_dir(self) -> bool:
+            return True
+
+        def iterdir(self):
+            return iter(self._entries)
+
+    cs_inp = _FakeCSDir(["001_inpainted.PNG"])
+    cs_src_both = _FakeCSDir(["001.jpg", "001.PNG"])
+    cs_src_only_jpg = _FakeCSDir(["001.jpg"])
+
+    _, ok_jpg_both = path_resolver._resolve_inpainted_sidecar(
+        cs_inp,  # type: ignore[arg-type]
+        "001",
+        ".jpg",
+        src_dir=cs_src_both,  # type: ignore[arg-type]
+    )
+    assert ok_jpg_both is False
+
+    chosen_png_both, ok_png_both = path_resolver._resolve_inpainted_sidecar(
+        cs_inp,  # type: ignore[arg-type]
+        "001",
+        ".PNG",
+        src_dir=cs_src_both,  # type: ignore[arg-type]
+    )
+    assert ok_png_both is True and chosen_png_both.name == "001_inpainted.PNG"
+
+    chosen_jpg_alone, ok_jpg_alone = path_resolver._resolve_inpainted_sidecar(
+        cs_inp,  # type: ignore[arg-type]
+        "001",
+        ".jpg",
+        src_dir=cs_src_only_jpg,  # type: ignore[arg-type]
+    )
+    assert ok_jpg_alone is True and chosen_jpg_alone.name == "001_inpainted.PNG"
+
+    # Case-sensitive directory with BOTH `001.png` and `001.PNG`: each page owns its exact primary sidecar
+    # (`False` for own sidecar) while rejecting the opposite-case sibling's sidecar (`True`).
+    cs_src_png_cases = _FakeCSDir(["001.png", "001.PNG"])
+    assert (
+        path_resolver._inpainted_belongs_to_other_source_page(
+            _FakeEntry("001_inpainted.png"),
+            cs_src_png_cases,  # type: ignore[arg-type]
+            "001",
+            ".png",
+        )
+        is False
+    )
+    assert (
+        path_resolver._inpainted_belongs_to_other_source_page(
+            _FakeEntry("001_inpainted.PNG"),
+            cs_src_png_cases,  # type: ignore[arg-type]
+            "001",
+            ".PNG",
+        )
+        is False
+    )
+    assert (
+        path_resolver._inpainted_belongs_to_other_source_page(
+            _FakeEntry("001_inpainted.PNG"),
+            cs_src_png_cases,  # type: ignore[arg-type]
+            "001",
+            ".png",
+        )
+        is True
+    )
+    assert (
+        path_resolver._inpainted_belongs_to_other_source_page(
+            _FakeEntry("001_inpainted.png"),
+            cs_src_png_cases,  # type: ignore[arg-type]
+            "001",
+            ".PNG",
+        )
+        is True
+    )
+    _, ok_lower_when_only_upper_inp = path_resolver._resolve_inpainted_sidecar(
+        cs_inp,  # type: ignore[arg-type]
+        "001",
+        ".png",
+        src_dir=cs_src_png_cases,  # type: ignore[arg-type]
+    )
+    assert ok_lower_when_only_upper_inp is False
+
+    # R4-F09 (a): Restoring `001.jpg`'s snapshot when `001.png` also exists preserves `001_inpainted.png`
+    f09_dir = tmp_path / "r4_f09_ch"
+    p_09_jpg = _create_sample_manga_page(f09_dir, "001.jpg")
+    p_09_png = _create_sample_manga_page(f09_dir, "001.png")
+    inp_09_jpg = resolve_page_paths(p_09_jpg).inpainted_path
+    inp_09_png = resolve_page_paths(p_09_png).inpainted_path
+    jpg_v1_px = np.full((800, 600, 3), 60, dtype=np.uint8)
+    png_own_px = np.full((800, 600, 3), 90, dtype=np.uint8)
+    save_rgb_image_atomic(jpg_v1_px, inp_09_jpg)
+    save_rgb_image_atomic(png_own_px, inp_09_png)
+    snap_09_jpg = create_snapshot(resolve_page_paths(p_09_jpg), label="jpg_v1")
+
+    save_rgb_image_atomic(np.full((800, 600, 3), 170, dtype=np.uint8), inp_09_jpg)
+    apply_region_updates_to_page(p_09_jpg, [{"region_index": 0, "translation": "JPG修改后"}])
+
+    restore_snapshot(p_09_jpg, snap_09_jpg["snapshot_id"])
+    assert inp_09_png.is_file()
+    assert np.array_equal(open_rgb_image(inp_09_png), png_own_px)
+    assert np.array_equal(open_rgb_image(inp_09_jpg), jpg_v1_px)
+    _, d_09_jpg = load_page_json(resolve_page_paths(p_09_jpg))
+    assert d_09_jpg["regions"][0]["translation"] == "真白酱！？"
+
+    # R4-F09 (b): If `001.jpg` tries to restore an old `.png` sidecar snapshot after `001.png` was added,
+    # report conflict, roll back `001.jpg` JSON byte-for-byte, and leave `001.png`'s `001_inpainted.png` untouched.
+    f09_conf_dir = tmp_path / "r4_f09_conflict"
+    c_jpg = _create_sample_manga_page(f09_conf_dir, "001.jpg")
+    c_jpg_paths = resolve_page_paths(c_jpg)
+    c_jpg_paths.inpainted_path.unlink()
+    shared_png_inp = c_jpg_paths.work_dir / "inpainted" / "001_inpainted.png"
+    save_rgb_image_atomic(np.full((800, 600, 3), 45, dtype=np.uint8), shared_png_inp)
+    snap_old_png = create_snapshot(resolve_page_paths(c_jpg), label="old_png_fallback")
+
+    # Now add `001.png` owning `001_inpainted.png`, give `001.jpg` its own `001_inpainted.jpg`, and edit `001.jpg`
+    _create_sample_manga_page(f09_conf_dir, "001.png")
+    png_owner_pixels = np.full((800, 600, 3), 115, dtype=np.uint8)
+    jpg_cur_pixels = np.full((800, 600, 3), 205, dtype=np.uint8)
+    save_rgb_image_atomic(png_owner_pixels, shared_png_inp)
+    c_own_jpg_inp = c_jpg_paths.work_dir / "inpainted" / "001_inpainted.jpg"
+    save_rgb_image_atomic(jpg_cur_pixels, c_own_jpg_inp)
+    apply_region_updates_to_page(c_jpg, [{"region_index": 0, "translation": "冲突前保持的新台词"}])
+    expected_conf_json_bytes = resolve_page_paths(c_jpg).json_path.read_bytes()
+
+    with pytest.raises(RuntimeError, match="conflicts with"):
+        restore_snapshot(c_jpg, snap_old_png["snapshot_id"])
+    assert np.array_equal(open_rgb_image(shared_png_inp), png_owner_pixels)
+    assert np.array_equal(open_rgb_image(c_own_jpg_inp), jpg_cur_pixels)
+    assert resolve_page_paths(c_jpg).json_path.read_bytes() == expected_conf_json_bytes
+
+    # R4-F10: Folder-level `restore_snapshot` skips ONLY pages without a matching snapshot (`_NoMatchingSnapshotError`),
+    # and NEVER swallows `SnapshotRollbackError(OSError)` (`isinstance(..., FileNotFoundError) is False`) on ENOENT + rollback failure!
+    assert issubclass(SnapshotRollbackError, OSError)
+    assert not issubclass(SnapshotRollbackError, FileNotFoundError)
+
+    f10_ch = tmp_path / "r4_f10_ch"
+    p10_1 = _create_sample_manga_page(f10_ch, "001.png")
+    p10_2 = _create_sample_manga_page(f10_ch, "002.png")
+    p10_3 = _create_sample_manga_page(f10_ch, "003.png")
+    create_snapshot(resolve_page_paths(p10_1), label="checkpoint")
+    snap_p10_3 = create_snapshot(resolve_page_paths(p10_3), label="checkpoint")
+    apply_region_updates_to_page(p10_1, [{"region_index": 0, "translation": "P1改后"}])
+    apply_region_updates_to_page(p10_2, [{"region_index": 0, "translation": "P2仅有初始快照"}])
+    apply_region_updates_to_page(p10_3, [{"region_index": 0, "translation": "P3改后"}])
+
+    batch_ok = restore_snapshot(f10_ch, label="checkpoint")
+    assert batch_ok["restored_page_count"] == 2
+    assert [it["page"] for it in batch_ok["pages"]] == ["001.png", "003.png"]
+
+    apply_region_updates_to_page(p10_1, [{"region_index": 0, "translation": "P1二改"}])
+    apply_region_updates_to_page(p10_3, [{"region_index": 0, "translation": "P3二改"}])
+    p10_3_paths = resolve_page_paths(p10_3)
+    real_copy_f10 = project_store._copy_file_atomic
+    real_replace_f10 = project_store._atomic_replace_with_retry
+
+    def _vanish_inpainted_on_p3(src: Path, dst: Path) -> None:
+        if dst == p10_3_paths.inpainted_path:
+            raise FileNotFoundError(errno.ENOENT, "snapshot backup vanished mid-restore", str(src))
+        real_copy_f10(src, dst)
+
+    def _fail_p3_rollback(src, dst, **kwargs):
+        if Path(dst) == p10_3_paths.json_path and Path(src).name.startswith(".rollback_"):
+            raise PermissionError("p3 json rollback locked")
+        real_replace_f10(src, dst, **kwargs)
+
+    monkeypatch.setattr(project_store, "_copy_file_atomic", _vanish_inpainted_on_p3)
+    monkeypatch.setattr(project_store, "_atomic_replace_with_retry", _fail_p3_rollback)
+    with pytest.raises(SnapshotRollbackError, match=r"Snapshot restore rollback failed on 003\.png.*\.rollback_") as f10_err:
+        restore_snapshot(f10_ch, label="checkpoint")
+    monkeypatch.setattr(project_store, "_atomic_replace_with_retry", real_replace_f10)
+    monkeypatch.setattr(project_store, "_copy_file_atomic", real_copy_f10)
+
+    assert isinstance(f10_err.value, OSError)
+    assert not isinstance(f10_err.value, FileNotFoundError)
+    assert isinstance(f10_err.value.__cause__, FileNotFoundError)
+    assert getattr(f10_err.value, "failed_page", None) == "003.png"
+    assert getattr(f10_err.value, "restored_pages", None) == ["001.png"]
+    p3_baks = list(p10_3_paths.json_path.parent.glob(".rollback_*"))
+    assert len(p3_baks) == 1
+    assert str(p3_baks[0]) in str(f10_err.value)
+    _ = snap_p10_3
+
+    # R4-F33: Net shoelace area rejects zero-area boundary-only L-polygon clips while keeping positive-overlap L-polygons
+    zero_area_l_reg = {
+        "lines": [[[-10.0, -10.0], [30.0, -10.0], [30.0, 0.0], [0.0, 0.0], [0.0, 30.0], [-10.0, 30.0]]],
+        "center": [5.0, 5.0],
+        "angle": 0.0,
+    }
+    assert not np.any(build_region_polygon_mask(zero_area_l_reg, (100, 100), expand_px=6))
+
+    overlap_l_reg = {
+        "lines": [[[-10.0, -10.0], [30.0, -10.0], [30.0, 15.0], [15.0, 15.0], [15.0, 30.0], [-10.0, 30.0]]],
+        "center": [10.0, 10.0],
+        "angle": 0.0,
+    }
+    m_overlap_l = build_region_polygon_mask(overlap_l_reg, (100, 100), expand_px=0)
+    assert int((m_overlap_l > 0).sum()) > 400
+    assert int(m_overlap_l[5, 25]) == 255
+    assert int(m_overlap_l[25, 5]) == 255
+    assert int(m_overlap_l[25, 25]) == 0
+
+    # R4-F36: Clean up incomplete `.rollback_*` temp file if `shutil.copy2` fails mid-staging before `rollback_state` registration
+    p_f36 = _create_sample_manga_page(tmp_path / "r4_f36_ch", "001.png")
+    snap_f36 = create_snapshot(resolve_page_paths(p_f36), label="f36_base")
+    apply_region_updates_to_page(p_f36, [{"region_index": 0, "translation": "保持不回退F36"}])
+    f36_paths = resolve_page_paths(p_f36)
+    f36_json_before = f36_paths.json_path.read_bytes()
+    real_shutil_copy2 = shutil.copy2
+
+    def _partial_fail_copy2(src, dst, *args, **kwargs):
+        dst_p = Path(dst)
+        if dst_p.name.startswith(f".rollback_{f36_paths.inpainted_path.name}."):
+            dst_p.write_bytes(b"partial_unregistered_backup")
+            raise OSError("No space left on device")
+        return real_shutil_copy2(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "copy2", _partial_fail_copy2)
+    with pytest.raises(OSError, match="No space left on device"):
+        restore_snapshot(p_f36, snap_f36["snapshot_id"])
+    monkeypatch.setattr(shutil, "copy2", real_shutil_copy2)
+
+    assert f36_paths.json_path.read_bytes() == f36_json_before
+    assert list(f36_paths.json_path.parent.glob(".rollback_*")) == []
+    assert list(f36_paths.inpainted_path.parent.glob(".rollback_*")) == []
+
+    # R4-F40: Reject multi-line TXT glossary entries on both update and insert while preserving intra-line tabs
+    txt_f40 = tmp_path / "r4_f40_places.txt"
+    txt_f40.write_text("New York\t纽约\n", encoding="utf-8")
+    orig_txt_f40 = txt_f40.read_text(encoding="utf-8")
+    for bad_entry in (
+        {"original": "New York", "translation": "纽约\n大苹果"},
+        {"original": "Boston", "translation": "波士顿\r\n大都会"},
+        {"original": "London", "translation": "伦敦\u2028雾都"},
+        {"original": "Los\nAngeles", "translation": "洛杉矶"},
+    ):
+        with pytest.raises(ValueError, match="line separators"):
+            manage_glossary_entries("upsert", glossary_file=str(txt_f40), entries=[bad_entry])
+    assert txt_f40.read_text(encoding="utf-8") == orig_txt_f40
+
+    manage_glossary_entries(
+        "upsert",
+        glossary_file=str(txt_f40),
+        entries=[{"original": "New York", "translation": "纽约\t大苹果"}],
+    )
+    assert manage_glossary_entries("list", glossary_file=str(txt_f40))["entries"] == [
+        {"original": "New York", "translation": "纽约\t大苹果"}
+    ]
+
+    # R4-F41: `batch_edit_chapter_pages` attaches `committed_page_paths` (`list[PagePaths]`) on partial-commit `RuntimeError`
+    f41_sum_ch = tmp_path / "r4_f41_sum_ch"
+    _create_sample_manga_page(f41_sum_ch, "001.png")
+    _create_sample_manga_page(f41_sum_ch, "002.png")
+    real_load_f41 = glossary_manager.load_page_json
+    real_save_f41 = glossary_manager.save_page_json_atomic
+    f41_p2_saved = {"done": False}
+
+    def _save_track_f41(cur_p, *a, **kw):
+        res = real_save_f41(cur_p, *a, **kw)
+        if cur_p.source_path.name == "002.png":
+            f41_p2_saved["done"] = True
+        return res
+
+    def _reload_boom_f41(pp):
+        if f41_p2_saved["done"] and pp.source_path.name == "002.png":
+            raise OSError("summary reload boom")
+        return real_load_f41(pp)
+
+    monkeypatch.setattr(glossary_manager, "save_page_json_atomic", _save_track_f41)
+    monkeypatch.setattr(glossary_manager, "load_page_json", _reload_boom_f41)
+    with pytest.raises(RuntimeError, match="post-commit summary reload failed") as f41_sum_err:
+        batch_edit_chapter_pages(f41_sum_ch, set_fields={"font_size_delta": 2})
+    monkeypatch.setattr(glossary_manager, "save_page_json_atomic", real_save_f41)
+    monkeypatch.setattr(glossary_manager, "load_page_json", real_load_f41)
+
+    c_paths_sum = getattr(f41_sum_err.value, "committed_page_paths", None)
+    assert isinstance(c_paths_sum, list)
+    assert [p.source_path.name for p in c_paths_sum] == ["001.png", "002.png"]
+    assert all(isinstance(p, path_resolver.PagePaths) for p in c_paths_sum)
+
+    f41_commit_ch = tmp_path / "r4_f41_commit_ch"
+    _create_sample_manga_page(f41_commit_ch, "001.png")
+    _create_sample_manga_page(f41_commit_ch, "002.png")
+
+    def _fail_save_p2_f41(cur_p, *a, **kw):
+        if cur_p.source_path.name == "002.png":
+            raise OSError("commit write boom")
+        return real_save_f41(cur_p, *a, **kw)
+
+    monkeypatch.setattr(glossary_manager, "save_page_json_atomic", _fail_save_p2_f41)
+    with pytest.raises(RuntimeError, match="failure_stage='commit'") as f41_commit_err:
+        batch_edit_chapter_pages(f41_commit_ch, set_fields={"font_size_delta": 2})
+    monkeypatch.setattr(glossary_manager, "save_page_json_atomic", real_save_f41)
+
+    c_paths_commit = getattr(f41_commit_err.value, "committed_page_paths", None)
+    assert isinstance(c_paths_commit, list)
+    assert [p.source_path.name for p in c_paths_commit] == ["001.png"]
+    assert all(isinstance(p, path_resolver.PagePaths) for p in c_paths_commit)
