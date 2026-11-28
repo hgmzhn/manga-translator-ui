@@ -243,3 +243,42 @@ def test_r4_multi_comma_thousand_groups_and_high_precision_decimal_units() -> No
     assert any(
         i["category"] == "translation_number_mismatch" and i["missing_number"] == 20_000 for i in non_int_28prec
     )
+
+
+def test_r5_malformed_comma_grouped_numbers_skipped_without_fragment_extraction() -> None:
+    from mtui_mcp.translation_auditor import (
+        _parse_source_number_token,
+        _translation_contains_number,
+        audit_region_translation_accuracy,
+    )
+
+    # R5-F33: Malformed contiguous comma-grouped tokens (`12,34,567`, `1234,567`, `1,234,56`, `1,,234`) MUST be
+    # skipped as whole invalid tokens so sub-fragments (`12`, `34`, `567`) never satisfy number-drop checks!
+    for bad_text in (
+        "赏金是12,34,567法利",
+        "赏金是1234,567法利",
+        "赏金是1,234,56法利",
+        "赏金是1,,567法利",
+        "赏金是12,34,567万法利",
+    ):
+        for probe_n in (12, 34, 56, 234, 567, 1234, 10_000, 34_567, 1_234_567):
+            assert _translation_contains_number(bad_text, probe_n) is False, (bad_text, probe_n)
+
+    # Valid 3-digit thousand-grouped numbers STILL parse as a single quantity
+    assert _translation_contains_number("赏金是1,234,567法利", 1_234_567) is True
+    assert _translation_contains_number("赏金是1,234.5万法利", 12_345_000) is True
+
+    # Comma + space separated number lists (`12, 34, 567`) and Chinese `、` lists STILL extract each separate item
+    for n_item in (12, 34, 567):
+        assert _translation_contains_number("编号是12, 34, 567", n_item) is True
+        assert _translation_contains_number("编号是12、34、567", n_item) is True
+
+    # End-to-end: source `567` vs broken translation `12,34,567` MUST flag `translation_number_mismatch` (`567`)
+    mism_567 = audit_region_translation_accuracy(
+        0, {"text": "賞金は567ヴァリスだ", "translation": "赏金是12,34,567法利"}
+    )
+    assert any(i["category"] == "translation_number_mismatch" and i["missing_number"] == 567 for i in mism_567)
+
+    # Malformed comma-grouped token on the source side is also rejected cleanly without extracting `567`
+    assert _parse_source_number_token("12,34,567") is None
+    assert audit_region_translation_accuracy(0, {"text": "コード12,34,567", "translation": "代码异常"}) == []

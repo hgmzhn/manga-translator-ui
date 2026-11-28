@@ -25,6 +25,10 @@ MAX_GUI_REQUEST_BYTES = 256 * 1024
 _ORIG_MP_CLIENT = Client
 
 
+def _monotonic() -> float:
+    return time.monotonic()
+
+
 def gui_session_paths(session_name: Optional[str] = None) -> tuple[str, Path]:
     sess = session_name or os.getenv("MTUI_MCP_SESSION", "default")
     identity = os.path.normcase(str(Path.home())) + "|" + sess
@@ -82,7 +86,7 @@ def _connect_windows_pipe_with_deadline(address: str, deadline: float) -> Any:
     from multiprocessing.connection import PipeConnection
 
     while True:
-        remaining = deadline - time.monotonic()
+        remaining = deadline - _monotonic()
         if remaining <= 0:
             raise TimeoutError("Timed out connecting to live manga-translator-ui GUI")
         try:
@@ -101,7 +105,7 @@ def _connect_windows_pipe_with_deadline(address: str, deadline: float) -> Any:
                 _winapi.ERROR_PIPE_BUSY,
             ):
                 raise
-            remaining = deadline - time.monotonic()
+            remaining = deadline - _monotonic()
             if remaining <= 0:
                 raise TimeoutError(
                     "Timed out waiting for busy live manga-translator-ui GUI pipe"
@@ -115,12 +119,12 @@ def _connect_windows_pipe_with_deadline(address: str, deadline: float) -> Any:
                     _winapi.ERROR_PIPE_BUSY,
                 ):
                     raise
-                if deadline - time.monotonic() <= 0:
+                if deadline - _monotonic() <= 0:
                     raise TimeoutError(
                         "Timed out waiting for busy live manga-translator-ui GUI pipe"
                     ) from wait_exc
             else:
-                nap = min(0.005, max(0.0, deadline - time.monotonic()))
+                nap = min(0.005, max(0.0, deadline - _monotonic()))
                 if nap > 0:
                     time.sleep(nap)
             continue
@@ -170,7 +174,7 @@ def call_live_gui(
     if not math.isfinite(raw_budget):
         raise ValueError("timeout_sec must be a finite number")
     budget = max(0.05, raw_budget)
-    deadline = time.monotonic() + budget
+    deadline = _monotonic() + budget
     fixed_deadline = math.floor(deadline * 1_000_000) / 1_000_000
 
     min_probe_packet = json.dumps(
@@ -233,7 +237,7 @@ def call_live_gui(
             answer_challenge(peer, auth)
             deliver_challenge(peer, auth)
 
-            send_remaining = deadline - time.monotonic()
+            send_remaining = deadline - _monotonic()
             if send_remaining <= 0:
                 raise _timeout_error_for_state(False)
             wire_payload = {
@@ -257,7 +261,7 @@ def call_live_gui(
                 state["request_sent"] = True
             peer.send_bytes(wire_packet)
 
-            remaining = deadline - time.monotonic()
+            remaining = deadline - _monotonic()
             if remaining <= 0 or not peer.poll(remaining):
                 raise _timeout_error_for_state(True)
             with state_lock:
@@ -280,7 +284,7 @@ def call_live_gui(
     worker = threading.Thread(target=_exchange, name="mtui-gui-bridge-client", daemon=True)
     worker.start()
 
-    wait_remaining = max(0.0, deadline - time.monotonic())
+    wait_remaining = max(0.0, deadline - _monotonic())
     if not done.wait(wait_remaining):
         with state_lock:
             reply_already_ready = bool(state["reply_ready"])
@@ -298,12 +302,21 @@ def call_live_gui(
                 if isinstance(message, dict) and "error" in message:
                     raise RuntimeError(str(message["error"]))
                 return message.get("result") if isinstance(message, dict) else message
+            prior_err = state["error"] if done.is_set() else None
+            if prior_err is not None:
+                raise _timeout_error_for_state(req_sent) from prior_err
             raise _timeout_error_for_state(req_sent)
 
     err = state["error"]
     if err is not None:
-        if isinstance(err, TimeoutError) and method == "save_page" and state["request_sent"]:
-            raise _timeout_error_for_state(True) from err
+        if method == "save_page" and state["request_sent"]:
+            if isinstance(err, TimeoutError):
+                raise _timeout_error_for_state(True) from err
+            detail = f"{type(err).__name__}: {err}" if str(err) else type(err).__name__
+            raise RuntimeError(
+                "Live GUI save_page failed after request was sent; "
+                f"save outcome is unknown (save may have already completed): {detail}"
+            ) from err
         raise err
 
     message = state["message"]
@@ -317,11 +330,11 @@ def wait_for_live_gui_translation(
     session_name: Optional[str] = None,
 ) -> dict[str, Any]:
     total_budget = float(max(1, min(120, int(timeout_seconds))))
-    deadline = time.monotonic() + total_budget
+    deadline = _monotonic() + total_budget
     last_pages: Optional[dict[str, Any]] = None
 
     while True:
-        remaining = deadline - time.monotonic()
+        remaining = deadline - _monotonic()
         if remaining <= 0:
             if last_pages is not None:
                 return last_pages
@@ -342,7 +355,7 @@ def wait_for_live_gui_translation(
         if not pages.get("translation_running"):
             return pages
 
-        sleep_for = min(0.5, deadline - time.monotonic())
+        sleep_for = min(0.5, deadline - _monotonic())
         if sleep_for <= 0:
             return pages
         time.sleep(sleep_for)

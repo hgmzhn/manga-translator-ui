@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import math
 import os
 import re
+import stat
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 import cv2
 import numpy as np
@@ -2472,9 +2474,14 @@ def _audit_single_page_with_context(
         )
 
     base_rgb: Optional[np.ndarray] = None
+    sampled_base_sig: Optional[tuple[int, int]] = None
     img_w, img_h = 0, 0
-    if paths.display_base_path.is_file():
+    sig_before_open = _stat_base_image_sig(paths.display_base_path)
+    if sig_before_open is not None:
         base_rgb = open_rgb_image(paths.display_base_path)
+        sig_after_open = _stat_base_image_sig(paths.display_base_path)
+        if sig_after_open is not None and sig_before_open == sig_after_open:
+            sampled_base_sig = sig_after_open
         img_h, img_w = base_rgb.shape[:2]
 
     bboxes: list[tuple[int, list[float]]] = []
@@ -2948,13 +2955,20 @@ def _audit_single_page_with_context(
         mask_u8 = decode_mask_base64(image_data.get("mask_raw"), base_rgb.shape[:2])
         cv_findings = _detect_residual_ink_around_regions(base_rgb, inpainted_rgb, mask_u8, regions)
         issues.extend(cv_findings)
-        if yuzumarker_page_cache is None:
+        eff_ym_page_cache: Optional[dict[str, Any]] = yuzumarker_page_cache
+        if eff_ym_page_cache is None:
             w_cache = load_font_detection_cache(paths.work_dir)
             w_pages = w_cache.get("pages") if isinstance(w_cache, dict) else None
             if _parse_ym_cache_version(w_cache) >= CACHE_VERSION and isinstance(w_pages, dict):
                 cand_page_cache = w_pages.get(paths.source_path.stem)
-                if isinstance(cand_page_cache, dict) and _page_ym_cache_matches_base_image(paths, cand_page_cache):
-                    yuzumarker_page_cache = cand_page_cache
+                if isinstance(cand_page_cache, dict) and _page_ym_cache_matches_sampled_sig(
+                    paths, cand_page_cache, sampled_base_sig
+                ):
+                    eff_ym_page_cache = cand_page_cache
+        elif not isinstance(eff_ym_page_cache, dict) or not _page_ym_cache_matches_sampled_sig(
+            paths, eff_ym_page_cache, sampled_base_sig
+        ):
+            eff_ym_page_cache = {}
         struct_findings = _detect_structural_and_border_cv_issues(
             base_rgb,
             inpainted_rgb,
@@ -2962,7 +2976,7 @@ def _audit_single_page_with_context(
             regions,
             rendered_rgb=rendered_rgb,
             initial_regions=initial_regions,
-            yuzumarker_page_cache=yuzumarker_page_cache,
+            yuzumarker_page_cache=eff_ym_page_cache,
         )
         issues.extend(struct_findings)
 
@@ -3008,33 +3022,47 @@ def _norm_audit_page_path(path_val: str | Path) -> str:
     return os.path.normcase(os.path.abspath(str(path_val)))
 
 
-def _page_ym_cache_matches_base_image(p: PagePaths, p_entry: dict[str, Any]) -> bool:
-    """Verify worker ``base_image_sig`` / ``display_base_name`` against current ``p.display_base_path`` (`R4-F11`)."""
-    if "base_image_sig" not in p_entry and "display_base_name" not in p_entry:
-        return True
+_YM_WORKER_META_KEYS = ("base_image_sig", "display_base_name", "total_regions", "regions_state_sig")
+
+
+def _stat_base_image_sig(path_val: Path) -> Optional[tuple[int, int]]:
     try:
-        if not p.display_base_path.is_file():
-            return False
-        bst = p.display_base_path.stat()
+        bst = os.stat(path_val)
     except OSError:
+        return None
+    if not stat.S_ISREG(bst.st_mode):
+        return None
+    return (int(bst.st_size), int(bst.st_mtime_ns))
+
+
+def _page_ym_cache_matches_sampled_sig(
+    p: PagePaths,
+    p_entry: dict[str, Any],
+    sampled_sig: Optional[tuple[int, int]],
+) -> bool:
+    """Verify worker ``base_image_sig`` + ``display_base_name`` against sampled ``display_base_path`` stat."""
+    if sampled_sig is None:
         return False
-    if "display_base_name" in p_entry:
-        if p_entry.get("display_base_name") != p.display_base_path.name:
-            return False
-    if "base_image_sig" in p_entry:
-        raw_sig = p_entry.get("base_image_sig")
-        if (
-            not isinstance(raw_sig, (list, tuple))
-            or len(raw_sig) != 2
-            or isinstance(raw_sig[0], bool)
-            or isinstance(raw_sig[1], bool)
-            or not isinstance(raw_sig[0], int)
-            or not isinstance(raw_sig[1], int)
-        ):
-            return False
-        if int(raw_sig[0]) != int(bst.st_size) or int(raw_sig[1]) != int(bst.st_mtime_ns):
-            return False
-    return True
+    if not any(k in p_entry for k in _YM_WORKER_META_KEYS):
+        return True
+    if p_entry.get("display_base_name") != p.display_base_path.name:
+        return False
+    raw_sig = p_entry.get("base_image_sig")
+    if (
+        not isinstance(raw_sig, (list, tuple))
+        or len(raw_sig) != 2
+        or isinstance(raw_sig[0], bool)
+        or isinstance(raw_sig[1], bool)
+        or not isinstance(raw_sig[0], int)
+        or not isinstance(raw_sig[1], int)
+    ):
+        return False
+    return int(raw_sig[0]) == sampled_sig[0] and int(raw_sig[1]) == sampled_sig[1]
+
+
+def _page_ym_cache_matches_base_image(p: PagePaths, p_entry: dict[str, Any]) -> bool:
+    """Verify worker ``base_image_sig`` / ``display_base_name`` against current ``p.display_base_path`` (`R4-F11` / `R5-F41`)."""
+    return _page_ym_cache_matches_sampled_sig(p, p_entry, _stat_base_image_sig(p.display_base_path))
 
 
 def _page_ym_cache_needs_scan(p: PagePaths, w_cache: Any) -> bool:
@@ -3049,12 +3077,9 @@ def _page_ym_cache_needs_scan(p: PagePaths, w_cache: Any) -> bool:
     if not isinstance(p_entry, dict):
         return True
 
-    has_worker_meta = any(
-        k in p_entry
-        for k in ("region_count", "total_regions", "base_image_sig", "display_base_name", "regions_state_sig")
-    )
+    has_worker_meta = any(k in p_entry for k in _YM_WORKER_META_KEYS)
     has_any_preds = bool(p_entry.get("by_ridx")) or bool(p_entry.get("by_bbox_sig"))
-    if not has_worker_meta and not has_any_preds:
+    if not has_worker_meta and "region_count" not in p_entry and not has_any_preds:
         return False
 
     try:
@@ -3132,11 +3157,7 @@ def run_qa_audit(
             w_pages_map = w_ym_cache.get("pages") if isinstance(w_ym_cache, dict) else None
             if _parse_ym_cache_version(w_ym_cache) >= CACHE_VERSION and isinstance(w_pages_map, dict):
                 cand_p_ym = w_pages_map.get(p.source_path.stem)
-                p_ym_cache = (
-                    cand_p_ym
-                    if isinstance(cand_p_ym, dict) and _page_ym_cache_matches_base_image(p, cand_p_ym)
-                    else {}
-                )
+                p_ym_cache = cand_p_ym if isinstance(cand_p_ym, dict) else {}
             else:
                 p_ym_cache = {}
         else:
@@ -3486,6 +3507,52 @@ def _target_spec_uid_count(spec: tuple[bool, Any]) -> int:
     return int(not val[0] and val[1] is not None)
 
 
+_MSG_MISSING_GLYPHS_RE = re.compile(r"is missing glyph\(s\)\s*(['\"].*?['\"])\s*(?:—|-|$)")
+
+
+def _extract_missing_glyph_set(iss: dict[str, Any]) -> frozenset[str]:
+    raw_mg = iss.get("missing_glyphs")
+    if isinstance(raw_mg, str):
+        return frozenset(raw_mg)
+    if isinstance(raw_mg, Iterable):
+        return frozenset(ch for item in raw_mg if isinstance(item, str) for ch in item)
+    msg = str(iss.get("message") or "")
+    m = _MSG_MISSING_GLYPHS_RE.search(msg)
+    if m:
+        try:
+            parsed = ast.literal_eval(m.group(1))
+            if isinstance(parsed, str):
+                return frozenset(parsed)
+        except (ValueError, SyntaxError):
+            pass
+    return frozenset()
+
+
+def _build_glyph_regression_entry(
+    before_entry: dict[str, Any],
+    after_entry: dict[str, Any],
+    before_glyphs: frozenset[str],
+    after_glyphs: frozenset[str],
+    added_glyphs: frozenset[str],
+) -> dict[str, Any]:
+    _ = before_entry
+    added_sorted = sorted(added_glyphs)
+    reg_entry = dict(after_entry)
+    reg_entry["missing_glyphs"] = added_sorted
+    reg_entry["newly_missing_glyphs"] = added_sorted
+    reg_entry["before_missing_glyphs"] = sorted(before_glyphs)
+    reg_entry["after_missing_glyphs"] = sorted(after_glyphs)
+    r_idx_disp = reg_entry.get("region_index")
+    ff_disp = str(reg_entry.get("font_family") or "")
+    reg_prefix = f"Region #{r_idx_disp}" if r_idx_disp is not None else "Page"
+    reg_entry["message"] = (
+        f"{reg_prefix}: font {ff_disp!r} is missing newly introduced glyph(s) "
+        f"{''.join(added_sorted)!r} (after: {''.join(sorted(after_glyphs))!r}, "
+        f"before: {''.join(sorted(before_glyphs))!r}) — will render tofu boxes unless font_family or character is changed!"
+    )
+    return reg_entry
+
+
 def diff_qa_audits(
     before_report: dict[str, Any],
     after_report: dict[str, Any],
@@ -3778,6 +3845,24 @@ def diff_qa_audits(
                     dup_indices.append((c_idx, pref_n))
             if dup_indices:
                 first_idx, first_pref = dup_indices[0]
+                if bucket_key[1] == "missing_font_glyphs":
+                    merged_glyphs = set(_extract_missing_glyph_set(entry))
+                    for d_idx, _ in dup_indices:
+                        merged_glyphs.update(_extract_missing_glyph_set(collected[d_idx][2]))
+                    if first_pref:
+                        upd_entry = dict(entry)
+                        if merged_glyphs or "missing_glyphs" in upd_entry:
+                            upd_entry["missing_glyphs"] = sorted(merged_glyphs)
+                        collected[first_idx] = (bucket_key, target_spec, upd_entry, page_id)
+                    else:
+                        keep_bk, keep_ts, keep_entry, keep_pid = collected[first_idx]
+                        upd_keep = dict(keep_entry)
+                        if merged_glyphs or "missing_glyphs" in upd_keep or "missing_glyphs" in entry:
+                            upd_keep["missing_glyphs"] = sorted(merged_glyphs)
+                        collected[first_idx] = (keep_bk, keep_ts, upd_keep, keep_pid)
+                    for extra_idx, _ in reversed(dup_indices[1:]):
+                        del collected[extra_idx]
+                    continue
                 if first_pref:
                     collected[first_idx] = (bucket_key, target_spec, entry, page_id)
                     for extra_idx, _ in reversed(dup_indices[1:]):
@@ -3791,28 +3876,64 @@ def diff_qa_audits(
 
     matched_before: set[int] = set()
     matched_after: set[int] = set()
+    paired_glyph_regressions: list[dict[str, Any]] = []
+
+    def _record_matched_pair(b_i: int, a_i: int) -> None:
+        matched_before.add(b_i)
+        matched_after.add(a_i)
+        if after_items[a_i][0][1] == "missing_font_glyphs":
+            b_glyphs = _extract_missing_glyph_set(before_items[b_i][2])
+            a_glyphs = _extract_missing_glyph_set(after_items[a_i][2])
+            added_glyphs = a_glyphs - b_glyphs
+            if added_glyphs:
+                paired_glyph_regressions.append(
+                    _build_glyph_regression_entry(
+                        before_items[b_i][2],
+                        after_items[a_i][2],
+                        b_glyphs,
+                        a_glyphs,
+                        added_glyphs,
+                    )
+                )
 
     # Pass 1: exact UID matches within the same (page_id, category, extra_disc) bucket
     after_order_p1 = sorted(
         range(len(after_items)),
-        key=lambda i: (after_items[i][0], _canonical_target_spec_key(after_items[i][1])),
+        key=lambda i: (
+            after_items[i][0],
+            _canonical_target_spec_key(after_items[i][1]),
+            tuple(sorted(_extract_missing_glyph_set(after_items[i][2]))),
+        ),
     )
     before_order_p1 = sorted(
         range(len(before_items)),
-        key=lambda i: (before_items[i][0], _canonical_target_spec_key(before_items[i][1])),
+        key=lambda i: (
+            before_items[i][0],
+            _canonical_target_spec_key(before_items[i][1]),
+            tuple(sorted(_extract_missing_glyph_set(before_items[i][2]))),
+        ),
     )
     for a_i in after_order_p1:
-        a_bk, a_spec, _, _ = after_items[a_i]
-        for b_i in before_order_p1:
-            b_bk, b_spec, _, _ = before_items[b_i]
-            if b_i in matched_before or b_bk != a_bk:
-                continue
-            if _same_issue_target_spec(b_spec, a_spec, exact_uid_only=True):
-                matched_before.add(b_i)
-                matched_after.add(a_i)
-                break
+        a_bk, a_spec, a_ent, _ = after_items[a_i]
+        a_glyphs_p1 = _extract_missing_glyph_set(a_ent) if a_bk[1] == "missing_font_glyphs" else frozenset()
+        p1_cands = [
+            b_i
+            for b_i in before_order_p1
+            if b_i not in matched_before
+            and before_items[b_i][0] == a_bk
+            and _same_issue_target_spec(before_items[b_i][1], a_spec, exact_uid_only=True)
+        ]
+        if p1_cands:
+            if a_bk[1] == "missing_font_glyphs" and len(p1_cands) > 1:
+                p1_cands.sort(
+                    key=lambda b_i: (
+                        len(a_glyphs_p1 - _extract_missing_glyph_set(before_items[b_i][2])),
+                        len(_extract_missing_glyph_set(before_items[b_i][2]) - a_glyphs_p1),
+                    )
+                )
+            _record_matched_pair(p1_cands[0], a_i)
 
-    # Pass 2 (`R3-F07`): deterministic, input-order-invariant maximum 1-to-1 bipartite matching per bucket
+    # Pass 2 (`R3-F07` + `R5-F10`): deterministic, input-order-invariant maximum 1-to-1 bipartite matching per bucket
     unmatched_by_bucket: dict[tuple[str, str, str], tuple[list[int], list[int]]] = {}
     for a_i in range(len(after_items)):
         if a_i not in matched_after:
@@ -3821,30 +3942,61 @@ def diff_qa_audits(
         if b_i not in matched_before:
             unmatched_by_bucket.setdefault(before_items[b_i][0], ([], []))[1].append(b_i)
 
-    for _, (a_bucket, b_bucket) in sorted(unmatched_by_bucket.items(), key=lambda kv: kv[0]):
-        if not a_bucket or not b_bucket:
-            continue
-        b_sorted = sorted(b_bucket, key=lambda bi: _canonical_target_spec_key(before_items[bi][1]))
+    def _run_bipartite_pass(
+        a_nodes: list[int],
+        b_nodes: list[int],
+        *,
+        is_glyph_bucket: bool,
+        zero_delta_only: bool,
+    ) -> dict[int, int]:
+        if not a_nodes or not b_nodes:
+            return {}
+        b_sorted = sorted(
+            b_nodes,
+            key=lambda bi: (
+                _canonical_target_spec_key(before_items[bi][1]),
+                tuple(sorted(_extract_missing_glyph_set(before_items[bi][2]))) if is_glyph_bucket else (),
+            ),
+        )
         adj: dict[int, list[int]] = {}
-        for ai in a_bucket:
+        for ai in a_nodes:
             a_spec = after_items[ai][1]
-            cands = [
-                bi
-                for bi in b_sorted
-                if _same_issue_target_spec(before_items[bi][1], a_spec, exact_uid_only=False)
-            ]
-            cands.sort(
-                key=lambda bi: (
-                    _fallback_edge_preference(before_items[bi][1], a_spec),
-                    _canonical_target_spec_key(before_items[bi][1]),
+            a_gl = _extract_missing_glyph_set(after_items[ai][2]) if is_glyph_bucket else frozenset()
+            cands: list[int] = []
+            for bi in b_sorted:
+                if not _same_issue_target_spec(before_items[bi][1], a_spec, exact_uid_only=False):
+                    continue
+                if is_glyph_bucket and zero_delta_only:
+                    if not (a_gl <= _extract_missing_glyph_set(before_items[bi][2])):
+                        continue
+                cands.append(bi)
+            if is_glyph_bucket:
+                cands.sort(
+                    key=lambda bi: (
+                        len(a_gl - _extract_missing_glyph_set(before_items[bi][2])),
+                        len(_extract_missing_glyph_set(before_items[bi][2]) - a_gl),
+                        _fallback_edge_preference(before_items[bi][1], a_spec),
+                        _canonical_target_spec_key(before_items[bi][1]),
+                        tuple(sorted(_extract_missing_glyph_set(before_items[bi][2]))),
+                    )
                 )
-            )
+            else:
+                cands.sort(
+                    key=lambda bi: (
+                        _fallback_edge_preference(before_items[bi][1], a_spec),
+                        _canonical_target_spec_key(before_items[bi][1]),
+                    )
+                )
             if cands:
                 adj[ai] = cands
 
         a_sorted = sorted(
-            (ai for ai in a_bucket if ai in adj),
-            key=lambda ai: (len(adj[ai]), _canonical_target_spec_key(after_items[ai][1])),
+            (ai for ai in a_nodes if ai in adj),
+            key=lambda ai: (
+                len(adj[ai]),
+                _canonical_target_spec_key(after_items[ai][1]),
+                tuple(sorted(_extract_missing_glyph_set(after_items[ai][2]))) if is_glyph_bucket else (),
+            ),
         )
         match_b_to_a: dict[int, int] = {}
 
@@ -3861,10 +4013,31 @@ def diff_qa_audits(
 
         for ai in a_sorted:
             _try_augment(ai, set())
+        return match_b_to_a
 
-        for bi, ai in match_b_to_a.items():
-            matched_before.add(bi)
-            matched_after.add(ai)
+    for bk, (a_bucket, b_bucket) in sorted(unmatched_by_bucket.items(), key=lambda kv: kv[0]):
+        if not a_bucket or not b_bucket:
+            continue
+        is_glyph_bk = bk[1] == "missing_font_glyphs"
+        if is_glyph_bk:
+            clean_matches = _run_bipartite_pass(
+                a_bucket, b_bucket, is_glyph_bucket=True, zero_delta_only=True
+            )
+            for bi, ai in clean_matches.items():
+                _record_matched_pair(bi, ai)
+            rem_a = [ai for ai in a_bucket if ai not in matched_after]
+            rem_b = [bi for bi in b_bucket if bi not in matched_before]
+            reg_matches = _run_bipartite_pass(
+                rem_a, rem_b, is_glyph_bucket=True, zero_delta_only=False
+            )
+            for bi, ai in reg_matches.items():
+                _record_matched_pair(bi, ai)
+        else:
+            matches = _run_bipartite_pass(
+                a_bucket, b_bucket, is_glyph_bucket=False, zero_delta_only=False
+            )
+            for bi, ai in matches.items():
+                _record_matched_pair(bi, ai)
 
     def _entry_sort_key(e: dict[str, Any]) -> tuple[str, str, int, int, str, str]:
         r_idx = e.get("region_index")
@@ -3879,7 +4052,8 @@ def diff_qa_audits(
         )
 
     new_errors = sorted(
-        [after_items[i][2] for i in range(len(after_items)) if i not in matched_after],
+        [after_items[i][2] for i in range(len(after_items)) if i not in matched_after]
+        + paired_glyph_regressions,
         key=_entry_sort_key,
     )
     resolved_errors = sorted(

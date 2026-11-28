@@ -15,6 +15,7 @@ from PIL import Image
 
 from .path_resolver import PagePaths, list_manga_pages_in_path, resolve_page_paths
 from .project_store import (
+    _inpainted_path_identity,
     _parse_loaded_page_json,
     apply_region_updates_to_page,
     compute_page_revision,
@@ -681,8 +682,8 @@ def _regions_partition_signature(regs: list[dict[str, Any]]) -> list[tuple[Any, 
     return sig
 
 
-def _non_export_content_digest(raw_parsed: Any, inp_stat: tuple[int, int]) -> str:
-    """Hash page JSON excluding export-path metadata (`last_export_dir`, `last_output_path`) plus `inpainted` stat."""
+def _non_export_content_digest(raw_parsed: Any, inp_stat: tuple[Any, ...]) -> str:
+    """Hash page JSON excluding export-path metadata (`last_export_dir`, `last_output_path`) plus `inpainted` identity."""
     if isinstance(raw_parsed, dict):
         stripped: Any = {
             k: (
@@ -696,13 +697,18 @@ def _non_export_content_digest(raw_parsed: Any, inp_stat: tuple[int, int]) -> st
         stripped = raw_parsed
     h = hashlib.sha256()
     h.update(json.dumps(stripped, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8"))
-    h.update(f"|inp:{inp_stat[0]}:{inp_stat[1]}".encode("ascii"))
+    if len(inp_stat) == 3:
+        h.update(f"|inp:{inp_stat[0]}:{inp_stat[1]}:{inp_stat[2]}".encode("utf-8"))
+    elif len(inp_stat) == 2:
+        h.update(f"|inp:{inp_stat[0]}:{inp_stat[1]}".encode("utf-8"))
+    else:
+        raise TypeError(f"Unsupported inp_stat: {inp_stat!r}")
     return h.hexdigest()
 
 
 def _read_consistent_page_state(
     source_path: Path,
-) -> Optional[tuple[PagePaths, str, dict[str, Any], str, tuple[int, int]]]:
+) -> Optional[tuple[PagePaths, str, dict[str, Any], str, tuple[str, int, int]]]:
     """Read a mutually consistent `(paths, page_rev, image_data, non_export_sig, inp_stat)` snapshot."""
     canonical_key = os.path.abspath(str(source_path))
     for _attempt in range(5):
@@ -716,7 +722,11 @@ def _read_consistent_page_state(
             return None
         try:
             st_inp_1 = p_cur.inpainted_path.stat()
-            inp_stat_1 = (st_inp_1.st_size, st_inp_1.st_mtime_ns)
+            inp_stat_1 = (
+                _inpainted_path_identity(p_cur.inpainted_path),
+                int(st_inp_1.st_size),
+                int(st_inp_1.st_mtime_ns),
+            )
             raw_bytes_1 = p_cur.json_path.read_bytes()
         except OSError:
             continue
@@ -730,15 +740,17 @@ def _read_consistent_page_state(
             return None
         try:
             st_inp_2 = p_after.inpainted_path.stat()
-            inp_stat_2 = (st_inp_2.st_size, st_inp_2.st_mtime_ns)
+            inp_stat_2 = (
+                _inpainted_path_identity(p_after.inpainted_path),
+                int(st_inp_2.st_size),
+                int(st_inp_2.st_mtime_ns),
+            )
             raw_bytes_2 = p_after.json_path.read_bytes()
         except OSError:
             continue
         if (
             os.path.normcase(os.path.abspath(str(p_cur.json_path)))
             != os.path.normcase(os.path.abspath(str(p_after.json_path)))
-            or os.path.normcase(os.path.abspath(str(p_cur.inpainted_path)))
-            != os.path.normcase(os.path.abspath(str(p_after.inpainted_path)))
             or inp_stat_1 != inp_stat_2
             or raw_bytes_1 != raw_bytes_2
         ):

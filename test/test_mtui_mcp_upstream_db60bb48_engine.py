@@ -2581,72 +2581,91 @@ def test_r4_f01_desktop_untracked_inpaint_preserves_neural_background_and_repair
 def test_r4_f22_worker_shutdown_does_not_deadlock_closing_pipes_with_blocked_readers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify `shutdown()` never calls `pipe.close()` synchronously while worker/readers hold `BufferedReader` lock (`R4-F22`)."""
+    """Verify `shutdown()` never calls `pipe.close()` synchronously while worker/readers hold `BufferedReader` lock (`R4-F22`, `R5-F21`)."""
     monkeypatch.setattr("mtui_mcp.worker.client._SHUTDOWN_DRAIN_WAIT_SEC", 0.05)
 
-    r_out_fd, w_out_fd = os.pipe()
-    r_err_fd, w_err_fd = os.pipe()
-    stdout_pipe = io.TextIOWrapper(io.BufferedReader(io.FileIO(r_out_fd, "rb")), encoding="utf-8")
-    stderr_pipe = io.TextIOWrapper(io.BufferedReader(io.FileIO(r_err_fd, "rb")), encoding="utf-8")
+    r_out_fd = -1
+    w_out_fd = -1
+    r_err_fd = -1
+    w_err_fd = -1
+    stdout_pipe: io.TextIOWrapper | None = None
+    stderr_pipe: io.TextIOWrapper | None = None
+    t_out: threading.Thread | None = None
+    t_err: threading.Thread | None = None
+    t_shutdown: threading.Thread | None = None
+    out_handed_to_reader = False
+    err_handed_to_reader = False
 
-    class HungPipeWorkerProc:
-        pid = 77701
-        stdin = None
-
-        def __init__(self) -> None:
-            self.stdout = stdout_pipe
-            self.stderr = stderr_pipe
-            self.alive = True
-
-        def poll(self) -> int | None:
-            return None if self.alive else -9
-
-        def kill(self) -> None:
-            # Process stays stuck in uninterruptible sleep; write fds stay open so readers block in `readline()`
-            pass
-
-        def wait(self, timeout: float | None = None) -> int:
-            if self.alive:
-                raise subprocess.TimeoutExpired(cmd=["worker"], timeout=0.02)
-            return -9
-
-    client = MtuiWorkerClient()
-    hung_proc = HungPipeWorkerProc()
-
-    stdout_entered = threading.Event()
-    stderr_entered = threading.Event()
-
-    def _blocked_stdout_reader() -> None:
-        stdout_entered.set()
-        try:
-            for _ in iter(stdout_pipe.readline, ""):
-                pass
-        finally:
-            stdout_pipe.close()
-
-    def _blocked_stderr_reader() -> None:
-        stderr_entered.set()
-        try:
-            for _ in iter(stderr_pipe.readline, ""):
-                pass
-        finally:
-            stderr_pipe.close()
-
-    t_out = threading.Thread(target=_blocked_stdout_reader, daemon=True)
-    t_err = threading.Thread(target=_blocked_stderr_reader, daemon=True)
-    t_out.start()
-    t_err.start()
-    assert stdout_entered.wait(timeout=1.0) and stderr_entered.wait(timeout=1.0)
-    # Give both threads a brief moment to enter CPython's blocking `BufferedReader.readline()`
-    time.sleep(0.03)
-
-    client._proc = hung_proc  # type: ignore[assignment]
-    client._port = 45678
-    client._token = ""
-    client._proc_pipe_readers[hung_proc] = {"stdout": t_out, "stderr": t_err}
-
-    t_shutdown = threading.Thread(target=client.shutdown, daemon=True)
     try:
+        r_out_fd, w_out_fd = os.pipe()
+        stdout_pipe = io.TextIOWrapper(io.BufferedReader(io.FileIO(r_out_fd, "rb")), encoding="utf-8")
+        r_out_fd = -1
+
+        r_err_fd, w_err_fd = os.pipe()
+        stderr_pipe = io.TextIOWrapper(io.BufferedReader(io.FileIO(r_err_fd, "rb")), encoding="utf-8")
+        r_err_fd = -1
+
+        class HungPipeWorkerProc:
+            pid = 77701
+            stdin = None
+
+            def __init__(self) -> None:
+                self.stdout = stdout_pipe
+                self.stderr = stderr_pipe
+                self.alive = True
+
+            def poll(self) -> int | None:
+                return None if self.alive else -9
+
+            def kill(self) -> None:
+                # Process stays stuck in uninterruptible sleep; write fds stay open so readers block in `readline()`
+                pass
+
+            def wait(self, timeout: float | None = None) -> int:
+                if self.alive:
+                    raise subprocess.TimeoutExpired(cmd=["worker"], timeout=0.02)
+                return -9
+
+        client = MtuiWorkerClient()
+        hung_proc = HungPipeWorkerProc()
+
+        stdout_entered = threading.Event()
+        stderr_entered = threading.Event()
+
+        def _blocked_stdout_reader() -> None:
+            assert stdout_pipe is not None
+            stdout_entered.set()
+            try:
+                for _ in iter(stdout_pipe.readline, ""):
+                    pass
+            finally:
+                stdout_pipe.close()
+
+        def _blocked_stderr_reader() -> None:
+            assert stderr_pipe is not None
+            stderr_entered.set()
+            try:
+                for _ in iter(stderr_pipe.readline, ""):
+                    pass
+            finally:
+                stderr_pipe.close()
+
+        t_out = threading.Thread(target=_blocked_stdout_reader, daemon=True)
+        t_err = threading.Thread(target=_blocked_stderr_reader, daemon=True)
+        t_out.start()
+        out_handed_to_reader = True
+        t_err.start()
+        err_handed_to_reader = True
+        assert stdout_entered.wait(timeout=1.0) and stderr_entered.wait(timeout=1.0)
+        # Give both threads a brief moment to enter CPython's blocking `BufferedReader.readline()`
+        time.sleep(0.03)
+
+        client._proc = hung_proc  # type: ignore[assignment]
+        client._port = 45678
+        client._token = ""
+        client._proc_pipe_readers[hung_proc] = {"stdout": t_out, "stderr": t_err}
+
+        t_shutdown = threading.Thread(target=client.shutdown, daemon=True)
         t_shutdown.start()
         t_shutdown.join(timeout=1.5)
         assert not t_shutdown.is_alive(), "client.shutdown() deadlocked closing active stdout/stderr pipes!"
@@ -2670,15 +2689,25 @@ def test_r4_f22_worker_shutdown_does_not_deadlock_closing_pipes_with_blocked_rea
         assert hung_proc not in client._shutting_down_procs
         assert hung_proc not in client._proc_pipe_readers
     finally:
-        for fd in (w_out_fd, w_err_fd):
+        for fd in (w_out_fd, w_err_fd, r_out_fd, r_err_fd):
             if fd >= 0:
                 try:
                     os.close(fd)
                 except OSError:
                     pass
-        t_out.join(timeout=0.5)
-        t_err.join(timeout=0.5)
-        t_shutdown.join(timeout=0.5)
+        for t in (t_out, t_err, t_shutdown):
+            if t is not None and t.ident is not None:
+                t.join(timeout=0.5)
+        if not out_handed_to_reader and stdout_pipe is not None and not stdout_pipe.closed:
+            try:
+                stdout_pipe.close()
+            except OSError:
+                pass
+        if not err_handed_to_reader and stderr_pipe is not None and not stderr_pipe.closed:
+            try:
+                stderr_pipe.close()
+            except OSError:
+                pass
 
 
 def test_r4_f32_config_switch_respects_startup_timeout_budget(
@@ -2890,3 +2919,670 @@ def test_r4_f41_mtui_batch_edit_chapter_renders_committed_pages_on_partial_failu
     with pytest.raises(RuntimeError, match="failure_stage='commit'"):
         server_mod.mtui_batch_edit_chapter(str(ch_dir), find_text="旧", replace_text="新", re_render=False)
     assert rendered_calls == []
+
+
+# ===========================================================================
+# Round 5 Slice 3 Regression Tests (R5-F01, R5-F11, R5-F16, R5-F17,
+# R5-F19, R5-F20, R5-F21, R5-F22, R5-F35, R5-F36, R5-F37)
+# ===========================================================================
+
+
+def test_r5_f01_jpeg_recompressed_untracked_inpaint_repairs_raw_mask_and_preserves_repaired(
+    tmp_path: Path,
+) -> None:
+    """Verify JPEG Q85/Q95 re-encoded untracked pages do not mistake compression artifacts for completed inpainting (`R5-F01`)."""
+    for quality in (85, 95):
+        ch_dir = tmp_path / f"ch_r5_f01_q{quality}"
+        ch_dir.mkdir()
+        page_p = ch_dir / "001.jpg"
+
+        yy, xx = np.mgrid[0:220, 0:220]
+        raw_canvas = np.full((220, 220, 3), 255, dtype=np.uint8)
+        # Colored artwork banner with sharp chroma transitions (triggers 4:2:0 subsampling diffs up to ~60!)
+        raw_canvas[10:80, 10:80] = (230, 35, 45)
+        raw_canvas[25:55, 25:55] = (20, 180, 220)
+        # Bubble A (`[30:65, 130:185]`): white bubble with sharp dark Japanese stroke lines + colored punctuation
+        raw_canvas[36:58:4, 136:178] = (12, 12, 12)
+        raw_canvas[36:58, 148:151] = (200, 20, 20)
+        # Bubble B (`[140:175, 130:185]`): unmasked speck to be added in the edit call
+        raw_canvas[148:168, 138:176] = (15, 15, 15)
+        Image.fromarray(raw_canvas).save(page_p, format="JPEG", quality=95)
+
+        base_rgb = np.asarray(Image.open(page_p).convert("RGB"), dtype=np.uint8)
+        paths = resolve_page_paths(page_p)
+        inp_jpg = paths.inpainted_path.with_suffix(".jpg")
+        inp_jpg.parent.mkdir(parents=True, exist_ok=True)
+        # Simulate Desktop UI saving `001_inpainted.jpg` before background inpaint finished (JPEG re-encode of untouched base_rgb)
+        Image.fromarray(base_rgb).save(inp_jpg, format="JPEG", quality=quality)
+        paths = resolve_page_paths(page_p)
+        assert paths.inpainted_path == inp_jpg
+
+        recomp_rgb = np.asarray(Image.open(inp_jpg).convert("RGB"), dtype=np.uint8)
+        prev_mask = np.zeros((220, 220), dtype=np.uint8)
+        prev_mask[30:65, 130:185] = 255
+        assert not np.array_equal(recomp_rgb[prev_mask > 0], base_rgb[prev_mask > 0]), (
+            "Test setup must produce real JPEG pixel differences inside prev_mask"
+        )
+
+        save_page_json_atomic(
+            paths,
+            str(page_p.resolve()),
+            {"mask_raw": encode_mask_base64(prev_mask), "regions": []},
+            auto_initial_snapshot=False,
+        )
+
+        # 1. Server local `solid_fill`: MUST repair BOTH pre-existing JPEG-recompressed Bubble A AND new Bubble B!
+        server_mod.mtui_edit_mask_and_inpaint(
+            str(page_p),
+            add_rects=[[130, 140, 185, 175]],
+            inpaint_method="solid_fill",
+            full_reinpaint=False,
+            re_render=False,
+        )
+        repaired_local = np.asarray(Image.open(resolve_page_paths(page_p).inpainted_path).convert("RGB"), dtype=np.uint8)
+        assert float(np.mean(repaired_local[35:59, 135:179])) > 245.0, (
+            f"JPEG Q{quality} re-saved raw text in Bubble A was falsely skipped as already inpainted!"
+        )
+        assert float(np.mean(repaired_local[148:168, 138:176])) > 245.0
+
+        # 2. Worker `incremental_neural_inpaint(..., prev_mask_sync_state="untracked")` on JPEG-recompressed raw copy:
+        Image.fromarray(base_rgb).save(inp_jpg, format="JPEG", quality=quality)
+
+        class FakeInpainter(str, Enum):
+            lama_large = "lama_large"
+            blur = "blur"
+
+        class FakePrecision(str, Enum):
+            fp32 = "fp32"
+
+        class FakeInpainterConfig:
+            def __init__(self) -> None:
+                self.inpainting_precision = FakePrecision.fp32
+                self.force_use_torch_inpainting = False
+                self.blur_radius = 0
+
+        async def _fake_dispatch(**kwargs: Any) -> np.ndarray:
+            out_c = kwargs["image"].copy()
+            out_c[kwargs["mask"] > 0] = 252
+            return out_c
+
+        saved_worker_imgs: list[np.ndarray] = []
+        with pytest.MonkeyPatch.context() as mp_ew:
+            mp_ew.setitem(
+                sys.modules,
+                "torch",
+                types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: False, empty_cache=lambda: None)),
+            )
+            mp_ew.setitem(sys.modules, "manga_translator", types.ModuleType("manga_translator"))
+            mp_ew.setitem(
+                sys.modules,
+                "manga_translator.config",
+                types.SimpleNamespace(
+                    Inpainter=FakeInpainter,
+                    InpainterConfig=FakeInpainterConfig,
+                    InpaintPrecision=FakePrecision,
+                ),
+            )
+            mp_ew.setitem(sys.modules, "manga_translator.inpainting", types.SimpleNamespace(dispatch=_fake_dispatch))
+            rt = engine_worker.EngineRuntime(str(tmp_path))
+            rt._initialized = True
+            mp_ew.setattr(
+                rt, "_get_config_dict", lambda: {"inpainter": {"inpainter": "lama_large"}, "cli": {"use_gpu": False}}
+            )
+            rt._export_service = types.SimpleNamespace(
+                save_inpainted_image=lambda _p, img, _cfg: (saved_worker_imgs.append(img.copy()) or str(inp_jpg))
+            )
+            add_m = np.zeros((220, 220), dtype=np.uint8)
+            add_m[140:175, 130:185] = 255
+            cur_m = np.where((prev_mask > 0) | (add_m > 0), 255, 0).astype(np.uint8)
+            ew_res = rt.incremental_neural_inpaint(
+                {
+                    "display_base_path": str(paths.display_base_path),
+                    "inpainted_path": str(inp_jpg),
+                    "current_mask_b64": encode_mask_base64(cur_m),
+                    "added_mask_b64": encode_mask_base64(add_m),
+                    "prev_mask_b64": encode_mask_base64(prev_mask),
+                    "prev_mask_sync_state": "untracked",
+                }
+            )
+        assert ew_res["status"] == "ok"
+        assert len(saved_worker_imgs) == 1
+        assert float(np.mean(saved_worker_imgs[0][35:59, 135:179])) >= 250.0, (
+            f"Worker skipped JPEG Q{quality} re-compressed raw text in Bubble A!"
+        )
+        assert float(np.mean(saved_worker_imgs[0][148:168, 138:176])) >= 250.0
+        _ = (xx, yy)
+
+
+def test_r5_f11_f22_partially_repaired_bridged_component_repairs_residual_ink_preserving_repaired(
+    tmp_path: Path,
+) -> None:
+    """Verify bridged/partially-repaired mask components clean residual ink while preserving repaired pixels (`R5-F11`, `R5-F22`)."""
+    import cv2
+
+    ch_dir = tmp_path / "ch_r5_f11_f22"
+    ch_dir.mkdir()
+    page_p = ch_dir / "001.png"
+
+    yy, xx = np.mgrid[0:220, 0:240]
+    base_rgb = np.full((220, 240, 3), 255, dtype=np.uint8)
+    # Textured artwork under Left Lobe `[20:70, 20:70]`
+    base_rgb[15:80, 15:80, 0] = np.clip(85 + (xx[15:80, 15:80] * 2) % 75, 0, 255).astype(np.uint8)
+    base_rgb[15:80, 15:80, 1] = np.clip(105 + (yy[15:80, 15:80] * 3) % 65, 0, 255).astype(np.uint8)
+    base_rgb[15:80, 15:80, 2] = 170
+    # Raw ink in Left Lobe (`[30:60, 30:60]`), Right Lobe (`[30:60, 145:180]`), and Third Rect (`[150:175, 50:90]`)
+    base_rgb[30:60, 30:60] = (12, 14, 18)
+    base_rgb[30:60, 145:180] = (14, 14, 14)
+    base_rgb[150:175, 50:90] = (16, 16, 16)
+    Image.fromarray(base_rgb).save(page_p)
+
+    paths = resolve_page_paths(page_p)
+    paths.inpainted_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Left Lobe `[20:70, 20:70]` WAS repaired with neural LaMa gradient; Right Lobe `[20:70, 135:190]` still has raw ink!
+    partial_inpaint = base_rgb.copy()
+    lama_patch = np.dstack(
+        [
+            np.clip(125 + (xx[20:70, 20:70] + yy[20:70, 20:70]) % 55, 0, 255),
+            np.clip(150 + (xx[20:70, 20:70] * 2) % 45, 0, 255),
+            np.full((50, 50), 205, dtype=np.int32),
+        ]
+    ).astype(np.uint8)
+    partial_inpaint[20:70, 20:70] = lama_patch
+    Image.fromarray(partial_inpaint).save(paths.inpainted_path)
+
+    # Single 8-connected component bridging Left Lobe `[20:70, 20:70]` and Right Lobe `[20:70, 135:190]` via `[43:47, 70:135]`
+    bridged_mask = np.zeros((220, 240), dtype=np.uint8)
+    bridged_mask[20:70, 20:70] = 255
+    bridged_mask[43:47, 70:135] = 255
+    bridged_mask[20:70, 135:190] = 255
+    n_cc, _ = cv2.connectedComponents((bridged_mask > 0).astype(np.uint8), connectivity=8)
+    assert n_cc == 2, "Left and Right lobes must form a single connected component in prev_mask"
+
+    save_page_json_atomic(
+        paths,
+        str(page_p.resolve()),
+        {"mask_raw": encode_mask_base64(bridged_mask), "regions": []},
+        auto_initial_snapshot=False,
+    )
+
+    # 1. R5-F11 (`mtui_add_region` with `solid_fill`): must NOT falsely mark whole mask synced while Right Lobe still has ink!
+    server_mod.mtui_add_region(
+        str(page_p),
+        bbox_xyxy=[45, 145, 95, 180],
+        source_text="三",
+        translation="第三处",
+        inpaint_method="solid_fill",
+        re_render=False,
+    )
+    _, after_add_json = load_page_json(resolve_page_paths(page_p))
+    assert not after_add_json.get("mask_inpainted_sha1"), (
+        "mtui_add_region(solid_fill) must not claim full-mask sync when bridged Right Lobe still holds raw ink!"
+    )
+
+    # 2. R5-F11 (`mtui_edit_mask_and_inpaint` with `solid_fill` adding Third Rect):
+    #    repairs BOTH bridged Right Lobe AND Third Rect while keeping Left Lobe's `lama_patch` bit-for-bit intact!
+    Image.fromarray(partial_inpaint).save(paths.inpainted_path)
+    save_page_json_atomic(
+        resolve_page_paths(page_p),
+        str(page_p.resolve()),
+        {"mask_raw": encode_mask_base64(bridged_mask), "regions": []},
+        auto_initial_snapshot=False,
+    )
+    server_mod.mtui_edit_mask_and_inpaint(
+        str(page_p),
+        add_rects=[[45, 145, 95, 180]],
+        inpaint_method="solid_fill",
+        full_reinpaint=False,
+        re_render=False,
+    )
+    after_srv = np.asarray(Image.open(paths.inpainted_path).convert("RGB"), dtype=np.uint8)
+    assert np.array_equal(after_srv[20:70, 20:70], lama_patch), "Left Lobe neural LaMa pixels must stay untouched!"
+    assert float(np.mean(after_srv[30:60, 145:180])) > 245.0, "Bridged Right Lobe raw ink must be repaired!"
+    assert float(np.mean(after_srv[150:175, 50:90])) > 245.0, "Newly added Third Rect must be repaired!"
+
+    # 3. R5-F22 (`engine_worker.incremental_neural_inpaint` lossless bridged component + third added rect):
+    Image.fromarray(partial_inpaint).save(paths.inpainted_path)
+
+    class FakeInpainter(str, Enum):
+        lama_large = "lama_large"
+        blur = "blur"
+
+    class FakePrecision(str, Enum):
+        fp32 = "fp32"
+
+    class FakeInpainterConfig:
+        def __init__(self) -> None:
+            self.inpainting_precision = FakePrecision.fp32
+            self.force_use_torch_inpainting = False
+            self.blur_radius = 0
+
+    async def _fake_worker_dispatch(**kwargs: Any) -> np.ndarray:
+        out_crop = kwargs["image"].copy()
+        out_crop[kwargs["mask"] > 0] = 251
+        return out_crop
+
+    saved_worker_imgs: list[np.ndarray] = []
+    with pytest.MonkeyPatch.context() as mp_ew:
+        mp_ew.setitem(
+            sys.modules,
+            "torch",
+            types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: False, empty_cache=lambda: None)),
+        )
+        mp_ew.setitem(sys.modules, "manga_translator", types.ModuleType("manga_translator"))
+        mp_ew.setitem(
+            sys.modules,
+            "manga_translator.config",
+            types.SimpleNamespace(
+                Inpainter=FakeInpainter,
+                InpainterConfig=FakeInpainterConfig,
+                InpaintPrecision=FakePrecision,
+            ),
+        )
+        mp_ew.setitem(
+            sys.modules,
+            "manga_translator.inpainting",
+            types.SimpleNamespace(dispatch=_fake_worker_dispatch),
+        )
+        rt = engine_worker.EngineRuntime(str(tmp_path))
+        rt._initialized = True
+        mp_ew.setattr(
+            rt, "_get_config_dict", lambda: {"inpainter": {"inpainter": "lama_large"}, "cli": {"use_gpu": False}}
+        )
+        rt._export_service = types.SimpleNamespace(
+            save_inpainted_image=lambda _p, img, _cfg: (
+                saved_worker_imgs.append(img.copy()) or str(paths.inpainted_path)
+            )
+        )
+        third_add = np.zeros((220, 240), dtype=np.uint8)
+        third_add[145:180, 45:95] = 255
+        cur_m = np.where((bridged_mask > 0) | (third_add > 0), 255, 0).astype(np.uint8)
+        ew_res = rt.incremental_neural_inpaint(
+            {
+                "display_base_path": str(paths.display_base_path),
+                "inpainted_path": str(paths.inpainted_path),
+                "current_mask_b64": encode_mask_base64(cur_m),
+                "added_mask_b64": encode_mask_base64(third_add),
+                "prev_mask_b64": encode_mask_base64(bridged_mask),
+                "prev_mask_sync_state": "untracked",
+            }
+        )
+    assert ew_res["status"] == "ok"
+    assert len(saved_worker_imgs) == 1
+    assert np.array_equal(saved_worker_imgs[0][20:70, 20:70], lama_patch), (
+        "Worker must preserve Left Lobe neural pixels bit-for-bit!"
+    )
+    assert float(np.mean(saved_worker_imgs[0][30:60, 145:180])) >= 250.0, (
+        "Worker must repair bridged Right Lobe residual ink!"
+    )
+    assert float(np.mean(saved_worker_imgs[0][150:175, 50:90])) >= 250.0
+
+    # 4. Contiguous zero-margin half-repaired rectangle `[30:60, 30:130]` (`[30:80]` cleaned, `[80:130]` raw ink):
+    half_base = np.full((120, 180, 3), 255, dtype=np.uint8)
+    half_base[30:60, 30:130] = (10, 10, 10)
+    half_prev = half_base.copy()
+    half_prev[30:60, 30:80] = (255, 255, 255)
+    half_mask = np.zeros((120, 180), dtype=np.uint8)
+    half_mask[30:60, 30:130] = 255
+    half_unrep, half_any = server_mod._unrepaired_prev_mask_components(half_base, half_prev, half_mask)
+    assert half_any is True
+    assert int(np.sum(half_unrep[30:60, 30:80] > 0)) == 0, "Repaired left half must stay 0"
+    assert np.all(half_unrep[30:60, 80:130] == 255), "Un-repaired right half must be 255 right from x=80"
+
+
+def test_r5_f17_f35_vectorized_unrepaired_components_scales_to_1000_components() -> None:
+    """Verify single-pass `np.bincount` + LUT classifies 1,000 disjoint components in `O(H * W)` (`R5-F17`, `R5-F35`)."""
+    h, w = 1000, 1200
+    base_rgb = np.full((h, w, 3), 250, dtype=np.uint8)
+    prev_inpaint = base_rgb.copy()
+    prev_mask = np.zeros((h, w), dtype=np.uint8)
+
+    comp_idx = 0
+    repaired_boxes: list[tuple[int, int, int, int]] = []
+    unrepaired_boxes: list[tuple[int, int, int, int]] = []
+    for row in range(25):
+        for col in range(40):
+            y1 = 15 + row * 38
+            x1 = 15 + col * 29
+            y2, x2 = y1 + 8, x1 + 8
+            prev_mask[y1:y2, x1:x2] = 255
+            base_rgb[y1:y2, x1:x2] = (15, 15, 15)
+            if comp_idx % 2 == 0:
+                prev_inpaint[y1:y2, x1:x2] = (250, 250, 250)
+                repaired_boxes.append((y1, y2, x1, x2))
+            else:
+                prev_inpaint[y1:y2, x1:x2] = (15, 15, 15)
+                unrepaired_boxes.append((y1, y2, x1, x2))
+            comp_idx += 1
+
+    assert len(repaired_boxes) == 500 and len(unrepaired_boxes) == 500
+    t0 = time.perf_counter()
+    unrepaired, any_inpainted = server_mod._unrepaired_prev_mask_components(base_rgb, prev_inpaint, prev_mask)
+    elapsed = time.perf_counter() - t0
+
+    assert any_inpainted is True
+    assert elapsed < 1.5, f"Vectorized 1000-component scan took too long ({elapsed:.3f}s)"
+    for y1, y2, x1, x2 in repaired_boxes:
+        assert int(np.sum(unrepaired[y1:y2, x1:x2] > 0)) == 0
+    for y1, y2, x1, x2 in unrepaired_boxes:
+        assert np.all(unrepaired[y1:y2, x1:x2] == 255)
+
+
+def test_r5_f16_f19_f20_worker_client_thread_start_rollback_and_pipe_reader_unregister(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify config-switch `Thread.start()` rollback (`R5-F16`), post-`Popen` reader failure cleanup (`R5-F19`), and reader-exit unregistration (`R5-F20`)."""
+    root_a = tmp_path / "root_a"
+    root_b = tmp_path / "root_b"
+    root_a.mkdir()
+    root_b.mkdir()
+
+    settings = get_runtime_settings()
+    monkeypatch.setattr(type(settings), "is_engine_available", property(lambda _s: True))
+    monkeypatch.setattr(settings, "mtui_root", root_b)
+    monkeypatch.setattr(settings, "mtui_python", Path(sys.executable))
+
+    # 1. R5-F16: `_terminate_detached_proc` Thread.start() failure restores old worker ownership & clears `_shutting_down_procs`
+    class SwitchableOldProc:
+        pid = 91001
+        stdout = None
+        stderr = None
+        stdin = None
+
+        def __init__(self) -> None:
+            self.returncode: int | None = None
+            self.killed = False
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def kill(self) -> None:
+            self.killed = True
+            self.returncode = -9
+
+        def wait(self, timeout: float | None = None) -> int:
+            if self.returncode is None:
+                raise subprocess.TimeoutExpired(cmd=["old"], timeout=0.01)
+            return self.returncode
+
+    client_f16 = MtuiWorkerClient()
+    old_a = SwitchableOldProc()
+    client_f16._proc = old_a  # type: ignore[assignment]
+    client_f16._port = 45111
+    client_f16._token = "tok_a"
+    client_f16._bound_root = root_a
+    client_f16._bound_python = Path(sys.executable)
+
+    real_thread_start = threading.Thread.start
+
+    def _fail_term_thread_start(self_t: threading.Thread) -> None:
+        if getattr(self_t, "_target", None) == client_f16._terminate_detached_proc:
+            raise RuntimeError("simulated_term_thread_exhausted")
+        real_thread_start(self_t)
+
+    with pytest.MonkeyPatch.context() as mp_t:
+        mp_t.setattr(threading.Thread, "start", _fail_term_thread_start)
+        with pytest.raises(RuntimeError, match="simulated_term_thread_exhausted"):
+            client_f16._ensure_started_instance(startup_timeout_sec=1.0)
+
+    assert client_f16._proc is old_a
+    assert client_f16._port == 45111
+    assert client_f16._token == "tok_a"
+    assert client_f16._bound_root == root_a
+    assert client_f16._bound_python == Path(sys.executable)
+    assert old_a not in client_f16._shutting_down_procs
+
+    # Once thread resource recovers, `shutdown()` still owns `old_a` and terminates it cleanly!
+    client_f16.shutdown()
+    assert old_a.killed is True
+    assert client_f16._proc is None
+    assert client_f16._shutting_down_procs == set()
+
+    # 2. R5-F19: Post-`Popen` reader `Thread.start()` failure cleans up spawned `proc` without `join()` on unstarted thread
+    spawned_f19: list[Any] = []
+
+    class ClosableStringPipe(io.StringIO):
+        pass
+
+    class SpawnedProcF19:
+        def __init__(self, *_a: Any, **_kw: Any) -> None:
+            self.pid = 92000 + len(spawned_f19)
+            self.stdout = ClosableStringPipe('MTUI_WORKER_READY {"port": 47111}\n')
+            self.stderr = ClosableStringPipe("warn line\n")
+            self.stdin = None
+            self.returncode: int | None = None
+            self.killed = False
+            spawned_f19.append(self)
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def kill(self) -> None:
+            self.killed = True
+            self.returncode = -9
+
+        def wait(self, timeout: float | None = None) -> int:
+            self.returncode = -9 if self.killed else 0
+            return self.returncode
+
+    client_f19 = MtuiWorkerClient()
+    start_attempt = {"count": 0}
+
+    def _fail_first_then_second_reader_start(self_t: threading.Thread) -> None:
+        start_attempt["count"] += 1
+        if start_attempt["count"] == 1:
+            raise RuntimeError("stderr_reader_start_failed")
+        if start_attempt["count"] == 3:
+            raise RuntimeError("stdout_reader_start_failed")
+        real_thread_start(self_t)
+
+    with pytest.MonkeyPatch.context() as mp_f19:
+        mp_f19.setattr("mtui_mcp.worker.client.subprocess.Popen", SpawnedProcF19)
+        mp_f19.setattr(threading.Thread, "start", _fail_first_then_second_reader_start)
+
+        # Attempt 1: `t_stderr.start()` fails immediately after `Popen`
+        with pytest.raises(RuntimeError, match="stderr_reader_start_failed"):
+            client_f19._ensure_started_instance(startup_timeout_sec=1.0)
+        assert len(spawned_f19) == 1
+        assert spawned_f19[0].killed is True
+        assert spawned_f19[0].stdout.closed and spawned_f19[0].stderr.closed
+        assert client_f19._proc is None
+        assert client_f19._proc_pipe_readers == {}
+
+        # Attempt 2: `t_stderr.start()` succeeds (`count == 2`), then `t_stdout.start()` fails (`count == 3`)
+        with pytest.raises(RuntimeError, match="stdout_reader_start_failed"):
+            client_f19._ensure_started_instance(startup_timeout_sec=1.0)
+        assert len(spawned_f19) == 2
+        assert spawned_f19[1].killed is True
+        assert spawned_f19[1].stdout.closed and spawned_f19[1].stderr.closed
+        assert client_f19._proc is None
+        assert client_f19._proc_pipe_readers == {}
+
+    # 3. R5-F20: Exited worker whose pipe reader finishes AFTER `_cleanup_proc_pipes` timeout self-unregisters from `_proc_pipe_readers`
+    r_out, w_out = os.pipe()
+    r_err, w_err = os.pipe()
+    try:
+        out_stream = io.TextIOWrapper(io.BufferedReader(io.FileIO(r_out, "rb")), encoding="utf-8")
+        r_out = -1
+        err_stream = io.TextIOWrapper(io.BufferedReader(io.FileIO(r_err, "rb")), encoding="utf-8")
+        r_err = -1
+        os.write(w_out, b'MTUI_WORKER_READY {"port": 47222}\n')
+        os.close(w_out)
+        w_out = -1
+
+        class DelayedStderrEofProc:
+            pid = 93001
+            stdin = None
+
+            def __init__(self, *_a: Any, **_kw: Any) -> None:
+                self.stdout = out_stream
+                self.stderr = err_stream
+                self.returncode: int | None = None
+
+            def poll(self) -> int | None:
+                return self.returncode
+
+            def kill(self) -> None:
+                self.returncode = -9
+
+            def wait(self, timeout: float | None = None) -> int:
+                self.returncode = -9 if self.returncode is not None else 0
+                return self.returncode
+
+        client_f20 = MtuiWorkerClient()
+        created_proc_holder: list[DelayedStderrEofProc] = []
+
+        def _spawn_f20(*a: Any, **kw: Any) -> DelayedStderrEofProc:
+            p = DelayedStderrEofProc(*a, **kw)
+            created_proc_holder.append(p)
+            return p
+
+        with pytest.MonkeyPatch.context() as mp_f20:
+            mp_f20.setattr("mtui_mcp.worker.client.subprocess.Popen", _spawn_f20)
+            mp_f20.setattr("mtui_mcp.worker.client._LOOPBACK_OPENER.open", lambda *_a, **_kw: (_ for _ in ()).throw(OSError("down")))
+            _, port_f20, _ = client_f20._ensure_started_instance(startup_timeout_sec=2.0)
+            assert port_f20 == 47222
+            proc_f20 = created_proc_holder[0]
+            assert proc_f20 in client_f20._proc_pipe_readers
+
+            # Shutdown kills `proc_f20` (`poll() == -9`), removing it from `_shutting_down_procs`, while `w_err` is still open
+            # so `t_stderr` outlives `_cleanup_proc_pipes`'s 50ms join window!
+            client_f20.shutdown()
+            assert proc_f20 not in client_f20._shutting_down_procs
+            assert proc_f20 in client_f20._proc_pipe_readers
+
+            # Now close `w_err`: `t_stderr` hits EOF and MUST self-unregister `proc_f20` without any further client call!
+            os.close(w_err)
+            w_err = -1
+            deadline_u = time.monotonic() + 1.5
+            while time.monotonic() < deadline_u and proc_f20 in client_f20._proc_pipe_readers:
+                time.sleep(0.01)
+            assert proc_f20 not in client_f20._proc_pipe_readers
+            assert err_stream.closed
+    finally:
+        for fd in (r_out, w_out, r_err, w_err):
+            if fd >= 0:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+
+
+def test_r5_f36_f37_add_region_none_skips_corrupt_inpaint_and_batch_recovery_checks_incomplete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify `mtui_add_region(inpaint_method='none')` ignores unreadable `inpainted_path` (`R5-F36`) and batch recovery checks `_is_render_result_incomplete` (`R5-F37`)."""
+    # 1. R5-F36: `mtui_add_region(..., inpaint_method="none", re_render=False)` does NOT decode `pre_paths.inpainted_path`
+    #    on either untracked or synced pages, while still invalidating `mask_inpainted_sha1` when mask changes!
+    ch_f36 = tmp_path / "ch_r5_f36"
+    ch_f36.mkdir()
+    page_p = ch_f36 / "001.png"
+    base_rgb = np.full((160, 160, 3), 255, dtype=np.uint8)
+    base_rgb[30:55, 30:65] = (10, 10, 10)
+    base_rgb[95:125, 90:130] = (12, 12, 12)
+    Image.fromarray(base_rgb).save(page_p)
+
+    paths = resolve_page_paths(page_p)
+    paths.inpainted_path.parent.mkdir(parents=True, exist_ok=True)
+    # Write corrupt non-image bytes to `inpainted_path`!
+    paths.inpainted_path.write_bytes(b"NOT_A_VALID_IMAGE_HEADER")
+
+    init_mask = np.zeros((160, 160), dtype=np.uint8)
+    init_mask[25:60, 25:70] = 255
+
+    # Sub-case 1a: Untracked page (`mask_inpainted_sha1` absent) + corrupt `inpainted_path`
+    save_page_json_atomic(
+        paths,
+        str(page_p.resolve()),
+        {"mask_raw": encode_mask_base64(init_mask), "regions": []},
+        auto_initial_snapshot=False,
+    )
+    res_untracked = json.loads(
+        server_mod.mtui_add_region(
+            str(page_p),
+            bbox_xyxy=[85, 90, 135, 130],
+            source_text="新枠",
+            translation="新框",
+            auto_mask_ink=True,
+            inpaint_method="none",
+            re_render=False,
+        )
+    )
+    assert res_untracked["added_region"]["translation"] == "新框"
+
+    # Sub-case 1b: Synced page (`mask_inpainted_sha1` + `mask_inpainted_stat` matching corrupt file) -> invalidates `mask_inpainted_sha1`!
+    base_rgb[43:50, 106:124] = (8, 8, 8)
+    Image.fromarray(base_rgb).save(page_p)
+    cur_stat = server_mod._file_stat_sig(paths.inpainted_path)
+    save_page_json_atomic(
+        resolve_page_paths(page_p),
+        str(page_p.resolve()),
+        {
+            "mask_raw": encode_mask_base64(init_mask),
+            "mask_inpainted_sha1": server_mod._mask_sha1_hex(init_mask, (160, 160)),
+            "mask_inpainted_stat": cur_stat,
+            "regions": [],
+        },
+        auto_initial_snapshot=False,
+    )
+    res_synced = json.loads(
+        server_mod.mtui_add_region(
+            str(page_p),
+            bbox_xyxy=[95, 35, 135, 60],
+            source_text="二枠",
+            translation="二框",
+            auto_mask_ink=True,
+            inpaint_method="none",
+            re_render=False,
+        )
+    )
+    assert res_synced["added_region"]["translation"] == "二框"
+    _, post_none_json = load_page_json(resolve_page_paths(page_p))
+    assert post_none_json["mask_inpainted_sha1"] == "", (
+        "inpaint_method='none' must still invalidate mask_inpainted_sha1 when mask changes!"
+    )
+
+    # 2. R5-F37: `mtui_batch_edit_chapter` recovery re-render routes incomplete render dicts (`status='partial'` / `metadata_saved=False`)
+    #    into `render_errors` instead of `rendered_outputs`!
+    ch_f37 = tmp_path / "ch_r5_f37"
+    ch_f37.mkdir()
+    p1 = _make_sample_page(ch_f37, "001.png", size_hw=(100, 100))
+    p2 = _make_sample_page(ch_f37, "002.png", size_hw=(100, 100))
+    pp1 = resolve_page_paths(p1)
+    pp2 = resolve_page_paths(p2)
+    for pp in (pp1, pp2):
+        save_page_json_atomic(pp, str(pp.source_path.resolve()), {"regions": []}, auto_initial_snapshot=False)
+    pp1 = resolve_page_paths(p1)
+    pp2 = resolve_page_paths(p2)
+
+    def _partial_commit_batch(*_a: Any, **_kw: Any) -> Any:
+        err = RuntimeError("Batch edit failed on 003.png after committing 001.png and 002.png")
+        err.committed_pages = ["001.png", "002.png"]  # type: ignore[attr-defined]
+        err.committed_page_paths = [pp1, pp2]  # type: ignore[attr-defined]
+        err.failed_page = "003.png"  # type: ignore[attr-defined]
+        err.failure_stage = "commit"  # type: ignore[attr-defined]
+        raise err
+
+    def _render_with_incomplete_second(pp: Any, **_kw: Any) -> dict[str, Any]:
+        if pp.source_path.name == "002.png":
+            return {
+                "status": "partial",
+                "metadata_saved": False,
+                "metadata_error": "translation_map: permission denied",
+                "output_path": str(pp.rendered_output_path),
+            }
+        return {"status": "ok", "metadata_saved": True, "output_path": str(pp.rendered_output_path)}
+
+    monkeypatch.setattr(server_mod, "batch_edit_chapter_pages", _partial_commit_batch)
+    monkeypatch.setattr(server_mod, "_render_single_page_via_worker", _render_with_incomplete_second)
+
+    with pytest.raises(RuntimeError, match="Batch edit failed on 003.png") as exc_info:
+        server_mod.mtui_batch_edit_chapter(str(ch_f37), find_text="A", replace_text="B", re_render=True)
+
+    assert getattr(exc_info.value, "rendered_outputs", None) == [str(pp1.rendered_output_path)]
+    r_errs = getattr(exc_info.value, "render_errors", None)
+    assert isinstance(r_errs, list) and len(r_errs) == 1
+    assert "002.png:" in r_errs[0]
+    assert "status='partial'" in r_errs[0]
+    assert "metadata_saved=False" in r_errs[0]
+    assert "render_errors=" in str(exc_info.value)

@@ -74,6 +74,10 @@ from .visual_inspector import (
     generate_region_loupe_image,
 )
 from .worker.client import get_worker_client
+from .worker.engine_worker import (
+    _has_material_image_change,
+    _unrepaired_prev_mask_components,
+)
 
 logger = logging.getLogger("mtui_mcp.server")
 
@@ -159,34 +163,6 @@ def _is_prev_mask_synced(
     return _prev_mask_sync_state(image_data, prev_mask_sha1, inpainted_path) == "synced"
 
 
-def _unrepaired_prev_mask_components(
-    base_rgb: Any,
-    prev_inpaint: Any,
-    prev_mask: Any,
-) -> tuple[Any, bool]:
-    """Identify connected components of `prev_mask > 0` where `prev_inpaint` still equals `base_rgb` (`R4-F01`, `R3-F12`)."""
-    import cv2
-    import numpy as np
-
-    h, w = base_rgb.shape[:2]
-    unrepaired = np.zeros((h, w), dtype=np.uint8)
-    if prev_mask is None:
-        return unrepaired, True
-    prev_bin = np.where(np.asarray(prev_mask) > 0, 1, 0).astype(np.uint8)
-    if not np.any(prev_bin):
-        return unrepaired, True
-
-    n_comp, comp_lbl = cv2.connectedComponents(prev_bin, connectivity=8)
-    any_inpainted = False
-    for cid in range(1, n_comp):
-        comp = comp_lbl == cid
-        if np.array_equal(prev_inpaint[comp], base_rgb[comp]):
-            unrepaired[comp] = 255
-        else:
-            any_inpainted = True
-    return unrepaired, any_inpainted
-
-
 def _resolve_prev_inpaint_plan(
     *,
     sync_state: Literal["synced", "untracked", "unsynced"],
@@ -197,7 +173,7 @@ def _resolve_prev_inpaint_plan(
     new_mask: Any,
     added_delta: Any,
 ) -> tuple[Optional[Any], bool, Any]:
-    """Resolve `(prev_inpaint_rgb, worker_prev_synced, effective_added_delta)` (`R4-F01` vs `R3-F12`)."""
+    """Resolve `(prev_inpaint_rgb, worker_prev_synced, effective_added_delta)` (`R4-F01` vs `R3-F12`, `R5-F01`, `R5-F11`)."""
     import numpy as np
 
     if full_reinpaint or sync_state == "unsynced" or not inpainted_path.is_file():
@@ -211,10 +187,10 @@ def _resolve_prev_inpaint_plan(
         return prev_inpaint, True, added_delta
 
     # `sync_state == "untracked"`: normal desktop/CLI project without `mask_inpainted_sha1` / `mask_inpainted_stat`.
-    # Preserve `prev_inpaint` on components that already differ from `base_rgb` (protecting neural LaMa artwork!),
-    # while repairing any components where `prev_inpaint == base_rgb` (un-inpainted raw copy in `R3-F12`).
+    # Preserve `prev_inpaint` on materially-repaired areas (protecting neural LaMa artwork!),
+    # while repairing untouched components or residual-ink sub-regions (`R3-F12`, `R5-F01`, `R5-F11`).
     unrepaired_prev, any_inpainted_comp = _unrepaired_prev_mask_components(base_rgb, prev_inpaint, prev_mask)
-    if not any_inpainted_comp and np.array_equal(prev_inpaint, base_rgb):
+    if not any_inpainted_comp and not _has_material_image_change(base_rgb, prev_inpaint):
         return None, False, added_delta
 
     effective_added = np.where(
@@ -1195,6 +1171,8 @@ def mtui_add_region(
     Do NOT pass `alignment="center"` for standard vertical manga dialogue bubbles — use `center-bubbles` to center the whole text block inside the bubble instead.
     """
     local_method = inpaint_method if inpaint_method in ("solid_fill", "telea") else None
+    will_neural_inpaint = inpaint_method == "neural" and get_runtime_settings().is_engine_available
+    needs_prev_inpaint_probe = will_neural_inpaint or local_method in ("solid_fill", "telea")
     init_paths = resolve_page_paths(page_path)
     # R2-F18 & R2-F48: Hold `page_edit_lock` continuously across region insertion and neural inpaint,
     # and compute true pre-edit mask sync state + full mask pixel delta so `mask_inpainted_sha1` never
@@ -1207,8 +1185,6 @@ def mtui_add_region(
         prev_mask_synced = False
         unrepaired_pre_mask: Any = None
         if auto_mask_ink and pre_paths.display_base_path.is_file():
-            import numpy as np
-
             pre_base_rgb = open_rgb_image(pre_paths.display_base_path)
             pre_shape_hw = pre_base_rgb.shape[:2]
             pre_img_data: dict[str, Any] = {}
@@ -1219,14 +1195,20 @@ def mtui_add_region(
             pre_sync_state = _prev_mask_sync_state(pre_img_data, pre_mask_sha1, pre_paths.inpainted_path)
             if pre_sync_state == "synced":
                 prev_mask_synced = True
-            elif pre_sync_state == "untracked" and pre_paths.inpainted_path.is_file():
+            elif (
+                needs_prev_inpaint_probe
+                and pre_sync_state == "untracked"
+                and pre_paths.inpainted_path.is_file()
+            ):
                 pre_cand_inp = open_rgb_image(pre_paths.inpainted_path)
                 if pre_cand_inp.shape[:2] == pre_shape_hw:
                     unrepaired_pre, any_inp_pre = _unrepaired_prev_mask_components(
                         pre_base_rgb, pre_cand_inp, pre_mask
                     )
                     unrepaired_pre_mask = unrepaired_pre
-                    prev_mask_synced = bool(any_inp_pre or not np.array_equal(pre_cand_inp, pre_base_rgb))
+                    prev_mask_synced = bool(
+                        any_inp_pre or _has_material_image_change(pre_base_rgb, pre_cand_inp)
+                    )
 
         refreshed, reg_summary = add_region_to_page(
             page_path,
@@ -1536,7 +1518,15 @@ def mtui_batch_edit_chapter(
                 for cp in committed_to_render:
                     try:
                         r_res = _render_single_page_via_worker(cp)
-                        partial_rendered.append(str(r_res.get("output_path") or ""))
+                        if _is_render_result_incomplete(r_res):
+                            err_detail = (
+                                f"status={r_res.get('status')!r}, metadata_saved={r_res.get('metadata_saved')!r}"
+                            )
+                            if r_res.get("metadata_error"):
+                                err_detail += f" ({r_res['metadata_error']})"
+                            partial_render_errors.append(f"{cp.source_path.name}: {err_detail}")
+                        else:
+                            partial_rendered.append(str(r_res.get("output_path") or ""))
                     except Exception as render_exc:
                         partial_render_errors.append(f"{cp.source_path.name}: {render_exc}")
                 exc.rendered_outputs = partial_rendered  # type: ignore[attr-defined]

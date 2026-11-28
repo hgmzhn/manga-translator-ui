@@ -185,14 +185,17 @@ _DEC_WITH_UNIT_RE = re.compile(
 _DEC_ZERO_FRAC_RE = re.compile(rf"(?<!\d\.)(?<!\d)(\d+)\.0+(?![\d{_CN_MULTIPLIER_CHARS}])")
 _DEC_ANY_RE = re.compile(r"\d+\.\d+")
 _NUM_SPAN_RE = re.compile(rf"[{_CN_NUM_BOUNDARY_CHARS}\d]+")
+_MALFORMED_COMMA_NUM_RE = re.compile(
+    rf"\d+(?:\.\d+)?(?:,+\d+(?:\.\d+)?)+(?:\s*[{_CN_MULTIPLIER_CHARS}]+[{_CN_NUM_BOUNDARY_CHARS}\d]*)?"
+)
 _SRC_NUMBER_TOKEN_RE = re.compile(
-    rf"(?<!\d\.)(?<![\d{_CN_NUM_BOUNDARY_CHARS}])"
+    rf"(?<!,,)(?<!\d,)(?<!\d\.)(?<![\d{_CN_NUM_BOUNDARY_CHARS}])"
     rf"(?:"
     rf"(?:\d{{1,3}}(?:,\d{{3}})+|\d+)\.\d+(?:\s*[{_CN_MULTIPLIER_CHARS}]+)?"
     rf"|(?:[{_CN_NUM_BOUNDARY_CHARS}]+\s*)?(?:\d{{1,3}}(?:,\d{{3}})+|\d{{1,9}})\s*[{_CN_MULTIPLIER_CHARS}]+(?:\s*(?:\d{{1,9}}|[{_CN_DIGIT_CHARS}]+)(?:\s*[{_CN_MULTIPLIER_CHARS}]+)?)*"
     rf"|(?:\d{{1,3}}(?:,\d{{3}})+|\d{{1,6}})"
     rf")"
-    rf"(?!\.\d)(?![\d{_CN_MULTIPLIER_CHARS}])"
+    rf"(?!,\d)(?!,,)(?!\.\d)(?![\d{_CN_MULTIPLIER_CHARS}])"
 )
 
 
@@ -401,6 +404,7 @@ def _extract_complete_numbers(text_norm: str) -> set[int]:
     """Extract complete integer quantities from NFKC-normalized text, honoring multiplier units (e.g. '2万' -> 20000)."""
     out: set[int] = set()
     work = _strip_thousand_commas(text_norm)
+    work = _MALFORMED_COMMA_NUM_RE.sub(" ", work)
     work = re.sub(rf"(?<=\d)\s+(?=[{_CN_MULTIPLIER_CHARS}])", "", work)
 
     def _consume_dec_unit(m: re.Match[str]) -> str:
@@ -431,6 +435,8 @@ def _extract_complete_numbers(text_norm: str) -> set[int]:
 def _parse_source_number_token(raw_tok: str) -> Optional[int]:
     tok = _strip_thousand_commas(raw_tok)
     tok = re.sub(r"\s+", "", tok)
+    if "," in tok:
+        return None
     m_dec_u = re.fullmatch(rf"(\d+\.\d+)([{_CN_MULTIPLIER_CHARS}]+)", tok)
     if m_dec_u:
         return _parse_decimal_with_units_exact(m_dec_u.group(1), m_dec_u.group(2))

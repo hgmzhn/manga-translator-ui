@@ -53,7 +53,7 @@ pages: 42   regions: 318   verify_sheets_reviewed: 106/106
 gate_a: errors 0 (initial 37), warnings 12 (handled 12)
 regression_diff: passed=True (newly_introduced_error_count=0, unaudited_pages=[])
 stage7_compare: ok (sheets=18)
-modified_pages: [3, 7, 13, 21]
+modified_pages: ["003.png", "007.png", "013.png", "021.png"]
 
 ## AUTO_FIXED（遇到问题并已自动解决）
 - P013 #4 框外字压在网点渐变上，tight_halo 修补后有接缝 → 拆成 3 个小区域并调整白描边后通过 → verify_sheet_031.png
@@ -102,8 +102,9 @@ modified_pages: [3, 7, 13, 21]
 - 发现问题就自己判断最优方案并直接修复、验证，按 unattended_batch_ops.md 第 2 节处理；不要停下来提问，也不要只记录不处理。
 - 需要修改术语表时不要直接改，写进回报里交给主控。
 - 编辑时可先 re_render=False，最后对自己负责的页调用一次 mtui_render_pages。不要运行全局 center-bubbles。
-回报内容（JSON）：{"pages":[A,B], "selected_pages":[...], "skipped_pages":[...], "skipped_regions":[...], "missing_artifact_pages":[...],
-"modified_pages":[...], "created_snapshot_ids":[...], "sheets_reviewed":n, "sheets_total":n,
+回报内容（JSON，`modified_pages` 必须记录带扩展名的完整源文件名，严禁使用 1-based 页序号）：
+{"pages":[A,B], "selected_pages":[...], "skipped_pages":[...], "skipped_regions":[...], "missing_artifact_pages":[...],
+"modified_pages":["007.png", "013.png"], "created_snapshot_ids":[...], "sheets_reviewed":n, "sheets_total":n,
 "auto_fixed":[...], "decisions":[...], "glossary_proposals":[...], "unresolved":[...]}
 ```
 

@@ -5,17 +5,20 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import stat
+import struct
 import sys
 import threading
 import time
 import unicodedata
+import zlib
 from collections import OrderedDict
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
-from fontTools.ttLib import TTCollection, TTFont
+from fontTools.ttLib import TTCollection, TTFont, TTLibError
 
 from .config import get_runtime_settings
 
@@ -120,14 +123,14 @@ def _scan_font_dir_snapshot(
         subdirs: list[Path] = []
         for entry in entries:
             try:
-                if entry.is_dir(follow_symlinks=True):
-                    subdirs.append(Path(entry.path))
-                elif entry.is_file(follow_symlinks=True) and entry.name.lower().endswith(FONT_EXTENSIONS):
-                    st_f = entry.stat(follow_symlinks=True)
-                    files_out.append((str(Path(entry.path)), int(st_f.st_size), int(st_f.st_mtime_ns)))
+                st_e = os.stat(entry.path)
             except OSError:
                 consistent = False
                 continue
+            if stat.S_ISDIR(st_e.st_mode):
+                subdirs.append(Path(entry.path))
+            elif stat.S_ISREG(st_e.st_mode) and entry.name.lower().endswith(FONT_EXTENSIONS):
+                files_out.append((str(Path(entry.path)), int(st_e.st_size), int(st_e.st_mtime_ns)))
 
         watched_out.append((str(cur_dir), int(st_before.st_mtime_ns), names))
         for sub in subdirs:
@@ -139,13 +142,42 @@ def _scan_font_dir_snapshot(
         except OSError:
             consistent = False
             return
-        if int(st_after.st_mtime_ns) != int(st_before.st_mtime_ns) or names_after != names:
+        if (
+            not stat.S_ISDIR(st_after.st_mode)
+            or int(st_after.st_mtime_ns) != int(st_before.st_mtime_ns)
+            or names_after != names
+        ):
             consistent = False
 
     if base_dir.is_dir():
         _walk(base_dir)
     else:
         consistent = False
+
+    if consistent and watched_out:
+        try:
+            for d_str, d_mtime_ns, d_names in watched_out:
+                st_d = os.stat(d_str)
+                if not stat.S_ISDIR(st_d.st_mode) or int(st_d.st_mtime_ns) != d_mtime_ns:
+                    consistent = False
+                    break
+                cur_names = tuple(sorted(os.listdir(d_str), key=lambda n: (n.casefold(), n)))
+                if cur_names != d_names:
+                    consistent = False
+                    break
+            if consistent:
+                for fp_str, fsize, mtime_ns in files_out:
+                    st_f = os.stat(fp_str)
+                    if (
+                        not stat.S_ISREG(st_f.st_mode)
+                        or int(st_f.st_size) != fsize
+                        or int(st_f.st_mtime_ns) != mtime_ns
+                    ):
+                        consistent = False
+                        break
+        except OSError:
+            consistent = False
+
     return tuple(files_out), tuple(watched_out), consistent
 
 
@@ -169,7 +201,9 @@ def _extract_face_names_from_ttfont(tt: TTFont, file_path: Path) -> tuple[str, s
                 continue
             try:
                 val = rec.toUnicode().strip()
-            except Exception:
+            except OSError as exc:
+                raise _TransientFontReadError(str(exc)) from exc
+            except _FONT_PARSE_ERRORS:
                 continue
             if not val:
                 continue
@@ -213,7 +247,9 @@ def _extract_face_from_ttfont(
 
     try:
         cmap = tt.getBestCmap()
-    except Exception as exc:
+    except OSError as exc:
+        raise _TransientFontReadError(str(exc)) from exc
+    except _FONT_PARSE_ERRORS as exc:
         logger.debug("Unreadable cmap in %s (%s): %s", file_path, selector, exc)
         cmap = None
 
@@ -230,7 +266,9 @@ def _extract_face_from_ttfont(
                 locs = tt["loca"].locations
                 glyf_tbl = tt["glyf"]
                 gname_to_id = {g: i for i, g in enumerate(tt.getGlyphOrder())}
-        except Exception as exc:
+        except OSError as exc:
+            raise _TransientFontReadError(str(exc)) from exc
+        except _FONT_PARSE_ERRORS as exc:
             logger.debug("Skipping loca/glyf table header in %s: %s", file_path, exc)
             locs = None
             glyf_tbl = None
@@ -257,7 +295,9 @@ def _extract_face_from_ttfont(
                             if g_obj.numberOfContours == 0 and not g_obj.isComposite():
                                 continue
                 codepoints.add(cp)
-            except Exception as exc:
+            except OSError as exc:
+                raise _TransientFontReadError(str(exc)) from exc
+            except _FONT_PARSE_ERRORS as exc:
                 logger.debug("Skipping malformed glyph %r (U+%04X) in %s: %s", gname, cp, file_path, exc)
                 continue
 
@@ -291,6 +331,35 @@ class _MissingDirSnapshotError(KeyError):
     """Raised internally to abort ``@lru_cache`` population when a directory snapshot token is missing."""
 
 
+class _TransientFontReadError(OSError):
+    """Raised internally so transient font file I/O failures never populate ``@lru_cache``."""
+
+
+_FONT_PARSE_ERRORS = (
+    TTLibError,
+    struct.error,
+    zlib.error,
+    EOFError,
+    LookupError,
+    ValueError,
+    TypeError,
+    ArithmeticError,
+    AttributeError,
+    RuntimeError,
+)
+
+
+def _verify_font_stat_or_raise_transient(fp: Path, file_size: int, mtime_ns: int) -> None:
+    try:
+        st = os.stat(fp)
+    except OSError as exc:
+        raise _TransientFontReadError(str(exc)) from exc
+    if not stat.S_ISREG(st.st_mode) or int(st.st_size) != file_size or int(st.st_mtime_ns) != mtime_ns:
+        raise _TransientFontReadError(
+            f"Font file {fp} disappeared or mutated during read (expected size={file_size}, mtime_ns={mtime_ns})"
+        )
+
+
 @dataclass
 class _SharedFontDirIndexEntry:
     root_dir: str
@@ -315,8 +384,8 @@ def _match_font_names_only(
     mtime_ns: int,
 ) -> tuple[tuple[int, str, str, str, str, str], ...]:
     """Read ONLY the ``name`` table (never ``cmap``/``loca``/``glyf``) for fast per-face matching."""
-    _ = (file_size, mtime_ns)
     fp = Path(file_path_str)
+    _verify_font_stat_or_raise_transient(fp, file_size, mtime_ns)
     faces: list[tuple[int, str, str, str, str, str]] = []
     try:
         if fp.suffix.lower() in (".ttc", ".otc"):
@@ -328,7 +397,10 @@ def _match_font_names_only(
                         faces.append(
                             (face_idx, qt_fam.casefold(), zh_fam.casefold(), disp.casefold(), style.casefold(), sel.casefold())
                         )
-                    except Exception as exc:
+                    except OSError as exc:
+                        raise _TransientFontReadError(str(exc)) from exc
+                    except _FONT_PARSE_ERRORS as exc:
+                        _verify_font_stat_or_raise_transient(fp, file_size, mtime_ns)
                         logger.debug("Skipping unreadable collection face %d header in %s: %s", face_idx, fp, exc)
             finally:
                 ttc.close()
@@ -339,8 +411,13 @@ def _match_font_names_only(
                 faces.append((0, qt_fam.casefold(), zh_fam.casefold(), disp.casefold(), style.casefold(), sel.casefold()))
             finally:
                 tt.close()
-    except Exception as exc:
+    except OSError as exc:
+        raise _TransientFontReadError(str(exc)) from exc
+    except _FONT_PARSE_ERRORS as exc:
+        _verify_font_stat_or_raise_transient(fp, file_size, mtime_ns)
         logger.debug("Skipping unreadable font header %s: %s", fp, exc)
+        return ()
+    _verify_font_stat_or_raise_transient(fp, file_size, mtime_ns)
     return tuple(faces)
 
 
@@ -352,8 +429,8 @@ def _inspect_font_file(
     source: str,
 ) -> tuple[tuple[int, FontEntry, Optional[frozenset[int]]], ...]:
     """Inspect all faces in a font file, preserving original face index and isolated per-face glyph coverage."""
-    _ = (file_size, mtime_ns)
     fp = Path(file_path_str)
+    _verify_font_stat_or_raise_transient(fp, file_size, mtime_ns)
     face_records: list[tuple[int, FontEntry, Optional[frozenset[int]]]] = []
     try:
         if fp.suffix.lower() in (".ttc", ".otc"):
@@ -363,7 +440,10 @@ def _inspect_font_file(
                     try:
                         entry, cov = _extract_face_from_ttfont(font, fp, source)
                         face_records.append((face_idx, entry, cov))
-                    except Exception as exc:
+                    except OSError as exc:
+                        raise _TransientFontReadError(str(exc)) from exc
+                    except _FONT_PARSE_ERRORS as exc:
+                        _verify_font_stat_or_raise_transient(fp, file_size, mtime_ns)
                         logger.debug("Skipping unreadable collection face %d in %s: %s", face_idx, fp, exc)
             finally:
                 ttc.close()
@@ -374,8 +454,13 @@ def _inspect_font_file(
                 face_records.append((0, entry, cov))
             finally:
                 tt.close()
-    except Exception as exc:
+    except OSError as exc:
+        raise _TransientFontReadError(str(exc)) from exc
+    except _FONT_PARSE_ERRORS as exc:
+        _verify_font_stat_or_raise_transient(fp, file_size, mtime_ns)
         logger.debug("Skipping unreadable font %s: %s", fp, exc)
+        return ()
+    _verify_font_stat_or_raise_transient(fp, file_size, mtime_ns)
     return tuple(face_records)
 
 
@@ -557,6 +642,8 @@ def _scan_target_font_candidates(
     src_rank: int,
     target_fam: str,
     explicit_style: Optional[str],
+    *,
+    skip_transient_errors: bool = False,
 ) -> Optional[tuple[tuple[int, int, int, int], Optional[frozenset[int]]]]:
     if not target_fam:
         return None
@@ -569,7 +656,13 @@ def _scan_target_font_candidates(
         stop_early = False
         for fp_str, fsize, mtime_ns in files:
             stem_cf = Path(fp_str).stem.casefold()
-            face_names = _match_font_names_only(fp_str, fsize, mtime_ns)
+            try:
+                face_names = _match_font_names_only(fp_str, fsize, mtime_ns)
+            except _TransientFontReadError as exc:
+                if not skip_transient_errors:
+                    raise
+                logger.debug("Skipping transiently unreadable font header %s: %s", fp_str, exc)
+                continue
             for face_idx, qt_cf, zh_cf, disp_cf, style_cf, sel_cf in face_names:
                 rank = _face_match_rank(
                     qt_cf=qt_cf,
@@ -585,7 +678,7 @@ def _scan_target_font_candidates(
                 if rank is not None:
                     candidates.append((rank, order_seq, fp_str, fsize, mtime_ns, face_idx))
                     order_seq += 1
-                    if rank == best_possible:
+                    if rank == best_possible and not skip_transient_errors:
                         stop_early = True
                         break
             if stop_early:
@@ -597,11 +690,19 @@ def _scan_target_font_candidates(
         return None
 
     candidates.sort(key=lambda item: (item[0], item[1]))
-    best_rank, _, best_fp_str, best_fsize, best_mtime_ns, best_face_idx = candidates[0]
-    inspected_faces = _inspect_font_file(best_fp_str, best_fsize, best_mtime_ns, src_kind)
-    for f_idx, _, face_cps in inspected_faces:
-        if f_idx == best_face_idx:
-            return (best_rank, face_cps)
+    for best_rank, _, best_fp_str, best_fsize, best_mtime_ns, best_face_idx in candidates:
+        try:
+            inspected_faces = _inspect_font_file(best_fp_str, best_fsize, best_mtime_ns, src_kind)
+        except _TransientFontReadError as exc:
+            if not skip_transient_errors:
+                raise
+            logger.debug("Skipping transiently unreadable font %s: %s", best_fp_str, exc)
+            continue
+        for f_idx, _, face_cps in inspected_faces:
+            if f_idx == best_face_idx:
+                return (best_rank, face_cps)
+        if not skip_transient_errors:
+            break
     return None
 
 
@@ -635,6 +736,38 @@ def _cached_resolve_target_font_codepoints(
     return _scan_target_font_candidates(snapshots, src_kind, src_rank, target_fam, explicit_style)
 
 
+def _collect_snapshots_for_tokens(
+    dir_tokens: tuple[str, ...],
+    _pinned_snapshots: Optional[tuple[tuple[_IndexedFontFile, ...], ...]] = None,
+) -> tuple[list[tuple[_IndexedFontFile, ...]], bool]:
+    if _pinned_snapshots is not None and len(_pinned_snapshots) == len(dir_tokens):
+        return list(_pinned_snapshots), True
+
+    rebuilt_snapshots: list[tuple[_IndexedFontFile, ...]] = []
+    all_tokens_exact_and_verified = True
+    for tok in dir_tokens:
+        with _FONT_DIR_INDEX_LOCK:
+            snap = _FONT_DIR_SNAPSHOTS_BY_TOKEN.get(tok)
+            known_dir = _FONT_DIR_PATHS_BY_TOKEN.get(tok)
+            if snap is None:
+                for live_entry in _FONT_DIR_INDEX_CACHE.values():
+                    if live_entry.verified and live_entry.token == tok:
+                        snap = live_entry.files
+                        break
+        if snap is not None:
+            rebuilt_snapshots.append(snap)
+            continue
+        if known_dir is not None:
+            rebuilt = _get_or_build_dir_index(Path(known_dir))
+            if rebuilt is not None:
+                rebuilt_snapshots.append(rebuilt.files)
+                if not rebuilt.verified or rebuilt.token != tok:
+                    all_tokens_exact_and_verified = False
+                continue
+        all_tokens_exact_and_verified = False
+    return rebuilt_snapshots, all_tokens_exact_and_verified
+
+
 def _resolve_target_font_codepoints(
     dir_tokens: tuple[str, ...],
     src_kind: str,
@@ -656,32 +789,20 @@ def _resolve_target_font_codepoints(
 
     try:
         return _cached_resolve_target_font_codepoints(dir_tokens, src_kind, src_rank, target_fam, explicit_style)
+    except _TransientFontReadError:
+        fallback_snaps, _ = _collect_snapshots_for_tokens(dir_tokens, _pinned_snapshots)
+        if not fallback_snaps:
+            return None
+        return _scan_target_font_candidates(
+            fallback_snaps, src_kind, src_rank, target_fam, explicit_style, skip_transient_errors=True
+        )
     except _MissingDirSnapshotError:
         if _pinned_snapshots is not None and len(_pinned_snapshots) == len(dir_tokens):
-            return _scan_target_font_candidates(_pinned_snapshots, src_kind, src_rank, target_fam, explicit_style)
+            return _scan_target_font_candidates(
+                _pinned_snapshots, src_kind, src_rank, target_fam, explicit_style, skip_transient_errors=True
+            )
 
-        rebuilt_snapshots: list[tuple[_IndexedFontFile, ...]] = []
-        all_tokens_exact_and_verified = True
-        for tok in dir_tokens:
-            with _FONT_DIR_INDEX_LOCK:
-                snap = _FONT_DIR_SNAPSHOTS_BY_TOKEN.get(tok)
-                known_dir = _FONT_DIR_PATHS_BY_TOKEN.get(tok)
-                if snap is None:
-                    for live_entry in _FONT_DIR_INDEX_CACHE.values():
-                        if live_entry.verified and live_entry.token == tok:
-                            snap = live_entry.files
-                            break
-            if snap is not None:
-                rebuilt_snapshots.append(snap)
-                continue
-            if known_dir is not None:
-                rebuilt = _get_or_build_dir_index(Path(known_dir))
-                if rebuilt is not None:
-                    rebuilt_snapshots.append(rebuilt.files)
-                    if not rebuilt.verified or rebuilt.token != tok:
-                        all_tokens_exact_and_verified = False
-                    continue
-            all_tokens_exact_and_verified = False
+        rebuilt_snapshots, all_tokens_exact_and_verified = _collect_snapshots_for_tokens(dir_tokens)
 
         if (
             all_tokens_exact_and_verified
@@ -695,12 +816,14 @@ def _resolve_target_font_codepoints(
                 return _cached_resolve_target_font_codepoints(
                     dir_tokens, src_kind, src_rank, target_fam, explicit_style
                 )
-            except _MissingDirSnapshotError:
+            except (_MissingDirSnapshotError, _TransientFontReadError):
                 pass
 
         if not rebuilt_snapshots:
             return None
-        return _scan_target_font_candidates(rebuilt_snapshots, src_kind, src_rank, target_fam, explicit_style)
+        return _scan_target_font_candidates(
+            rebuilt_snapshots, src_kind, src_rank, target_fam, explicit_style, skip_transient_errors=True
+        )
 
 
 _resolve_target_font_codepoints.cache_clear = _cached_resolve_target_font_codepoints.cache_clear  # type: ignore[attr-defined]
@@ -720,7 +843,9 @@ def _resolve_entries_codepoints(
         return None
     snapshots = tuple(e.files for e in entries)
     if not all(e.verified for e in entries):
-        return _scan_target_font_candidates(snapshots, src_kind, src_rank, target_fam, explicit_style)
+        return _scan_target_font_candidates(
+            snapshots, src_kind, src_rank, target_fam, explicit_style, skip_transient_errors=True
+        )
     tokens = tuple(e.token for e in entries)
     return _resolve_target_font_codepoints(
         tokens,
@@ -788,16 +913,20 @@ def list_available_fonts(
         if dir_entry is None:
             return
         for fp_str, fsize, mtime_ns in dir_entry.files:
-            if q_norm:
-                fpath_name = Path(fp_str).name
-                face_names = _match_font_names_only(fp_str, fsize, mtime_ns)
-                if face_names and not any(
-                    q_norm in unicodedata.normalize("NFKC", f"{qt_cf} {disp_cf} {fpath_name}").casefold()
-                    for _, qt_cf, _, disp_cf, _, _ in face_names
-                ):
-                    continue
-            for _, entry, _ in _inspect_font_file(fp_str, fsize, mtime_ns, source_kind):
-                results.append(entry)
+            try:
+                if q_norm:
+                    fpath_name = Path(fp_str).name
+                    face_names = _match_font_names_only(fp_str, fsize, mtime_ns)
+                    if face_names and not any(
+                        q_norm in unicodedata.normalize("NFKC", f"{qt_cf} {disp_cf} {fpath_name}").casefold()
+                        for _, qt_cf, _, disp_cf, _, _ in face_names
+                    ):
+                        continue
+                for _, entry, _ in _inspect_font_file(fp_str, fsize, mtime_ns, source_kind):
+                    results.append(entry)
+            except _TransientFontReadError as exc:
+                logger.debug("Skipping transiently unreadable font %s during listing: %s", fp_str, exc)
+                continue
 
     if settings.fonts_dir is not None and settings.fonts_dir.is_dir():
         _scan_dir(settings.fonts_dir, "project")

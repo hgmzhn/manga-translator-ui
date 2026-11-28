@@ -985,18 +985,24 @@ class McpGuiBridgeServer:
             save_reply_deadline: Optional[float] = None
             save_dispatch_wait = dispatch_wait
             if request_deadline is not None:
-                rem_now = request_deadline - time.monotonic()
+                now = time.monotonic()
+                rem_now = request_deadline - now
                 if rem_now <= 0:
                     raise TimeoutError("Live GUI request timed out before execution")
                 reply_headroom = min(0.08, max(0.02, rem_now * 0.25))
-                save_reply_deadline = max(
-                    time.monotonic() + 0.005,
-                    request_deadline - reply_headroom,
+                save_reply_deadline = min(
+                    request_deadline,
+                    max(
+                        now + min(0.005, rem_now * 0.5),
+                        request_deadline - reply_headroom,
+                    ),
                 )
-                save_dispatch_wait = min(
-                    dispatch_wait,
-                    max(0.01, save_reply_deadline - time.monotonic()),
+                save_dispatch_wait = max(
+                    0.0,
+                    min(dispatch_wait, save_reply_deadline - now),
                 )
+                if save_dispatch_wait <= 0:
+                    raise TimeoutError("Live GUI request timed out before execution")
 
             def _on_save_running_timeout(call: _MainThreadCall) -> dict[str, Any]:
                 grace = min(0.25, max(0.02, self.dispatch_timeout * 0.25))

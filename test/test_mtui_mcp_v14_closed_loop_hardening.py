@@ -779,3 +779,77 @@ def test_r4_diff_qa_audits_legacy_ambiguous_page_names_and_full_uid_pair_first_d
         assert diff_partial_only["after_error_count"] == 2
         assert diff_partial_only["newly_introduced_error_count"] == 1
         assert diff_partial_only["passed"] is False
+
+
+def test_r5_diff_qa_audits_missing_font_glyphs_delta_regression() -> None:
+    def _mk_glyph_rep(issues: list[dict]) -> dict:
+        return {"audited_page_names": ["p.png"], "pages": [{"page_name": "p.png", "issues": issues}]}
+
+    def _mk_glyph_iss(glyphs: list[str], *, uid: str | None = "uid-g1", ridx: int = 0, font: str = "DemoFont") -> dict:
+        iss: dict = {
+            "severity": "error",
+            "category": "missing_font_glyphs",
+            "region_index": ridx,
+            "region_bbox_sig": "sig-g1",
+            "region_source_text": "テスト",
+            "font_family": font,
+            "missing_glyphs": glyphs,
+            "message": f"Region #{ridx}: font {font!r} is missing glyph(s) {''.join(glyphs)!r} — tofu!",
+        }
+        if uid is not None:
+            iss["region_uid"] = uid
+        return iss
+
+    # 1. Unchanged missing glyphs (`['甲']` -> `['甲']`) passes with 0 regressions and 0 false resolutions
+    d_same = diff_qa_audits(_mk_glyph_rep([_mk_glyph_iss(["甲"])]), _mk_glyph_rep([_mk_glyph_iss(["甲"])]))
+    assert d_same["passed"] is True
+    assert d_same["newly_introduced_error_count"] == 0
+    assert d_same["resolved_error_count"] == 0
+
+    # 2. Shrunk missing glyphs (`['甲', '乙']` -> `['甲']`) passes with 0 regressions
+    d_shrunk = diff_qa_audits(_mk_glyph_rep([_mk_glyph_iss(["甲", "乙"])]), _mk_glyph_rep([_mk_glyph_iss(["甲"])]))
+    assert d_shrunk["passed"] is True
+    assert d_shrunk["newly_introduced_error_count"] == 0
+    assert d_shrunk["resolved_error_count"] == 0
+
+    # 3. Completely fixed missing glyphs (`['甲']` -> `[]`) passes and counts 1 resolved error
+    d_fixed = diff_qa_audits(_mk_glyph_rep([_mk_glyph_iss(["甲"])]), _mk_glyph_rep([]))
+    assert d_fixed["passed"] is True
+    assert d_fixed["newly_introduced_error_count"] == 0
+    assert d_fixed["resolved_error_count"] == 1
+
+    # 4. Newly added missing glyph (`['甲']` -> `['甲', '乙']`) on same `(region, font)` MUST block `passed`
+    # and report ONLY the newly introduced character `['乙']` without falsely resolving `['甲']`!
+    d_added = diff_qa_audits(_mk_glyph_rep([_mk_glyph_iss(["甲"])]), _mk_glyph_rep([_mk_glyph_iss(["甲", "乙"])]))
+    assert d_added["passed"] is False
+    assert d_added["newly_introduced_error_count"] == 1
+    assert d_added["resolved_error_count"] == 0
+    assert d_added["newly_introduced_errors"][0]["missing_glyphs"] == ["乙"]
+    assert d_added["newly_introduced_errors"][0]["newly_missing_glyphs"] == ["乙"]
+
+    # 5. Swapped missing glyph (`['甲']` -> `['乙']`) also blocks `passed` with `['乙']`
+    d_swapped = diff_qa_audits(_mk_glyph_rep([_mk_glyph_iss(["甲"])]), _mk_glyph_rep([_mk_glyph_iss(["乙"])]))
+    assert d_swapped["passed"] is False
+    assert d_swapped["newly_introduced_error_count"] == 1
+    assert d_swapped["resolved_error_count"] == 0
+    assert d_swapped["newly_introduced_errors"][0]["missing_glyphs"] == ["乙"]
+
+    # 6. Pass 2 UID-less fallback prefers zero-delta edges across all permutations before reporting delta regressions
+    b_u0 = _mk_glyph_iss(["甲"], uid=None, ridx=0)
+    b_u1 = _mk_glyph_iss(["甲", "乙"], uid=None, ridx=1)
+    a_u0 = _mk_glyph_iss(["甲"], uid=None, ridx=1)
+    a_u1 = _mk_glyph_iss(["甲", "乙"], uid=None, ridx=0)
+    for b_list in ([b_u0, b_u1], [b_u1, b_u0]):
+        for a_list in ([a_u0, a_u1], [a_u1, a_u0]):
+            d_perm_ok = diff_qa_audits(_mk_glyph_rep(b_list), _mk_glyph_rep(a_list))
+            assert d_perm_ok["passed"] is True
+            assert d_perm_ok["newly_introduced_error_count"] == 0
+
+    a_u1_reg = _mk_glyph_iss(["甲", "乙", "丙"], uid=None, ridx=0)
+    for b_list in ([b_u0, b_u1], [b_u1, b_u0]):
+        for a_list in ([a_u0, a_u1_reg], [a_u1_reg, a_u0]):
+            d_perm_reg = diff_qa_audits(_mk_glyph_rep(b_list), _mk_glyph_rep(a_list))
+            assert d_perm_reg["passed"] is False
+            assert d_perm_reg["newly_introduced_error_count"] == 1
+            assert d_perm_reg["resolved_error_count"] == 0
+            assert d_perm_reg["newly_introduced_errors"][0]["missing_glyphs"] == ["丙"]

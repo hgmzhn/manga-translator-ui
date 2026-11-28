@@ -371,35 +371,136 @@ def _find_rendered_page(res_dir: Path, src_p: Path) -> Path | None:
     return None
 
 
+def _configured_app_last_output_dir() -> Path | None:
+    _ensure_repo_src_on_path()
+    try:
+        from mtui_mcp.config import get_runtime_settings
+
+        mtui_cfg = get_runtime_settings().load_mtui_config_dict()
+        app_cfg = mtui_cfg.get("app", {}) if isinstance(mtui_cfg.get("app"), dict) else {}
+        last_out = app_cfg.get("last_output_path")
+        if isinstance(last_out, str) and last_out.strip():
+            cand_dir = Path(os.path.normpath(last_out.strip()))
+            if cand_dir.is_dir():
+                return cand_dir
+    except Exception:
+        pass
+    return None
+
+
+def _resolve_json_independent_rendered_page(
+    src_p: Path,
+    *,
+    target_stem_unique: bool,
+    target_name_cf_unique: bool = True,
+) -> Path | None:
+    """Resolve rendered output from JSON-independent locations ONLY (`<chapter>-translated`,
+    `manga_translator_work/result`, configured `app.last_output_path`, and inline `<stem>-translated<ext>`)."""
+    src_norm = os.path.normcase(os.path.abspath(str(src_p)))
+    work_dir = src_p.parent / "manga_translator_work"
+    sib_dir = src_p.parent.parent / f"{src_p.parent.name}-translated"
+    cand_dirs: list[Path] = [sib_dir, work_dir / "result"]
+    app_out_dir = _configured_app_last_output_dir()
+    if app_out_dir is not None:
+        cand_dirs.append(app_out_dir)
+
+    for out_d in cand_dirs:
+        hit = _pair_image_in_list(
+            src_p,
+            _list_dir_images(out_d),
+            target_stem_unique=target_stem_unique,
+            target_name_cf_unique=target_name_cf_unique,
+        )
+        if hit is not None and os.path.normcase(os.path.abspath(str(hit))) != src_norm:
+            return hit.resolve()
+
+    inline_stem_cf = f"{src_p.stem}-translated".casefold()
+    inline_cands = [p for p in _list_dir_images(src_p.parent) if p.stem.casefold() == inline_stem_cf]
+    if inline_cands:
+        inline_target = src_p.with_name(f"{src_p.stem}-translated{src_p.suffix}")
+        inline_hit = _pair_image_in_list(
+            inline_target,
+            inline_cands,
+            target_stem_unique=target_stem_unique,
+            target_name_cf_unique=target_name_cf_unique,
+        )
+        if inline_hit is not None and os.path.normcase(os.path.abspath(str(inline_hit))) != src_norm:
+            return inline_hit.resolve()
+    return None
+
+
 def _resolve_page_rendered_status(src_p: Path) -> tuple[bool, Path | None]:
     """Resolve `(json_exists, rendered_output_path_if_exists)` via `mtui_mcp.path_resolver.resolve_page_paths`
-    (supporting `last_output_path`, `last_export_dir`, `-translated`, and `manga_translator_work/result`)."""
+    (supporting `last_output_path`, `last_export_dir`, `-translated`, and `manga_translator_work/result`),
+    while refusing to read foreign/ambiguous entries from multi-entry or mismatched JSON files."""
     _ensure_repo_src_on_path()
     src_norm = os.path.normcase(os.path.abspath(str(src_p)))
+    sibling_raw = _list_dir_images(src_p.parent, exclude_translated_suffix=True)
+    stem_unique = sum(1 for p in sibling_raw if p.stem.casefold() == src_p.stem.casefold()) <= 1
+    name_cf_unique = sum(1 for p in sibling_raw if p.name.casefold() == src_p.name.casefold()) <= 1
     try:
         from mtui_mcp.path_resolver import resolve_page_paths
 
         rp = resolve_page_paths(src_p)
-        if rp.rendered_output_exists and rp.rendered_output_path.is_file():
-            if os.path.normcase(os.path.abspath(str(rp.rendered_output_path))) != src_norm:
-                return rp.json_exists, rp.rendered_output_path
+        json_meta_rejected = False
+        matched_meta: dict | None = None
         if rp.json_exists and rp.json_path.is_file():
             try:
                 raw = json.loads(rp.json_path.read_text(encoding="utf-8"))
-                img_meta = next(iter(raw.values())) if isinstance(raw, dict) and raw else {}
-                last_out = img_meta.get("last_output_path") if isinstance(img_meta, dict) else None
-                if isinstance(last_out, str) and last_out.strip():
-                    cand = Path(last_out)
-                    if (
-                        cand.is_file()
-                        and cand.suffix.lower() in IMAGE_EXTS
-                        and os.path.normcase(os.path.abspath(str(cand))) != src_norm
-                    ):
-                        return True, cand.resolve()
+                if isinstance(raw, dict) and raw:
+                    dict_entries = [(str(k), v) for k, v in raw.items() if isinstance(v, dict)]
+                    if dict_entries:
+                        exact_same = [
+                            v
+                            for k_str, v in dict_entries
+                            if _safe_normcase_abspath(k_str) == src_norm and Path(k_str).name == src_p.name
+                        ]
+                        if exact_same:
+                            matched_meta = exact_same[-1]
+                        elif name_cf_unique:
+                            exact_cf = [v for k_str, v in dict_entries if _safe_normcase_abspath(k_str) == src_norm]
+                            if len(exact_cf) == 1:
+                                matched_meta = exact_cf[0]
+                        if matched_meta is None and not any(
+                            _safe_normcase_abspath(k_str) == src_norm for k_str, _ in dict_entries
+                        ):
+                            name_hits = [v for k_str, v in dict_entries if Path(k_str).name == src_p.name]
+                            if len(name_hits) == 1:
+                                matched_meta = name_hits[0]
+                            elif len(name_hits) == 0 and name_cf_unique:
+                                cf_hits = [
+                                    v
+                                    for k_str, v in dict_entries
+                                    if Path(k_str).name.casefold() == src_p.name.casefold()
+                                ]
+                                if len(cf_hits) == 1:
+                                    matched_meta = cf_hits[0]
+                        if matched_meta is None:
+                            json_meta_rejected = True
             except Exception:
                 pass
-        res_fallback = _find_rendered_page(src_p.parent / "manga_translator_work" / "result", src_p)
-        return rp.json_exists, res_fallback
+
+        if not json_meta_rejected:
+            if rp.rendered_output_exists and rp.rendered_output_path.is_file():
+                if os.path.normcase(os.path.abspath(str(rp.rendered_output_path))) != src_norm:
+                    return rp.json_exists, rp.rendered_output_path
+            if isinstance(matched_meta, dict):
+                meta_out = _resolve_after_from_meta(
+                    matched_meta,
+                    src_p,
+                    src_norm,
+                    target_stem_unique=stem_unique,
+                    target_name_cf_unique=name_cf_unique,
+                )
+                if meta_out is not None:
+                    return True, meta_out
+
+        indep_out = _resolve_json_independent_rendered_page(
+            src_p,
+            target_stem_unique=stem_unique,
+            target_name_cf_unique=name_cf_unique,
+        )
+        return rp.json_exists, indep_out
     except Exception:
         jp = src_p.parent / "manga_translator_work" / "json" / f"{src_p.stem}_translations.json"
         return jp.is_file(), _find_rendered_page(src_p.parent / "manga_translator_work" / "result", src_p)
@@ -1932,19 +2033,42 @@ def _format_verify_crop_ym_line(
     return ym_line, ym_col, has_ym_hi_mismatch
 
 
+def _upscale_binary_1d_overlap(mask_bool: np.ndarray, target_len: int, axis: int) -> np.ndarray:
+    """Upscale a 2D boolean mask along `axis` (`0` for height, `1` for width) using exact integer interval overlap
+    so every target pixel overlapping `[s, s + 1)` for any True source pixel `s` remains True."""
+    cur_len = mask_bool.shape[axis]
+    if target_len <= cur_len:
+        return mask_bool
+    t = np.arange(target_len, dtype=np.int64)
+    s_lo = (t * cur_len) // target_len
+    s_hi = ((t + 1) * cur_len - 1) // target_len
+    if axis == 1:
+        ps = np.zeros((mask_bool.shape[0], cur_len + 1), dtype=np.int32)
+        np.cumsum(mask_bool, axis=1, dtype=np.int32, out=ps[:, 1:])
+        return (ps[:, s_hi + 1] - ps[:, s_lo]) > 0
+    ps = np.zeros((cur_len + 1, mask_bool.shape[1]), dtype=np.int32)
+    np.cumsum(mask_bool, axis=0, dtype=np.int32, out=ps[1:, :])
+    return (ps[s_hi + 1, :] - ps[s_lo, :]) > 0
+
+
 def _resize_binary_mask_preserve_thin(mask_u8: np.ndarray, target_w: int, target_h: int) -> np.ndarray:
     """Resize binary mask to `(target_w, target_h)` preserving every target pixel with any nonzero source coverage."""
     src_h, src_w = mask_u8.shape[:2]
     if (src_w, src_h) == (target_w, target_h):
         return mask_u8
-    cur = (mask_u8 > 0).astype(np.float32)
+    if target_w <= 0 or target_h <= 0 or src_w <= 0 or src_h <= 0:
+        return np.zeros((max(0, target_h), max(0, target_w)), dtype=np.uint8)
     down_w = min(src_w, target_w)
     down_h = min(src_h, target_h)
     if (down_w, down_h) != (src_w, src_h):
-        cur = (cv2.resize(cur, (down_w, down_h), interpolation=cv2.INTER_AREA) > 0.0).astype(np.float32)
-    if (down_w, down_h) != (target_w, target_h):
-        cur = cv2.resize(cur, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
-    return np.where(cur > 0.0, 255, 0).astype(np.uint8)
+        cur_bool = cv2.resize((mask_u8 > 0).astype(np.float32), (down_w, down_h), interpolation=cv2.INTER_AREA) > 0.0
+    else:
+        cur_bool = mask_u8 > 0
+    if down_w < target_w:
+        cur_bool = _upscale_binary_1d_overlap(cur_bool, target_w, axis=1)
+    if down_h < target_h:
+        cur_bool = _upscale_binary_1d_overlap(cur_bool, target_h, axis=0)
+    return np.where(cur_bool, 255, 0).astype(np.uint8)
 
 
 def cmd_verify_crops(
@@ -2508,6 +2632,36 @@ def _safe_normcase_abspath(raw_path: str) -> str | None:
         return None
 
 
+def _resolve_after_from_meta(
+    matched_meta: dict,
+    src_p: Path,
+    src_norm: str,
+    *,
+    target_stem_unique: bool,
+    target_name_cf_unique: bool,
+) -> Path | None:
+    last_out = matched_meta.get("last_output_path")
+    if isinstance(last_out, str) and last_out.strip():
+        cand = Path(last_out)
+        if (
+            cand.is_file()
+            and cand.suffix.lower() in IMAGE_EXTS
+            and os.path.normcase(os.path.abspath(str(cand))) != src_norm
+        ):
+            return cand.resolve()
+    last_exp = matched_meta.get("last_export_dir")
+    if isinstance(last_exp, str) and last_exp.strip():
+        exp_hit = _pair_image_in_list(
+            src_p,
+            _list_dir_images(Path(last_exp)),
+            target_stem_unique=target_stem_unique,
+            target_name_cf_unique=target_name_cf_unique,
+        )
+        if exp_hit is not None and os.path.normcase(os.path.abspath(str(exp_hit))) != src_norm:
+            return exp_hit.resolve()
+    return None
+
+
 def _resolve_after_for_compare(
     src_p: Path,
     *,
@@ -2518,8 +2672,9 @@ def _resolve_after_for_compare(
     src_norm = os.path.normcase(os.path.abspath(str(src_p)))
     work_dir = src_p.parent / "manga_translator_work"
 
-    # 1. Inspect per-page / legacy / chapter JSON (`last_output_path` / `last_export_dir`)
-    #    only if an entry matches `src_p` unambiguously (exact path across all entries first, then unique filename).
+    # 1. Inspect per-page / legacy / chapter JSON (`last_output_path` / `last_export_dir`) in TWO passes:
+    #    Pass 1 checks exact normalized source path across ALL candidate JSONs in priority order;
+    #    Pass 2 falls back to unambiguous filename matching ONLY when NO candidate JSON had an exact-path entry.
     raw_json_cands = (
         work_dir / "json" / f"{src_p.stem}_translations.json",
         src_p.parent / f"{src_p.stem}_translations.json",
@@ -2533,6 +2688,7 @@ def _resolve_after_for_compare(
             seen_json_norms.add(cand_norm)
             json_cands.append(cand_jp)
 
+    loaded_json_entries: list[list[tuple[str, dict]]] = []
     for jp in json_cands:
         if not jp.is_file():
             continue
@@ -2545,82 +2701,104 @@ def _resolve_after_for_compare(
         dict_entries: list[tuple[str, dict]] = [
             (str(k), v) for k, v in raw_json.items() if isinstance(v, dict)
         ]
-        if not dict_entries:
-            continue
+        if dict_entries:
+            loaded_json_entries.append(dict_entries)
 
-        matched_meta: dict | None = None
+    had_exact_entry = False
+    for dict_entries in loaded_json_entries:
+        exact_meta: dict | None = None
         exact_path_same_case = [
             v
             for k_str, v in dict_entries
             if _safe_normcase_abspath(k_str) == src_norm and Path(k_str).name == src_p.name
         ]
         if exact_path_same_case:
-            matched_meta = exact_path_same_case[-1]
-        elif target_name_cf_unique:
-            exact_path_cf = [
-                v for k_str, v in dict_entries if _safe_normcase_abspath(k_str) == src_norm
-            ]
-            if len(exact_path_cf) == 1:
-                matched_meta = exact_path_cf[0]
-
-        if matched_meta is None:
-            exact_name_hits = [v for k_str, v in dict_entries if Path(k_str).name == src_p.name]
-            if len(exact_name_hits) == 1:
-                matched_meta = exact_name_hits[0]
-            elif len(exact_name_hits) == 0 and target_name_cf_unique:
-                cf_name_hits = [
-                    v
-                    for k_str, v in dict_entries
-                    if Path(k_str).name.casefold() == src_p.name.casefold()
+            had_exact_entry = True
+            exact_meta = exact_path_same_case[-1]
+        elif any(_safe_normcase_abspath(k_str) == src_norm for k_str, _ in dict_entries):
+            had_exact_entry = True
+            if target_name_cf_unique:
+                exact_path_cf = [
+                    v for k_str, v in dict_entries if _safe_normcase_abspath(k_str) == src_norm
                 ]
-                if len(cf_name_hits) == 1:
-                    matched_meta = cf_name_hits[0]
+                if len(exact_path_cf) == 1:
+                    exact_meta = exact_path_cf[0]
 
-        if isinstance(matched_meta, dict):
-            last_out = matched_meta.get("last_output_path")
-            if isinstance(last_out, str) and last_out.strip():
-                cand = Path(last_out)
-                if (
-                    cand.is_file()
-                    and cand.suffix.lower() in IMAGE_EXTS
-                    and os.path.normcase(os.path.abspath(str(cand))) != src_norm
-                ):
-                    return cand.resolve()
-            last_exp = matched_meta.get("last_export_dir")
-            if isinstance(last_exp, str) and last_exp.strip():
-                exp_hit = _pair_image_in_list(
+        if isinstance(exact_meta, dict):
+            resolved_exact = _resolve_after_from_meta(
+                exact_meta,
+                src_p,
+                src_norm,
+                target_stem_unique=target_stem_unique,
+                target_name_cf_unique=target_name_cf_unique,
+            )
+            if resolved_exact is not None:
+                return resolved_exact
+
+    if not had_exact_entry and loaded_json_entries:
+        exact_name_metas: list[dict] = []
+        exact_name_norms: set[str] = set()
+        exact_name_ambig = False
+        for dict_entries in loaded_json_entries:
+            file_hits = [(k_str, v) for k_str, v in dict_entries if Path(k_str).name == src_p.name]
+            if len(file_hits) > 1:
+                exact_name_ambig = True
+                break
+            if len(file_hits) == 1:
+                k_norm = _safe_normcase_abspath(file_hits[0][0])
+                if k_norm is None:
+                    exact_name_ambig = True
+                    break
+                exact_name_norms.add(k_norm)
+                exact_name_metas.append(file_hits[0][1])
+
+        if not exact_name_ambig and len(exact_name_norms) == 1:
+            for cand_meta in exact_name_metas:
+                resolved_fb = _resolve_after_from_meta(
+                    cand_meta,
                     src_p,
-                    _list_dir_images(Path(last_exp)),
+                    src_norm,
                     target_stem_unique=target_stem_unique,
                     target_name_cf_unique=target_name_cf_unique,
                 )
-                if exp_hit is not None and os.path.normcase(os.path.abspath(str(exp_hit))) != src_norm:
-                    return exp_hit.resolve()
+                if resolved_fb is not None:
+                    return resolved_fb
+        elif not exact_name_ambig and not exact_name_metas and target_name_cf_unique:
+            cf_name_metas: list[dict] = []
+            cf_name_norms: set[str] = set()
+            cf_name_ambig = False
+            src_name_cf = src_p.name.casefold()
+            for dict_entries in loaded_json_entries:
+                cf_hits = [(k_str, v) for k_str, v in dict_entries if Path(k_str).name.casefold() == src_name_cf]
+                if len(cf_hits) > 1:
+                    cf_name_ambig = True
+                    break
+                if len(cf_hits) == 1:
+                    k_norm = _safe_normcase_abspath(cf_hits[0][0])
+                    if k_norm is None:
+                        cf_name_ambig = True
+                        break
+                    cf_name_norms.add(k_norm)
+                    cf_name_metas.append(cf_hits[0][1])
+            if not cf_name_ambig and len(cf_name_norms) == 1:
+                for cand_meta in cf_name_metas:
+                    resolved_cf = _resolve_after_from_meta(
+                        cand_meta,
+                        src_p,
+                        src_norm,
+                        target_stem_unique=target_stem_unique,
+                        target_name_cf_unique=target_name_cf_unique,
+                    )
+                    if resolved_cf is not None:
+                        return resolved_cf
 
-    # 2. Check sibling `<chapter>-translated` directory and `manga_translator_work/result`
-    sib_dir = src_p.parent.parent / f"{src_p.parent.name}-translated"
-    for out_d in (sib_dir, work_dir / "result"):
-        hit = _pair_image_in_list(
-            src_p,
-            _list_dir_images(out_d),
-            target_stem_unique=target_stem_unique,
-            target_name_cf_unique=target_name_cf_unique,
-        )
-        if hit is not None and os.path.normcase(os.path.abspath(str(hit))) != src_norm:
-            return hit.resolve()
-
-    # 3. Delegate to `_resolve_page_rendered_status` when stem is unique and candidate directory is unambiguous
-    if target_stem_unique:
-        _, rp_out = _resolve_page_rendered_status(src_p)
-        if rp_out is not None and rp_out.is_file():
-            if rp_out.name == src_p.name:
-                return rp_out
-            same_stem_siblings = [
-                p for p in _list_dir_images(rp_out.parent) if p.stem.casefold() == src_p.stem.casefold()
-            ]
-            if len(same_stem_siblings) <= 1:
-                return rp_out
-    return None
+    # 2 & 3. Check JSON-independent output locations ONLY (`<chapter>-translated`, `manga_translator_work/result`,
+    #        configured `app.last_output_path`, and inline `<stem>-translated<ext>`), never re-accepting rejected JSON metadata.
+    return _resolve_json_independent_rendered_page(
+        src_p,
+        target_stem_unique=target_stem_unique,
+        target_name_cf_unique=target_name_cf_unique,
+    )
 
 
 def cmd_compare(

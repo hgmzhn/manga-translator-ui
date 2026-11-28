@@ -29,7 +29,9 @@ from .font_catalog import check_missing_glyphs, check_region_missing_glyphs
 from .path_resolver import (
     SUPPORTED_IMAGE_EXTENSIONS,
     PagePaths,
-    _inpainted_belongs_to_other_source_page,
+    _build_src_dir_index,
+    _check_inpainted_sidecar_ownership,
+    _SourceDirIndex,
     list_manga_pages_in_path,
     resolve_page_paths,
 )
@@ -291,6 +293,19 @@ _UNSET_JSON_BYTES = object()
 _UNSET_INPAINTED_STAT = object()
 
 
+def _exact_leaf_path_identity(p: Path) -> str:
+    """Return canonical directory normcase + exact case-preserved leaf filename."""
+    parent_norm = os.path.normcase(os.path.abspath(str(p.parent)))
+    return f"{parent_norm}/{p.name}"
+
+
+_inpainted_path_identity = _exact_leaf_path_identity
+
+
+def _is_nonbool_int(val: Any) -> bool:
+    return not isinstance(val, bool) and isinstance(val, int)
+
+
 def compute_page_revision(
     paths: PagePaths,
     *,
@@ -317,7 +332,8 @@ def compute_page_revision(
         if paths.inpainted_exists and paths.inpainted_path.is_file():
             try:
                 st = paths.inpainted_path.stat()
-                h.update(f"|inpaint:{st.st_size}:{st.st_mtime_ns}".encode("ascii"))
+                inp_id = _inpainted_path_identity(paths.inpainted_path)
+                h.update(f"|inpaint:{inp_id}:{int(st.st_size)}:{int(st.st_mtime_ns)}".encode("utf-8"))
             except OSError:
                 pass
     elif inpainted_stat is None:
@@ -326,12 +342,34 @@ def compute_page_revision(
     elif (
         isinstance(inpainted_stat, (tuple, list))
         and len(inpainted_stat) == 2
-        and not isinstance(inpainted_stat[0], bool)
-        and not isinstance(inpainted_stat[1], bool)
-        and isinstance(inpainted_stat[0], int)
-        and isinstance(inpainted_stat[1], int)
+        and _is_nonbool_int(inpainted_stat[0])
+        and _is_nonbool_int(inpainted_stat[1])
     ):
-        h.update(f"|inpaint:{inpainted_stat[0]}:{inpainted_stat[1]}".encode("ascii"))
+        inp_id = _inpainted_path_identity(paths.inpainted_path)
+        h.update(f"|inpaint:{inp_id}:{int(inpainted_stat[0])}:{int(inpainted_stat[1])}".encode("utf-8"))
+    elif (
+        isinstance(inpainted_stat, (tuple, list))
+        and len(inpainted_stat) == 3
+        and isinstance(inpainted_stat[0], (str, Path))
+        and _is_nonbool_int(inpainted_stat[1])
+        and _is_nonbool_int(inpainted_stat[2])
+    ):
+        inp_id = (
+            _inpainted_path_identity(inpainted_stat[0])
+            if isinstance(inpainted_stat[0], Path)
+            else inpainted_stat[0]
+        )
+        h.update(f"|inpaint:{inp_id}:{int(inpainted_stat[1])}:{int(inpainted_stat[2])}".encode("utf-8"))
+    elif (
+        isinstance(inpainted_stat, (tuple, list))
+        and len(inpainted_stat) == 4
+        and isinstance(inpainted_stat[0], str)
+        and isinstance(inpainted_stat[1], str)
+        and _is_nonbool_int(inpainted_stat[2])
+        and _is_nonbool_int(inpainted_stat[3])
+    ):
+        inp_id = f"{inpainted_stat[0]}/{inpainted_stat[1]}"
+        h.update(f"|inpaint:{inp_id}:{int(inpainted_stat[2])}:{int(inpainted_stat[3])}".encode("utf-8"))
     else:
         raise TypeError(f"Unsupported inpainted_stat: {inpainted_stat!r}")
     return f"rev_{h.hexdigest()[:16]}"
@@ -1279,12 +1317,13 @@ def _validate_and_plan_snapshot_restore(
                 if (
                     _norm_abs_path_str(paths.inpainted_path.parent) == inpainted_dir_norm
                     and paths.inpainted_path.suffix.lower() == target_suffix.lower()
-                    and not _inpainted_belongs_to_other_source_page(
+                    and _check_inpainted_sidecar_ownership(
                         paths.inpainted_path,
                         paths.source_path.parent,
                         paths.source_path.stem,
                         src_ext_cur,
                     )
+                    == "owned"
                 )
                 else (inpainted_dir / f"{paths.source_path.stem}_inpainted{target_suffix}")
             )
@@ -1472,17 +1511,27 @@ def restore_snapshot(
 
         conflicting_inpainted_siblings: list[Path] = []
         src_ext_cur = paths.source_path.suffix or ".png"
-        inpainted_dst_owned_by_other = False
         if inpainted_dst is not None:
             if inpainted_dir.exists() and inpainted_dir.is_symlink():
                 raise ValueError(f"Snapshot restore target directory {inpainted_dir} must not be a symlink")
-            inpainted_dst_owned_by_other = _inpainted_belongs_to_other_source_page(
+            dst_ownership = _check_inpainted_sidecar_ownership(
                 inpainted_dst,
                 paths.source_path.parent,
                 paths.source_path.stem,
                 src_ext_cur,
             )
-            if not inpainted_dst_owned_by_other and inpainted_dir.exists():
+            if dst_ownership == "conflict":
+                raise RuntimeError(
+                    f"Restored inpainted path {inpainted_dst} for {paths.source_path.name} conflicts with "
+                    f"another existing source page in {paths.source_path.parent}"
+                )
+            if dst_ownership == "unverifiable":
+                raise RuntimeError(
+                    f"Cannot verify sidecar ownership of restored inpainted path {inpainted_dst} for "
+                    f"{paths.source_path.name}: failed to enumerate {paths.source_path.parent}"
+                )
+            if inpainted_dir.exists():
+                sib_src_index: Optional[_SourceDirIndex] = None
                 for entry in sorted(inpainted_dir.iterdir(), key=lambda p: p.name):
                     if entry.name.startswith("."):
                         continue
@@ -1491,13 +1540,20 @@ def restore_snapshot(
                             os.path.normcase(entry.stem) == expected_inp_stem
                             and _norm_abs_path_str(entry) != _norm_abs_path_str(inpainted_dst)
                         ):
-                            if not entry.is_symlink() and _inpainted_belongs_to_other_source_page(
-                                entry,
-                                paths.source_path.parent,
-                                paths.source_path.stem,
-                                src_ext_cur,
-                            ):
-                                continue
+                            if not entry.is_symlink():
+                                if sib_src_index is None:
+                                    sib_src_index = _build_src_dir_index(paths.source_path.parent)
+                                if (
+                                    _check_inpainted_sidecar_ownership(
+                                        entry,
+                                        paths.source_path.parent,
+                                        paths.source_path.stem,
+                                        src_ext_cur,
+                                        src_dir_index=sib_src_index,
+                                    )
+                                    != "owned"
+                                ):
+                                    continue
                             _assert_safe_restore_target(entry, src_dir_real, src_real)
                             conflicting_inpainted_siblings.append(entry)
 
@@ -1533,8 +1589,6 @@ def restore_snapshot(
                 all_target_paths.append(tp)
 
         for _src, dst, _kind, extra_sync in copies:
-            if _kind == "inpainted" and inpainted_dst_owned_by_other:
-                continue
             _register_target(dst)
             if extra_sync is not None and _norm_abs_path_str(extra_sync) != _norm_abs_path_str(dst):
                 _register_target(extra_sync)
@@ -1583,11 +1637,6 @@ def restore_snapshot(
             try:
                 restored: list[str] = []
                 for src, dst, kind, extra_sync in copies:
-                    if kind == "inpainted" and inpainted_dst_owned_by_other:
-                        raise RuntimeError(
-                            f"Restored inpainted path {dst} for {paths.source_path.name} conflicts with "
-                            f"another existing source page in {paths.source_path.parent}"
-                        )
                     _mark_touched(dst)
                     if kind == "json" and json_override_bytes is not None:
                         _write_bytes_atomic(json_override_bytes, dst)
@@ -2062,11 +2111,21 @@ def format_region_summary(idx: int, region: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _inpainted_stat_sig(paths: PagePaths) -> Optional[tuple[int, int]]:
+def _inpainted_stat_sig(paths: PagePaths) -> Optional[tuple[str, int, int]]:
     if paths.inpainted_exists and paths.inpainted_path.is_file():
         try:
             st = paths.inpainted_path.stat()
-            return (st.st_size, st.st_mtime_ns)
+            return (_inpainted_path_identity(paths.inpainted_path), int(st.st_size), int(st.st_mtime_ns))
+        except OSError:
+            return None
+    return None
+
+
+def _file_stat_sig(p: Path) -> Optional[tuple[str, int, int]]:
+    if p.is_file():
+        try:
+            st = p.stat()
+            return (_exact_leaf_path_identity(p), int(st.st_size), int(st.st_mtime_ns))
         except OSError:
             return None
     return None
@@ -2077,40 +2136,83 @@ def get_page_details_dict(page_path: str | Path, include_polygons: bool = False)
         paths = resolve_page_paths(page_path)
         image_data: dict[str, Any] = {"regions": []}
         revision = ""
+        img_w, img_h = 0, 0
         verified = False
         for _attempt in range(5):
-            paths = resolve_page_paths(page_path)
-            inp_before = _inpainted_stat_sig(paths)
-            if paths.json_exists:
+            paths_probe = resolve_page_paths(page_path)
+            if paths_probe.json_exists:
                 try:
-                    raw_bytes = paths.json_path.read_bytes()
-                except FileNotFoundError:
+                    raw_bytes: Optional[bytes] = paths_probe.json_path.read_bytes()
+                except OSError:
+                    continue
+                assert raw_bytes is not None
+                try:
+                    raw_parsed = json.loads(raw_bytes.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    try:
+                        if paths_probe.json_path.read_bytes() != raw_bytes:
+                            continue
+                    except OSError:
+                        continue
+                    raise
+                paths = resolve_page_paths(page_path, preloaded_raw_json=raw_bytes)
+                if (
+                    not paths.json_exists
+                    or _exact_leaf_path_identity(paths.json_path) != _exact_leaf_path_identity(paths_probe.json_path)
+                ):
                     continue
                 canonical_key = os.path.abspath(str(paths.source_path))
-                raw_parsed = json.loads(raw_bytes.decode("utf-8"))
                 _, image_data = _parse_loaded_page_json(raw_parsed, canonical_key)
             else:
+                paths = paths_probe
                 image_data = {"regions": []}
                 raw_bytes = None
+
+            inp_before = _inpainted_stat_sig(paths)
+            base_before = _file_stat_sig(paths.display_base_path)
+            img_w, img_h = 0, 0
+            if base_before is not None:
+                try:
+                    with Image.open(paths.display_base_path) as im:
+                        img_w, img_h = im.size
+                except OSError:
+                    if _file_stat_sig(paths.display_base_path) != base_before:
+                        continue
+                    raise
+
             revision = compute_page_revision(paths, json_bytes=raw_bytes, inpainted_stat=inp_before)
             paths_after = resolve_page_paths(page_path)
             inp_after = _inpainted_stat_sig(paths_after)
+            base_after = _file_stat_sig(paths_after.display_base_path)
             if (
-                _norm_abs_path_str(paths_after.json_path) == _norm_abs_path_str(paths.json_path)
-                and paths_after.json_exists == paths.json_exists
-                and inp_before == inp_after
+                paths_after.json_exists != paths.json_exists
+                or _exact_leaf_path_identity(paths_after.json_path) != _exact_leaf_path_identity(paths.json_path)
             ):
-                verified = True
-                break
+                continue
+            if paths.json_exists:
+                try:
+                    raw_bytes_after = paths_after.json_path.read_bytes()
+                except OSError:
+                    continue
+                if raw_bytes_after != raw_bytes:
+                    continue
+            if (
+                _exact_leaf_path_identity(paths_after.display_base_path)
+                != _exact_leaf_path_identity(paths.display_base_path)
+                or paths_after.editor_base_valid != paths.editor_base_valid
+                or _exact_leaf_path_identity(paths_after.rendered_output_path)
+                != _exact_leaf_path_identity(paths.rendered_output_path)
+                or paths_after.rendered_output_exists != paths.rendered_output_exists
+                or base_before != base_after
+                or inp_before != inp_after
+            ):
+                continue
+            verified = True
+            break
         if not verified:
             raise RuntimeError(
                 f"Concurrent modification prevented reading a consistent page snapshot for {paths.source_path.name}"
             )
-
-        img_w, img_h = 0, 0
-        if paths.display_base_path.is_file():
-            with Image.open(paths.display_base_path) as im:
-                img_w, img_h = im.size
 
     regions = image_data.get("regions", [])
     ensure_region_uids(regions)

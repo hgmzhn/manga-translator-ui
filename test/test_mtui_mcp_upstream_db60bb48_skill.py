@@ -972,10 +972,29 @@ def test_s7_r4_slice5_thin_orphan_mask_zero_dim_mask_compare_json_and_doc_contra
     # R4-F45: `crops_too_small` pages allowed in `skipped_pages` after full region fallback verification; `no_visible_regions` still requires Raw check
     assert "crops_too_small" in skill_md and "no_visible_regions" in skill_md
     assert "crops_too_small" in batch_md and "no_visible_regions" in batch_md
-    # R4-F20: both initial Gate B and modified_pages re-check specify full-page Raw + Rendered fallback + coordinate fix + Gate B block
-    assert skill_md.count("整页原图与成图核实") >= 2
-    assert "不得通过 Gate B 门禁" in skill_md
-    assert "仍无法确认时不得通过门禁" in skill_md
+    # R4-F20 + R5-F39 + R5-F14 + R5-F15: slice initial Gate B and modified_pages regression-lock sections
+    # separately and assert each section independently so one section can never satisfy another's contract.
+    idx_gate_b = skill_md.index("3. **Gate B")
+    idx_reg_lock = skill_md.index("4. **零倒退回归锁**")
+    idx_stage7 = skill_md.index("### Stage 7")
+    assert 0 <= idx_gate_b < idx_reg_lock < idx_stage7
+    gate_b_initial_sec = skill_md[idx_gate_b:idx_reg_lock]
+    gate_b_recheck_sec = skill_md[idx_reg_lock:idx_stage7]
+    idx_recheck_vc = gate_b_recheck_sec.index("verify-crops --pages <modified_pages>")
+    idx_recheck_rollback = gate_b_recheck_sec.index("如果出现倒退")
+    recheck_vc_bullet = gate_b_recheck_sec[idx_recheck_vc:idx_recheck_rollback]
+
+    assert "整页原图与成图核实" in gate_b_initial_sec
+    assert "修正坐标后重新出图" in gate_b_initial_sec
+    assert "不得通过 Gate B 门禁" in gate_b_initial_sec
+    assert "--pages 007.png,013.png" in gate_b_initial_sec
+
+    assert "整页原图与成图核实" in recheck_vc_bullet
+    assert "修正坐标并重新出图" in recheck_vc_bullet
+    assert "仍无法确认时不得通过门禁" in recheck_vc_bullet
+    assert 'set(manifest["selected_pages"]) == set(modified_pages)' in recheck_vc_bullet
+    assert 'diff_against_json="<QA>/qa_before.json"' in recheck_vc_bullet
+    assert "regression_diff.passed == True" in recheck_vc_bullet
     # R4-F47: unattended_batch_ops.md restores by recorded `snapshot_id`, not `label="pre_gate_b"`
     assert 'mtui_snapshots(target_path="<PAGE>", action="restore", snapshot_id="<RECORDED_ID>")' in batch_md
     assert 'action="restore", label="pre_gate_b"' not in batch_md
@@ -1271,3 +1290,281 @@ def test_s7_r4_slice5_thin_orphan_mask_zero_dim_mask_compare_json_and_doc_contra
     )
     assert res_f19_unique_cf["missing_after_pages"] == []
     assert res_f19_unique_cf["complete_coverage"] is True
+
+
+def _check_gate_b_sections_contract(md_text: str) -> None:
+    idx_gate_b = md_text.index("3. **Gate B")
+    idx_reg_lock = md_text.index("4. **零倒退回归锁**")
+    idx_stage7 = md_text.index("### Stage 7")
+    assert 0 <= idx_gate_b < idx_reg_lock < idx_stage7
+    initial_sec = md_text[idx_gate_b:idx_reg_lock]
+    recheck_sec = md_text[idx_reg_lock:idx_stage7]
+    vc_bullet = recheck_sec[
+        recheck_sec.index("verify-crops --pages <modified_pages>") : recheck_sec.index("如果出现倒退")
+    ]
+    assert "整页原图与成图核实" in initial_sec
+    assert "修正坐标后重新出图" in initial_sec
+    assert "不得通过 Gate B 门禁" in initial_sec
+    assert "整页原图与成图核实" in vc_bullet
+    assert "修正坐标并重新出图" in vc_bullet
+    assert "仍无法确认时不得通过门禁" in vc_bullet
+    assert 'set(manifest["selected_pages"]) == set(modified_pages)' in vc_bullet
+    assert 'diff_against_json="<QA>/qa_before.json"' in vc_bullet
+    assert "regression_diff.passed == True" in vc_bullet
+
+
+def test_s8_r5_slice5_two_pass_json_ambiguous_fallback_upscale_mask_and_skill_contracts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rt = get_runtime_settings()
+    monkeypatch.setattr(rt, "mtui_root", None)
+    monkeypatch.setattr(rt, "load_mtui_config_dict", lambda: {"app": {"last_output_path": ""}, "cli": {}})
+    aac = _load_aac_module(monkeypatch)
+
+    # 1. R5-F14, R5-F15, R5-F39: SKILL.md & unattended_batch_ops.md contracts + section isolation proof
+    skill_dir = _bootstrap.ROOT / "mtui_mcp" / "skills" / "mtui-manga-proofreading"
+    skill_md = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+    batch_md = (skill_dir / "references" / "unattended_batch_ops.md").read_text(encoding="utf-8")
+
+    _check_gate_b_sections_contract(skill_md)
+    assert "--pages 7,13" not in skill_md
+    assert "--pages 007.png,013.png" in skill_md
+    assert "严禁记录 1-based 页序号" in skill_md
+    assert 'modified_pages: ["003.png", "007.png", "013.png", "021.png"]' in batch_md
+    assert "modified_pages: [3, 7, 13, 21]" not in batch_md
+
+    # Prove section isolation (`R5-F39`): removing fallback/re-QA from `recheck_vc_bullet` fails even though
+    # initial Gate B, step 117's initial `mtui_qa_audit`, and line 139 shard deliverables still contain those phrases!
+    idx_reg = skill_md.index("4. **零倒退回归锁**")
+    idx_s7 = skill_md.index("### Stage 7")
+    tampered_no_fallback = (
+        skill_md[:idx_reg]
+        + skill_md[idx_reg:idx_s7].replace("整页原图与成图核实", "已删除补查")
+        + skill_md[idx_s7:]
+    )
+    assert tampered_no_fallback.count("整页原图与成图核实") >= 2
+    with pytest.raises(AssertionError):
+        _check_gate_b_sections_contract(tampered_no_fallback)
+
+    idx_vc_global = skill_md.index("verify-crops --pages <modified_pages>")
+    tampered_no_reqa = (
+        skill_md[:idx_vc_global]
+        + skill_md[idx_vc_global:idx_s7].replace('diff_against_json="<QA>/qa_before.json"', "omitted_reqa")
+        + skill_md[idx_s7:]
+    )
+    assert 'diff_against_json="<QA>/qa_before.json"' in tampered_no_reqa
+    with pytest.raises(AssertionError):
+        _check_gate_b_sections_contract(tampered_no_reqa)
+
+    # Demonstrate `R5-F14` root cause on `cmd_verify_crops`: when page #1 is `7.png` and page #2 (7th-like offset) is `8.png`,
+    # passing 1-based index `"7"` selects `7.png`, whereas full filename `"8.png"` selects `8.png` with exact `selected_pages` match.
+    ch_f14 = tmp_path / "ch_f14_pages"
+    ch_f14.mkdir()
+    p_base = np.full((80, 80, 3), 240, dtype=np.uint8)
+    for fn in ("7.png", "8.png"):
+        fp = ch_f14 / fn
+        Image.fromarray(p_base).save(fp)
+        pp = resolve_page_paths(fp)
+        save_rgb_image_atomic(p_base, pp.inpainted_path)
+        save_rgb_image_atomic(p_base, pp.rendered_output_path)
+        save_page_json_atomic(
+            pp,
+            str(fp.resolve()),
+            {"regions": [{"lines": [[[10.0, 10.0], [60.0, 10.0], [60.0, 60.0], [10.0, 60.0]]], "text": "あ", "translation": "啊"}]},
+            auto_initial_snapshot=False,
+        )
+    mf_f14 = aac.cmd_verify_crops(ch_f14, tmp_path / "vc_f14_exact_fn", pages=["8.png"])
+    assert set(mf_f14["selected_pages"]) == {"8.png"}
+
+    # 2. R5-F12: Two-pass candidate JSON matching — legacy `<stem>_translations.json` with `/old/001.png`
+    #    must NEVER shadow `<chapter>_translations.json` with exact `/chapter/001.png`, while single-entry migrated chapters still work.
+    ch_f12 = tmp_path / "ch_f12"
+    bef_f12 = tmp_path / "bef_f12"
+    store_f12 = tmp_path / "store_f12"
+    ch_f12.mkdir()
+    bef_f12.mkdir()
+    store_f12.mkdir()
+
+    raw_rgb = np.full((80, 80, 3), (210, 210, 210), dtype=np.uint8)
+    bef_rgb = np.full((80, 80, 3), (45, 185, 65), dtype=np.uint8)
+    stale_legacy_rgb = np.full((80, 80, 3), (225, 30, 30), dtype=np.uint8)
+    exact_chapter_rgb = np.full((80, 80, 3), (30, 80, 230), dtype=np.uint8)
+    Image.fromarray(raw_rgb).save(ch_f12 / "001.png")
+    Image.fromarray(bef_rgb).save(bef_f12 / "001.png")
+    stale_p = store_f12 / "stale_001.png"
+    exact_p = store_f12 / "exact_001.png"
+    Image.fromarray(stale_legacy_rgb).save(stale_p)
+    Image.fromarray(exact_chapter_rgb).save(exact_p)
+
+    legacy_jp = ch_f12 / "001_translations.json"
+    chapter_jp = ch_f12 / "ch_f12_translations.json"
+    legacy_jp.write_text(
+        json.dumps(
+            {str((tmp_path / "old_migrated" / "001.png").resolve()): {"last_output_path": str(stale_p.resolve())}},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    chapter_jp.write_text(
+        json.dumps(
+            {str((ch_f12 / "001.png").resolve()): {"last_output_path": str(exact_p.resolve())}},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    cmp_f12_dir = tmp_path / "cmp_f12_exact_over_legacy"
+    res_f12 = aac.cmd_compare(raw_dir=ch_f12, before_dir=bef_f12, after_dir=None, out_dir=cmp_f12_dir)
+    assert res_f12["complete_coverage"] is True
+    assert res_f12["sheets_generated"] == 1
+    f12_sheet = np.asarray(Image.open(cmp_f12_dir / "cmp_p01_001.png").convert("RGB"))
+    assert np.allclose(f12_sheet[96, 246], exact_chapter_rgb[0, 0], atol=3)
+
+    # Exact-path entry with missing output must NOT fall back to foreign `/old_migrated/001.png` in legacy JSON
+    chapter_jp.write_text(
+        json.dumps(
+            {str((ch_f12 / "001.png").resolve()): {"last_output_path": str((store_f12 / "missing.png").resolve())}},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    res_f12_no_steal = aac.cmd_compare(
+        raw_dir=ch_f12,
+        before_dir=bef_f12,
+        after_dir=None,
+        out_dir=tmp_path / "cmp_f12_no_steal",
+    )
+    assert res_f12_no_steal["missing_after_pages"] == ["001.png"]
+    assert res_f12_no_steal["complete_coverage"] is False
+
+    # Conflicting foreign filenames across two candidate JSONs (neither matching `ch_f12 / 001.png`) are rejected
+    work_jp_f12 = ch_f12 / "manga_translator_work" / "json" / "001_translations.json"
+    work_jp_f12.parent.mkdir(parents=True, exist_ok=True)
+    work_jp_f12.write_text(
+        json.dumps(
+            {str((tmp_path / "other_migrated" / "001.png").resolve()): {"last_output_path": str(exact_p.resolve())}},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    chapter_jp.unlink()
+    res_f12_cross_ambig = aac.cmd_compare(
+        raw_dir=ch_f12,
+        before_dir=bef_f12,
+        after_dir=None,
+        out_dir=tmp_path / "cmp_f12_cross_ambig",
+    )
+    assert res_f12_cross_ambig["missing_after_pages"] == ["001.png"]
+    assert res_f12_cross_ambig["complete_coverage"] is False
+
+    # Single-entry migrated chapter (no exact match anywhere, unique foreign key) still resolves via Pass 2
+    work_jp_f12.unlink()
+    cmp_f12_mig_dir = tmp_path / "cmp_f12_single_migrated"
+    res_f12_mig = aac.cmd_compare(raw_dir=ch_f12, before_dir=bef_f12, after_dir=None, out_dir=cmp_f12_mig_dir)
+    assert res_f12_mig["complete_coverage"] is True
+    f12_mig_sheet = np.asarray(Image.open(cmp_f12_mig_dir / "cmp_p01_001.png").convert("RGB"))
+    assert np.allclose(f12_mig_sheet[96, 246], stale_legacy_rgb[0, 0], atol=3)
+
+    # 3. R5-F13: Ambiguous `work_dir/json/001_translations.json` rejected in Step 1 must NEVER be re-accepted
+    #    via `_resolve_page_rendered_status` when `target_stem_unique=True`, while JSON-independent inline `-translated` works.
+    ch_f13 = tmp_path / "ch_f13"
+    bef_f13 = tmp_path / "bef_f13"
+    ch_f13.mkdir()
+    bef_f13.mkdir()
+    Image.fromarray(raw_rgb).save(ch_f13 / "001.png")
+    Image.fromarray(bef_rgb).save(bef_f13 / "001.png")
+    ambig_work_jp = ch_f13 / "manga_translator_work" / "json" / "001_translations.json"
+    ambig_work_jp.parent.mkdir(parents=True, exist_ok=True)
+    ambig_work_jp.write_text(
+        json.dumps(
+            {
+                str((tmp_path / "old_a" / "001.png").resolve()): {"last_output_path": str(stale_p.resolve())},
+                str((tmp_path / "old_b" / "001.png").resolve()): {"last_output_path": str(exact_p.resolve())},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    _, status_out_ambig = aac._resolve_page_rendered_status(ch_f13 / "001.png")
+    assert status_out_ambig is None
+    res_f13_ambig = aac.cmd_compare(
+        raw_dir=ch_f13,
+        before_dir=bef_f13,
+        after_dir=None,
+        out_dir=tmp_path / "cmp_f13_ambig_rejected",
+    )
+    assert res_f13_ambig["missing_after_pages"] == ["001.png"]
+    assert res_f13_ambig["complete_coverage"] is False
+
+    # JSON-independent inline `001-translated.png` in `ch_f13` still resolves cleanly despite ambiguous work JSON
+    inline_after_rgb = np.full((80, 80, 3), (30, 195, 175), dtype=np.uint8)
+    inline_after_p = ch_f13 / "001-translated.png"
+    Image.fromarray(inline_after_rgb).save(inline_after_p)
+    _, status_out_inline = aac._resolve_page_rendered_status(ch_f13 / "001.png")
+    assert status_out_inline == inline_after_p.resolve()
+    cmp_f13_inline_dir = tmp_path / "cmp_f13_inline_ok"
+    res_f13_inline = aac.cmd_compare(raw_dir=ch_f13, before_dir=bef_f13, after_dir=None, out_dir=cmp_f13_inline_dir)
+    assert res_f13_inline["complete_coverage"] is True
+    assert res_f13_inline["sheets_generated"] == 1
+    f13_inline_sheet = np.asarray(Image.open(cmp_f13_inline_dir / "cmp_p01_001.png").convert("RGB"))
+    assert np.allclose(f13_inline_sheet[96, 246], inline_after_rgb[0, 0], atol=3)
+
+    # Configured `app.last_output_path` directory also resolves cleanly without touching rejected JSON metadata
+    inline_after_p.unlink()
+    app_cfg_out = tmp_path / "app_cfg_last_output"
+    app_cfg_out.mkdir()
+    app_after_rgb = np.full((80, 80, 3), (185, 55, 210), dtype=np.uint8)
+    Image.fromarray(app_after_rgb).save(app_cfg_out / "001.png")
+    with monkeypatch.context() as mp_app:
+        mp_app.setattr(
+            rt,
+            "load_mtui_config_dict",
+            lambda: {"app": {"last_output_path": str(app_cfg_out)}, "cli": {}},
+        )
+        cmp_f13_app_dir = tmp_path / "cmp_f13_app_out_ok"
+        res_f13_app = aac.cmd_compare(raw_dir=ch_f13, before_dir=bef_f13, after_dir=None, out_dir=cmp_f13_app_dir)
+    assert res_f13_app["complete_coverage"] is True
+    f13_app_sheet = np.asarray(Image.open(cmp_f13_app_dir / "cmp_p01_001.png").convert("RGB"))
+    assert np.allclose(f13_app_sheet[96, 246], app_after_rgb[0, 0], atol=3)
+
+    # 4. R5-F38: Non-integer upscaling (`1000 -> 1500`) in `_resize_binary_mask_preserve_thin` preserves full
+    #    continuous-interval overlap (both target columns `1` and `2` for `x=1`, `600px >= 450px` orphan threshold).
+    mask_1k_v = np.zeros((1000, 1000), dtype=np.uint8)
+    mask_1k_v[200:500, 1] = 255
+    up_w = aac._resize_binary_mask_preserve_thin(mask_1k_v, 1500, 1000)
+    assert up_w.shape == (1000, 1500)
+    assert int(np.sum(up_w[:, 0] > 0)) == 0
+    assert int(np.sum(up_w[200:500, 1] == 255)) == 300
+    assert int(np.sum(up_w[200:500, 2] == 255)) == 300
+    assert int(np.sum(up_w[:, 3] > 0)) == 0
+    assert int(np.sum(up_w > 0)) == 600
+
+    mask_1k_h = np.zeros((1000, 1000), dtype=np.uint8)
+    mask_1k_h[1, 100:400] = 255
+    up_h = aac._resize_binary_mask_preserve_thin(mask_1k_h, 1000, 1500)
+    assert up_h.shape == (1500, 1000)
+    assert int(np.sum(up_h[0, :] > 0)) == 0
+    assert int(np.sum(up_h[1, 100:400] == 255)) == 300
+    assert int(np.sum(up_h[2, 100:400] == 255)) == 300
+    assert int(np.sum(up_h[3, :] > 0)) == 0
+    assert int(np.sum(up_h > 0)) == 600
+
+    ch_f38 = tmp_path / "ch_f38_upscale_orphan"
+    ch_f38.mkdir()
+    p_f38 = ch_f38 / "001.png"
+    raw_1500 = np.full((1000, 1500, 3), 195, dtype=np.uint8)
+    ren_1500 = raw_1500.copy()
+    ren_1500[200:500, 0:5] = (20, 30, 225)
+    Image.fromarray(raw_1500).save(p_f38)
+    f38_paths = resolve_page_paths(p_f38)
+    save_rgb_image_atomic(raw_1500, f38_paths.inpainted_path)
+    save_rgb_image_atomic(ren_1500, f38_paths.rendered_output_path)
+    save_page_json_atomic(
+        f38_paths,
+        str(p_f38.resolve()),
+        {"mask_raw": encode_mask_base64(mask_1k_v), "regions": []},
+        auto_initial_snapshot=False,
+    )
+    mf_f38 = aac.cmd_verify_crops(ch_f38, tmp_path / "vc_f38_upscale")
+    assert mf_f38["missing_artifact_pages"] == []
+    assert mf_f38["orphan_mask_zones_exported"] == 1
+    assert mf_f38["verify_sheet_count"] == 1

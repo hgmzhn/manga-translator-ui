@@ -30,8 +30,112 @@ from .worker.client import get_worker_client
 logger = logging.getLogger("mtui_mcp.embedded_server")
 
 _EMBEDDED_WARMUP_LOCK = threading.RLock()
-_EMBEDDED_SERVERS_LOCK = threading.Lock()
-_ACTIVE_EMBEDDED_SERVERS: weakref.WeakSet[EmbeddedMcpHttpServer] = weakref.WeakSet()
+_EMBEDDED_LIFECYCLE_LOCK = threading.RLock()
+_ACTIVE_SERVER_GENERATIONS: dict[
+    tuple[int, int],
+    tuple[weakref.ref[EmbeddedMcpHttpServer], uvicorn.Server, threading.Thread],
+] = {}
+_IN_PROGRESS_WARMUP_GENERATIONS: set[tuple[int, int]] = set()
+_PENDING_STOP_TOKENS: set[object] = set()
+_LAST_OWNED_WORKER_PROC: Any = None
+_UNOWNED_EXTERNAL_WORKER_PROC: Any = None
+_UNOWNED_EXTERNAL_PROCELESS: bool = False
+
+
+def _is_worker_currently_alive(wc: Any) -> tuple[bool, bool, Any]:
+    has_proc_attr = hasattr(wc, "_proc")
+    proc = getattr(wc, "_proc", None)
+    proc_alive = proc is not None and (
+        not callable(getattr(proc, "poll", None)) or proc.poll() is None
+    )
+    running = bool(getattr(wc, "is_running", False)) and (
+        proc_alive if has_proc_attr else True
+    )
+    return running, has_proc_attr, proc
+
+
+def _prune_dead_generations_locked() -> None:
+    stale_keys = [
+        key
+        for key, (srv_ref, srv_obj, thr_obj) in _ACTIVE_SERVER_GENERATIONS.items()
+        if (
+            srv_ref() is None
+            or srv_obj is None
+            or srv_obj.should_exit
+            or thr_obj is None
+            or not thr_obj.is_alive()
+        )
+    ]
+    for key in stale_keys:
+        _ACTIVE_SERVER_GENERATIONS.pop(key, None)
+
+
+def _refresh_external_worker_snapshot_locked() -> None:
+    global _UNOWNED_EXTERNAL_WORKER_PROC, _UNOWNED_EXTERNAL_PROCELESS
+    wc = get_worker_client()
+    running, has_proc_attr, proc = _is_worker_currently_alive(wc)
+    if running:
+        if has_proc_attr:
+            if _LAST_OWNED_WORKER_PROC is not None and proc is _LAST_OWNED_WORKER_PROC:
+                _UNOWNED_EXTERNAL_WORKER_PROC = None
+                _UNOWNED_EXTERNAL_PROCELESS = False
+            else:
+                _UNOWNED_EXTERNAL_WORKER_PROC = proc
+                _UNOWNED_EXTERNAL_PROCELESS = False
+        else:
+            _UNOWNED_EXTERNAL_WORKER_PROC = None
+            _UNOWNED_EXTERNAL_PROCELESS = True
+    else:
+        _UNOWNED_EXTERNAL_WORKER_PROC = None
+        _UNOWNED_EXTERNAL_PROCELESS = False
+
+
+def _mark_worker_owned_locked(*, proc: Any, has_proc_attr: bool) -> None:
+    global _LAST_OWNED_WORKER_PROC, _UNOWNED_EXTERNAL_WORKER_PROC, _UNOWNED_EXTERNAL_PROCELESS
+    if has_proc_attr:
+        if proc is not None:
+            _LAST_OWNED_WORKER_PROC = proc
+            if _UNOWNED_EXTERNAL_WORKER_PROC is proc:
+                _UNOWNED_EXTERNAL_WORKER_PROC = None
+    else:
+        _UNOWNED_EXTERNAL_PROCELESS = False
+
+
+def _is_unowned_external_worker_locked(
+    *,
+    proc: Any,
+    has_proc_attr: bool,
+) -> bool:
+    if has_proc_attr:
+        return _UNOWNED_EXTERNAL_WORKER_PROC is not None and proc is _UNOWNED_EXTERNAL_WORKER_PROC
+    return _UNOWNED_EXTERNAL_PROCELESS
+
+
+def _shutdown_worker_for_last_owner_locked() -> None:
+    wc = get_worker_client()
+    has_proc_attr = hasattr(wc, "_proc")
+    cur_proc = getattr(wc, "_proc", None)
+    if _is_unowned_external_worker_locked(proc=cur_proc, has_proc_attr=has_proc_attr):
+        return
+    if has_proc_attr:
+        if cur_proc is not None:
+            _shutdown_worker_if_owned(
+                wc,
+                expected_proc=cur_proc,
+                has_proc_attr=True,
+            )
+            return
+        shutting_down = getattr(wc, "_shutting_down_procs", None)
+        if shutting_down:
+            shutdown_fn = getattr(wc, "shutdown", None)
+            if callable(shutdown_fn):
+                shutdown_fn()
+        return
+    _shutdown_worker_if_owned(
+        wc,
+        expected_proc=None,
+        has_proc_attr=False,
+    )
 
 
 def _shutdown_worker_if_owned(
@@ -230,6 +334,7 @@ class EmbeddedMcpHttpServer:
 
         self._lock = threading.RLock()
         self._start_generation: int = 0
+        self._has_unstopped_start: bool = False
         self._bound_port: Optional[int] = None
         self._server: Optional[uvicorn.Server] = None
         self._thread: Optional[threading.Thread] = None
@@ -373,15 +478,14 @@ class EmbeddedMcpHttpServer:
                 self._server is not None
                 and self._server is not current_server
                 and not self._server.should_exit
+                and self._thread is not None
+                and self._thread.is_alive()
             ):
                 return True
-        with _EMBEDDED_SERVERS_LOCK:
-            peers = list(_ACTIVE_EMBEDDED_SERVERS)
-        for peer in peers:
-            if peer is self:
-                continue
-            with peer._lock:
-                if peer._server is not None and not peer._server.should_exit:
+        with _EMBEDDED_LIFECYCLE_LOCK:
+            _prune_dead_generations_locked()
+            for _srv_ref, srv_obj, _thr_obj in _ACTIVE_SERVER_GENERATIONS.values():
+                if srv_obj is not current_server:
                     return True
         return False
 
@@ -411,10 +515,17 @@ class EmbeddedMcpHttpServer:
         with self._lock:
             if self.is_running:
                 return True
+            needs_cleanup = (
+                self._server is not None
+                or self._thread is not None
+                or self._socket is not None
+            )
+        if needs_cleanup:
+            self.stop(timeout=min(1.0, max(0.1, timeout)))
 
-            # Ensure any leftover stopped state is cleared before re-binding
-            if self._server is not None or self._thread is not None or self._socket is not None:
-                self.stop(timeout=min(1.0, max(0.1, timeout)))
+        with self._lock:
+            if self.is_running:
+                return True
 
             loopback = is_loopback_host(self._host)
             token = resolve_http_auth_token(self._auth_token)
@@ -465,6 +576,7 @@ class EmbeddedMcpHttpServer:
 
             self._start_generation += 1
             my_gen = self._start_generation
+            gen_key = (id(self), my_gen)
             self._socket = sock
             self._bound_port = bound_port
             self._server = server
@@ -478,6 +590,18 @@ class EmbeddedMcpHttpServer:
                 finally:
                     with contextlib.suppress(OSError):
                         sock.close()
+                    with self._lock:
+                        if (
+                            self._start_generation == my_gen
+                            and self._thread is threading.current_thread()
+                        ):
+                            self._server = None
+                            self._thread = None
+                            self._socket = None
+                            self._bound_port = None
+                        with _EMBEDDED_LIFECYCLE_LOCK:
+                            _ACTIVE_SERVER_GENERATIONS.pop(gen_key, None)
+                            _prune_dead_generations_locked()
 
             thread = threading.Thread(
                 target=_serve_thread,
@@ -485,59 +609,109 @@ class EmbeddedMcpHttpServer:
                 daemon=True,
             )
             self._thread = thread
-            with _EMBEDDED_SERVERS_LOCK:
-                _ACTIVE_EMBEDDED_SERVERS.add(self)
-            try:
-                thread.start()
-            except BaseException:
-                self._server = None
-                self._thread = None
-                self._socket = None
-                self._bound_port = None
-                with _EMBEDDED_SERVERS_LOCK:
-                    _ACTIVE_EMBEDDED_SERVERS.discard(self)
-                with contextlib.suppress(OSError):
-                    sock.close()
-                raise
+            with _EMBEDDED_LIFECYCLE_LOCK:
+                _prune_dead_generations_locked()
+                if (
+                    not _ACTIVE_SERVER_GENERATIONS
+                    and not _IN_PROGRESS_WARMUP_GENERATIONS
+                    and not _PENDING_STOP_TOKENS
+                ):
+                    _refresh_external_worker_snapshot_locked()
+                try:
+                    thread.start()
+                except BaseException:
+                    self._server = None
+                    self._thread = None
+                    self._socket = None
+                    self._bound_port = None
+                    self._has_unstopped_start = False
+                    with contextlib.suppress(OSError):
+                        sock.close()
+                    raise
+                _ACTIVE_SERVER_GENERATIONS[gen_key] = (weakref.ref(self), server, thread)
+                self._has_unstopped_start = True
 
-        deadline = time.monotonic() + max(0.1, float(timeout))
-        while time.monotonic() < deadline:
-            if not self._is_start_generation_active(my_gen, server, thread):
-                return False
-            if server.started and not server.should_exit:
-                if self._warm_up and settings.is_engine_available:
-                    with _EMBEDDED_WARMUP_LOCK:
-                        if not self._is_start_generation_active(my_gen, server, thread):
-                            return False
-                        wc = get_worker_client()
-                        had_proc_attr = hasattr(wc, "_proc")
-                        proc_before = getattr(wc, "_proc", None)
-                        proc_before_alive = proc_before is not None and (
-                            not callable(getattr(proc_before, "poll", None))
-                            or proc_before.poll() is None
-                        )
-                        was_running_before = bool(getattr(wc, "is_running", False)) and (
-                            proc_before_alive if had_proc_attr else True
-                        )
-                        warmup_ok = False
-                        try:
-                            wc.ensure_started()
-                            warmup_ok = True
-                        except Exception as exc:
-                            logger.warning("Initial worker warm-up failed during embedded start: %s", exc)
+        started_successfully = False
+        try:
+            deadline = time.monotonic() + max(0.1, float(timeout))
+            while time.monotonic() < deadline:
+                if not self._is_start_generation_active(my_gen, server, thread):
+                    return False
+                if server.started and not server.should_exit:
+                    if self._warm_up and settings.is_engine_available:
+                        with _EMBEDDED_WARMUP_LOCK:
+                            with self._lock:
+                                if not self._is_start_generation_active(my_gen, server, thread):
+                                    return False
+                                with _EMBEDDED_LIFECYCLE_LOCK:
+                                    _IN_PROGRESS_WARMUP_GENERATIONS.add(gen_key)
+                            try:
+                                wc = get_worker_client()
+                                was_running_before, had_proc_attr, proc_before = (
+                                    _is_worker_currently_alive(wc)
+                                )
+                                warmup_ok = False
+                                try:
+                                    wc.ensure_started()
+                                    warmup_ok = True
+                                except Exception as exc:
+                                    logger.warning(
+                                        "Initial worker warm-up failed during embedded start: %s",
+                                        exc,
+                                    )
 
-                        wc_after = get_worker_client()
-                        has_proc_now = had_proc_attr or hasattr(wc_after, "_proc")
-                        proc_after = getattr(wc_after, "_proc", None)
-                        if not warmup_ok:
-                            started_by_this_call = False
-                        elif has_proc_now:
-                            started_by_this_call = (proc_after is not None) and not (
-                                was_running_before and proc_after is proc_before
-                            )
-                        else:
-                            started_by_this_call = not was_running_before
+                                wc_after = get_worker_client()
+                                has_proc_now = had_proc_attr or hasattr(wc_after, "_proc")
+                                proc_after = getattr(wc_after, "_proc", None)
+                                if not warmup_ok:
+                                    started_by_this_call = False
+                                elif has_proc_now:
+                                    started_by_this_call = (proc_after is not None) and not (
+                                        was_running_before and proc_after is proc_before
+                                    )
+                                else:
+                                    started_by_this_call = not was_running_before
+                                if started_by_this_call:
+                                    with _EMBEDDED_LIFECYCLE_LOCK:
+                                        _mark_worker_owned_locked(
+                                            proc=proc_after,
+                                            has_proc_attr=has_proc_now,
+                                        )
+                            finally:
+                                with _EMBEDDED_LIFECYCLE_LOCK:
+                                    _IN_PROGRESS_WARMUP_GENERATIONS.discard(gen_key)
 
+                            with self._lock:
+                                still_active = bool(
+                                    self._start_generation == my_gen
+                                    and self._server is server
+                                    and server.started
+                                    and not server.should_exit
+                                    and self._thread is thread
+                                    and thread.is_alive()
+                                )
+                                if not still_active and self._start_generation == my_gen:
+                                    self._has_unstopped_start = False
+
+                            if not still_active:
+                                with _EMBEDDED_LIFECYCLE_LOCK:
+                                    _ACTIVE_SERVER_GENERATIONS.pop(gen_key, None)
+                                    _prune_dead_generations_locked()
+                                    if (
+                                        started_by_this_call
+                                        and not _ACTIVE_SERVER_GENERATIONS
+                                        and not _is_unowned_external_worker_locked(
+                                            proc=proc_after,
+                                            has_proc_attr=has_proc_now,
+                                        )
+                                    ):
+                                        _shutdown_worker_if_owned(
+                                            wc_after,
+                                            expected_proc=proc_after,
+                                            has_proc_attr=has_proc_now,
+                                        )
+                                return False
+                    else:
                         with self._lock:
                             still_active = bool(
                                 self._start_generation == my_gen
@@ -547,73 +721,78 @@ class EmbeddedMcpHttpServer:
                                 and self._thread is thread
                                 and thread.is_alive()
                             )
+                            if not still_active and self._start_generation == my_gen:
+                                self._has_unstopped_start = False
                         if not still_active:
-                            if started_by_this_call and not self._has_other_active_embedded_server(server):
-                                _shutdown_worker_if_owned(
-                                    wc_after,
-                                    expected_proc=proc_after,
-                                    has_proc_attr=has_proc_now,
-                                )
                             return False
+
+                    logger.info(
+                        "Embedded MCP HTTP server listening on %s (SSE: %s)",
+                        self.streamable_http_url,
+                        self.sse_url,
+                    )
+                    started_successfully = True
+                    return True
+                if not thread.is_alive():
+                    break
+                time.sleep(0.01)
+
+            detached_server: Optional[uvicorn.Server] = None
+            detached_thread: Optional[threading.Thread] = None
+            detached_sock: Optional[socket.socket] = None
+            with self._lock:
+                if self._start_generation == my_gen and self._server is server:
+                    self._start_generation += 1
+                    self._has_unstopped_start = False
+                    detached_server = self._server
+                    detached_thread = self._thread
+                    detached_sock = self._socket
+                    self._server = None
+                    self._thread = None
+                    self._socket = None
+                    self._bound_port = None
+                    with _EMBEDDED_LIFECYCLE_LOCK:
+                        _ACTIVE_SERVER_GENERATIONS.pop(gen_key, None)
+                        _prune_dead_generations_locked()
+                    should_stop_this_gen = True
                 else:
-                    with self._lock:
-                        still_active = bool(
-                            self._start_generation == my_gen
-                            and self._server is server
-                            and server.started
-                            and not server.should_exit
-                            and self._thread is thread
-                            and thread.is_alive()
-                        )
-                    if not still_active:
-                        return False
-
-                logger.info(
-                    "Embedded MCP HTTP server listening on %s (SSE: %s)",
-                    self.streamable_http_url,
-                    self.sse_url,
+                    should_stop_this_gen = False
+            if should_stop_this_gen:
+                logger.warning(
+                    "Embedded MCP HTTP server on %s:%s did not become ready within %.1fs.",
+                    self._host,
+                    bound_port,
+                    timeout,
                 )
-                return True
-            if not thread.is_alive():
-                break
-            time.sleep(0.01)
-
-        detached_server: Optional[uvicorn.Server] = None
-        detached_thread: Optional[threading.Thread] = None
-        detached_sock: Optional[socket.socket] = None
-        with self._lock:
-            if self._start_generation == my_gen and self._server is server:
-                self._start_generation += 1
-                detached_server = self._server
-                detached_thread = self._thread
-                detached_sock = self._socket
-                self._server = None
-                self._thread = None
-                self._socket = None
-                self._bound_port = None
-                with _EMBEDDED_SERVERS_LOCK:
-                    _ACTIVE_EMBEDDED_SERVERS.discard(self)
-                should_stop_this_gen = True
-            else:
-                should_stop_this_gen = False
-        if should_stop_this_gen:
-            logger.warning(
-                "Embedded MCP HTTP server on %s:%s did not become ready within %.1fs.",
-                self._host,
-                bound_port,
-                timeout,
-            )
-            self._stop_detached_handles(
-                detached_server,
-                detached_thread,
-                detached_sock,
-                timeout=1.0,
-            )
-        return False
+                self._stop_detached_handles(
+                    detached_server,
+                    detached_thread,
+                    detached_sock,
+                    timeout=1.0,
+                )
+            return False
+        finally:
+            if not started_successfully:
+                with self._lock:
+                    if self._start_generation == my_gen:
+                        self._has_unstopped_start = False
+                        if self._server is server:
+                            self._server = None
+                            self._thread = None
+                            self._socket = None
+                            self._bound_port = None
+                    with _EMBEDDED_LIFECYCLE_LOCK:
+                        _ACTIVE_SERVER_GENERATIONS.pop(gen_key, None)
+                        _IN_PROGRESS_WARMUP_GENERATIONS.discard(gen_key)
+                        _prune_dead_generations_locked()
 
     def stop(self, timeout: float = 5.0) -> None:
+        stop_token = object()
         with self._lock:
+            detached_gen = self._start_generation
             self._start_generation += 1
+            had_unstopped = self._has_unstopped_start
+            self._has_unstopped_start = False
             server = self._server
             thread = self._thread
             sock = self._socket
@@ -621,8 +800,38 @@ class EmbeddedMcpHttpServer:
             self._thread = None
             self._socket = None
             self._bound_port = None
-            with _EMBEDDED_SERVERS_LOCK:
-                _ACTIVE_EMBEDDED_SERVERS.discard(self)
+            with _EMBEDDED_LIFECYCLE_LOCK:
+                popped_active = False
+                for key in [
+                    k
+                    for k in _ACTIVE_SERVER_GENERATIONS
+                    if k[0] == id(self) and k[1] <= detached_gen
+                ]:
+                    _ACTIVE_SERVER_GENERATIONS.pop(key, None)
+                    popped_active = True
+                had_warmup = any(
+                    k[0] == id(self) and k[1] <= detached_gen
+                    for k in _IN_PROGRESS_WARMUP_GENERATIONS
+                )
+                will_stop = not (
+                    server is None
+                    and thread is None
+                    and sock is None
+                    and not had_unstopped
+                    and not popped_active
+                    and not had_warmup
+                )
+                if will_stop:
+                    _PENDING_STOP_TOKENS.add(stop_token)
 
-        self._stop_detached_handles(server, thread, sock, timeout=timeout)
-        get_worker_client().shutdown()
+        if not will_stop:
+            return
+
+        try:
+            self._stop_detached_handles(server, thread, sock, timeout=timeout)
+        finally:
+            with _EMBEDDED_LIFECYCLE_LOCK:
+                _PENDING_STOP_TOKENS.discard(stop_token)
+                _prune_dead_generations_locked()
+                if not _ACTIVE_SERVER_GENERATIONS:
+                    _shutdown_worker_for_last_owner_locked()

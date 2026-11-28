@@ -8,7 +8,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from .config import get_runtime_settings
 
@@ -163,7 +163,11 @@ def _find_unique_image_by_stem(
     return None
 
 
-def resolve_source_image_path(path_like: str | Path) -> Path:
+def resolve_source_image_path(
+    path_like: str | Path,
+    *,
+    _preloaded_json_dict: Optional[dict[str, Any]] = None,
+) -> Path:
     """Resolve any page reference (source image, work JSON, inpainted, editor_base, or translated output) to the canonical source image path."""
     raw = Path(path_like).expanduser()
     try:
@@ -173,7 +177,7 @@ def resolve_source_image_path(path_like: str | Path) -> Path:
 
     # 1. Passed a *_translations.json path directly
     if norm.suffix.lower() == ".json" and norm.name.endswith("_translations.json"):
-        data = _read_json_quiet(norm)
+        data = _preloaded_json_dict if _preloaded_json_dict is not None else _read_json_quiet(norm)
         if data:
             first_key, _ = _extract_first_image_entry(data)
             if first_key and os.path.isfile(first_key):
@@ -288,6 +292,58 @@ class PagePaths:
     snapshots_dir: Path
 
 
+def _dir_norm_key(dir_like: Any) -> str:
+    if isinstance(dir_like, (str, os.PathLike)):
+        return os.path.normcase(os.path.abspath(os.fspath(dir_like)))
+    return f"obj:{id(dir_like)}"
+
+
+@dataclass(frozen=True)
+class _SourceDirIndex:
+    dir_key: str
+    enumeration_ok: bool
+    by_norm_stem: dict[str, tuple[Any, ...]]
+    unverifiable_stems: frozenset[str] = frozenset()
+
+
+def _build_src_dir_index(
+    src_dir: Any,
+    *,
+    entries: Optional[list[Any]] = None,
+) -> _SourceDirIndex:
+    d_key = _dir_norm_key(src_dir)
+    if entries is None:
+        try:
+            raw_entries = list(src_dir.iterdir())
+        except OSError:
+            return _SourceDirIndex(dir_key=d_key, enumeration_ok=False, by_norm_stem={})
+    else:
+        raw_entries = entries
+
+    buckets: dict[str, list[Any]] = {}
+    bad_stems: set[str] = set()
+    for src_entry in raw_entries:
+        src_suffix = str(getattr(src_entry, "suffix", ""))
+        if src_suffix.lower() not in SUPPORTED_IMAGE_EXTENSIONS:
+            continue
+        src_stem = str(getattr(src_entry, "stem", ""))
+        norm_stem = os.path.normcase(src_stem)
+        try:
+            if not src_entry.is_file():
+                continue
+        except OSError:
+            bad_stems.add(norm_stem)
+            continue
+        buckets.setdefault(norm_stem, []).append(src_entry)
+
+    return _SourceDirIndex(
+        dir_key=d_key,
+        enumeration_ok=True,
+        by_norm_stem={k: tuple(v) for k, v in buckets.items()},
+        unverifiable_stems=frozenset(bad_stems),
+    )
+
+
 def _is_same_source_entry(src_dir: Path, req_name: str, other_entry: Any) -> bool:
     other_name = str(getattr(other_entry, "name", ""))
     if other_name == req_name:
@@ -300,6 +356,60 @@ def _is_same_source_entry(src_dir: Path, req_name: str, other_entry: Any) -> boo
         return False
 
 
+def _check_inpainted_sidecar_ownership(
+    inpainted_entry: Any,
+    src_dir: Optional[Path],
+    req_stem: str,
+    req_ext: str,
+    *,
+    src_entries: Optional[list[Any]] = None,
+    src_dir_index: Optional[_SourceDirIndex] = None,
+) -> Literal["owned", "conflict", "unverifiable"]:
+    """Classify sidecar ownership for ``(req_stem, req_ext)`` as ``'owned'``, ``'conflict'``, or ``'unverifiable'``."""
+    cand_stem = str(getattr(inpainted_entry, "stem", ""))
+    if not cand_stem.lower().endswith("_inpainted"):
+        return "conflict"
+    cand_src_stem = cand_stem[: -len("_inpainted")]
+    cand_ext = str(getattr(inpainted_entry, "suffix", ""))
+    req_name = f"{req_stem}{req_ext}"
+    if f"{cand_src_stem}{cand_ext}" == req_name:
+        return "owned"
+    if src_dir is None:
+        return "owned"
+
+    idx = src_dir_index
+    if idx is None or idx.dir_key != _dir_norm_key(src_dir):
+        idx = _build_src_dir_index(src_dir, entries=src_entries)
+    if not idx.enumeration_ok:
+        return "unverifiable"
+
+    target_norm_stem = os.path.normcase(req_stem)
+    cand_norm_stem = os.path.normcase(cand_src_stem)
+    if target_norm_stem in idx.unverifiable_stems or cand_norm_stem in idx.unverifiable_stems:
+        return "unverifiable"
+
+    same_stem_entries = list(idx.by_norm_stem.get(target_norm_stem, ()))
+    if cand_norm_stem != target_norm_stem:
+        same_stem_entries.extend(idx.by_norm_stem.get(cand_norm_stem, ()))
+
+    other_same_stem_pages = [
+        src_entry
+        for src_entry in same_stem_entries
+        if not _is_same_source_entry(src_dir, req_name, src_entry)
+    ]
+    if not other_same_stem_pages:
+        return "owned"
+
+    # Multiple same-stem source pages exist in src_dir: only accept candidates uniquely matching (req_stem, req_ext).
+    if cand_src_stem != req_stem or cand_ext.lower() != req_ext.lower():
+        return "conflict"
+    for other_entry in other_same_stem_pages:
+        other_suffix = str(getattr(other_entry, "suffix", ""))
+        if other_suffix.lower() == req_ext.lower():
+            return "conflict"
+    return "owned"
+
+
 def _inpainted_belongs_to_other_source_page(
     inpainted_entry: Any,
     src_dir: Optional[Path],
@@ -307,44 +417,23 @@ def _inpainted_belongs_to_other_source_page(
     req_ext: str,
     *,
     src_entries: Optional[list[Any]] = None,
+    src_dir_index: Optional[_SourceDirIndex] = None,
 ) -> bool:
-    """Return True if ``inpainted_entry`` corresponds to another existing source page in ``src_dir``."""
-    if src_dir is None or not src_dir.is_dir():
-        return False
+    """Return True if ``inpainted_entry`` is not uniquely owned by ``(req_stem, req_ext)`` in ``src_dir``."""
     cand_stem = str(getattr(inpainted_entry, "stem", ""))
     if not cand_stem.lower().endswith("_inpainted"):
         return False
-    cand_src_stem = cand_stem[: -len("_inpainted")]
-    cand_ext = str(getattr(inpainted_entry, "suffix", ""))
-    req_name = f"{req_stem}{req_ext}"
-    if f"{cand_src_stem}{cand_ext}" == req_name:
-        return False
-    if src_entries is None:
-        try:
-            src_entries = list(src_dir.iterdir())
-        except OSError:
-            return False
-    for src_entry in src_entries:
-        try:
-            if not src_entry.is_file():
-                continue
-        except OSError:
-            continue
-        src_suffix = str(getattr(src_entry, "suffix", ""))
-        if src_suffix.lower() not in SUPPORTED_IMAGE_EXTENSIONS:
-            continue
-        if _is_same_source_entry(src_dir, req_name, src_entry):
-            continue
-        src_name = str(getattr(src_entry, "name", ""))
-        if src_name == f"{cand_src_stem}{cand_ext}":
-            return True
-        src_stem = str(getattr(src_entry, "stem", ""))
-        if (
-            (src_stem == cand_src_stem or os.path.normcase(src_stem) == os.path.normcase(cand_src_stem))
-            and src_suffix.lower() == cand_ext.lower()
-        ):
-            return True
-    return False
+    return (
+        _check_inpainted_sidecar_ownership(
+            inpainted_entry,
+            src_dir,
+            req_stem,
+            req_ext,
+            src_entries=src_entries,
+            src_dir_index=src_dir_index,
+        )
+        != "owned"
+    )
 
 
 def _resolve_inpainted_sidecar(
@@ -352,8 +441,10 @@ def _resolve_inpainted_sidecar(
     stem: str,
     ext: str,
     src_dir: Optional[Path] = None,
+    *,
+    src_dir_index: Optional[_SourceDirIndex] = None,
 ) -> tuple[Path, bool]:
-    """Resolve `<stem>_inpainted<ext>`, keeping exact primary match first then case-insensitive extension fallback."""
+    """Resolve `<stem>_inpainted<ext>`, keeping exact primary match first then verified unambiguous fallback."""
     primary = inpainted_dir / f"{stem}_inpainted{ext}"
     if primary.is_file():
         return primary, True
@@ -362,7 +453,11 @@ def _resolve_inpainted_sidecar(
 
     expected_stem = f"{stem}_inpainted"
     candidates: list[Path] = []
-    cached_src_entries: Optional[list[Any]] = None
+    cached_src_index: Optional[_SourceDirIndex] = (
+        src_dir_index
+        if (src_dir is not None and src_dir_index is not None and src_dir_index.dir_key == _dir_norm_key(src_dir))
+        else None
+    )
     try:
         for entry in inpainted_dir.iterdir():
             if not entry.is_file():
@@ -371,18 +466,18 @@ def _resolve_inpainted_sidecar(
             if ext_low not in _INPAINTED_FALLBACK_EXT_RANK:
                 continue
             if entry.stem == expected_stem or os.path.normcase(entry.stem) == os.path.normcase(expected_stem):
-                if src_dir is not None and src_dir.is_dir():
-                    if cached_src_entries is None:
-                        try:
-                            cached_src_entries = list(src_dir.iterdir())
-                        except OSError:
-                            cached_src_entries = []
-                    if _inpainted_belongs_to_other_source_page(
-                        entry,
-                        src_dir,
-                        stem,
-                        ext,
-                        src_entries=cached_src_entries,
+                if src_dir is not None:
+                    if cached_src_index is None:
+                        cached_src_index = _build_src_dir_index(src_dir)
+                    if (
+                        _check_inpainted_sidecar_ownership(
+                            entry,
+                            src_dir,
+                            stem,
+                            ext,
+                            src_dir_index=cached_src_index,
+                        )
+                        != "owned"
                     ):
                         continue
                 candidates.append(entry)
@@ -403,12 +498,34 @@ def _resolve_inpainted_sidecar(
     return primary, False
 
 
+def _coerce_preloaded_json_dict(raw_val: Any) -> Optional[dict[str, Any]]:
+    if isinstance(raw_val, dict):
+        return raw_val
+    if isinstance(raw_val, (bytes, bytearray, memoryview)):
+        try:
+            loaded = json.loads(bytes(raw_val).decode("utf-8"))
+            return loaded if isinstance(loaded, dict) else None
+        except Exception:
+            return None
+    if isinstance(raw_val, str):
+        try:
+            loaded = json.loads(raw_val)
+            return loaded if isinstance(loaded, dict) else None
+        except Exception:
+            return None
+    return None
+
+
 def resolve_page_paths(
     image_or_json_path: str | Path,
     explicit_output_dir: Optional[str | Path] = None,
+    *,
+    preloaded_raw_json: Optional[Any] = None,
+    _src_dir_index: Optional[_SourceDirIndex] = None,
 ) -> PagePaths:
     """Compute all work and output paths for a manga page, honoring MTUI's exact rules."""
-    source_path = resolve_source_image_path(image_or_json_path)
+    preloaded_dict = _coerce_preloaded_json_dict(preloaded_raw_json) if preloaded_raw_json is not None else None
+    source_path = resolve_source_image_path(image_or_json_path, _preloaded_json_dict=preloaded_dict)
     src_dir = source_path.parent
     stem = source_path.stem
     ext = source_path.suffix or ".png"
@@ -427,7 +544,10 @@ def resolve_page_paths(
         json_exists = False
 
     image_meta: dict[str, Any] = {}
-    if json_exists:
+    if preloaded_raw_json is not None:
+        if preloaded_dict:
+            _, image_meta = _extract_first_image_entry(preloaded_dict, source_path)
+    elif json_exists:
         raw_json = _read_json_quiet(json_path)
         if raw_json:
             _, image_meta = _extract_first_image_entry(raw_json, source_path)
@@ -452,6 +572,7 @@ def resolve_page_paths(
         stem,
         ext,
         src_dir=src_dir,
+        src_dir_index=_src_dir_index,
     )
 
     paint_overlay_path = work_dir / PAINT_OVERLAY_SUBDIR / f"{stem}_overlay.png"
@@ -560,27 +681,37 @@ def list_manga_pages_in_path(target_path: str | Path, recursive: bool = False) -
         return []
 
     found_images: list[Path] = []
+    src_dir_indices: dict[str, _SourceDirIndex] = {}
     skip_dirs = {WORK_DIR_NAME, MCP_INSPECT_SUBDIR, MCP_SNAPSHOTS_SUBDIR, "backups", ".git"}
 
     if recursive:
         for root, dirs, files in os.walk(folder):
             dirs[:] = sorted([d for d in dirs if d not in skip_dirs], key=natural_sort_key)
             root_path = Path(root)
-            page_files = [
+            img_candidates = [
                 root_path / f
                 for f in files
                 if Path(f).suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
-                and not Path(f).stem.endswith("-translated")
+            ]
+            dir_idx = _build_src_dir_index(root_path, entries=img_candidates)
+            src_dir_indices[dir_idx.dir_key] = dir_idx
+            page_files = [
+                entry
+                for bucket in dir_idx.by_norm_stem.values()
+                for entry in bucket
+                if not entry.stem.endswith("-translated")
             ]
             page_files.sort(key=natural_sort_key)
             found_images.extend(page_files)
     else:
+        folder_entries = list(folder.iterdir())
+        dir_idx = _build_src_dir_index(folder, entries=folder_entries)
+        src_dir_indices[dir_idx.dir_key] = dir_idx
         page_files = [
             entry
-            for entry in folder.iterdir()
-            if entry.is_file()
-            and entry.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
-            and not entry.stem.endswith("-translated")
+            for bucket in dir_idx.by_norm_stem.values()
+            for entry in bucket
+            if not entry.stem.endswith("-translated")
         ]
         page_files.sort(key=natural_sort_key)
         found_images.extend(page_files)
@@ -588,11 +719,17 @@ def list_manga_pages_in_path(target_path: str | Path, recursive: bool = False) -
     resolved_pages: list[PagePaths] = []
     seen_sources: set[str] = set()
     for img in found_images:
-        page_paths = resolve_page_paths(img)
-        norm_src = os.path.normcase(os.path.normpath(os.path.abspath(str(page_paths.source_path))))
+        src_p = resolve_source_image_path(img)
+        norm_src = os.path.normcase(os.path.normpath(os.path.abspath(str(src_p))))
         if norm_src in seen_sources:
             continue
         seen_sources.add(norm_src)
+        src_dir_key = _dir_norm_key(src_p.parent)
+        src_idx = src_dir_indices.get(src_dir_key)
+        if src_idx is None:
+            src_idx = _build_src_dir_index(src_p.parent)
+            src_dir_indices[src_dir_key] = src_idx
+        page_paths = resolve_page_paths(src_p, _src_dir_index=src_idx)
         resolved_pages.append(page_paths)
     resolved_pages.sort(
         key=lambda p: (

@@ -642,7 +642,10 @@ def _parse_nonneg_int(val: Any) -> Optional[int]:
         s = val.strip()
         if not s or not s.isascii() or not s.isdigit():
             return None
-        return int(s)
+        try:
+            return int(s)
+        except ValueError:
+            return None
     return None
 
 

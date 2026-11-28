@@ -315,6 +315,8 @@ def manage_glossary_entries(
                         raise ValueError(
                             "TXT glossary entries must be single-line and must not contain line separators"
                         )
+                    if "\t" in raw_orig:
+                        raise ValueError("TXT glossary original text must not contain tab characters")
                 out_lines = list(raw_lines)
                 # Map original -> (first_line_index, leading_ws, separator) and drop duplicate entry lines on update
                 orig_locs: dict[str, tuple[int, str, str]] = {}
@@ -349,13 +351,24 @@ def manage_glossary_entries(
                         ):
                             sep_tok = "\t"
                             cand_line = f"{lead_ws}{orig}\t{trans}"
+                            parsed_cand = _parse_txt_glossary_line(cand_line)
+                        if parsed_cand is None or parsed_cand[1] != orig or parsed_cand[3] != trans:
+                            raise ValueError(
+                                f"TXT glossary entry ({orig!r} -> {trans!r}) cannot round-trip cleanly in TXT format"
+                            )
                         orig_locs[orig] = (line_i, lead_ws, sep_tok)
                         out_lines[line_i] = cand_line
                         for dup_i in extra_dup_indices.get(orig, []):
                             drop_line_indices.add(dup_i)
                     else:
+                        cand_line = f"{orig}\t{trans}"
+                        parsed_cand = _parse_txt_glossary_line(cand_line)
+                        if parsed_cand is None or parsed_cand[1] != orig or parsed_cand[3] != trans:
+                            raise ValueError(
+                                f"TXT glossary entry ({orig!r} -> {trans!r}) cannot round-trip cleanly in TXT format"
+                            )
                         orig_locs[orig] = (len(out_lines), "", "\t")
-                        out_lines.append(f"{orig}\t{trans}")
+                        out_lines.append(cand_line)
                     modified = True
 
                 if drop_line_indices:

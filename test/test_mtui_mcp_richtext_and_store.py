@@ -1934,17 +1934,25 @@ def test_r3_f02_f19_f48_f49_f50_f26_f45_centering_and_glossary_contracts(
             ren[170:270, 230:260] = 10
             save_rgb_image_atomic(ren, taint_out)
             os.utime(taint_out, (time.time() + 1.0, time.time() + 1.0))
-        else:
+        elif taint_calls["n"] == 2:
             # Write deceptive far-left ink (x=135..165) BEFORE concurrent edit sets center=200 & equal mtime!
             ren[170:270, 135:165] = 10
             save_rgb_image_atomic(ren, taint_out)
             apply_region_updates_to_page(taint_img, [{"region_index": 0, "translation": "并发改稿", "center": [200.0, 220.0]}])
             same_ts = resolve_page_paths(taint_img).json_path.stat().st_mtime + 1.0
             os.utime(taint_out, (same_ts, same_ts))
+        else:
+            # Subsequent calls must NEVER reset center or translation; render whatever center is currently on disk
+            _, d_cur = load_page_json(pp)
+            cx_now = int(round(d_cur["regions"][0]["center"][0]))
+            ren[170:270, max(0, cx_now - 15) : min(500, cx_now + 15)] = 10
+            save_rgb_image_atomic(ren, taint_out)
+            nt = time.time() + taint_calls["n"] * 2.0
+            os.utime(taint_out, (nt, nt))
         return {"status": "ok", "output_path": str(taint_out)}
 
     run_closed_loop_bubble_centering(taint_dir, passes=2, render_page_fn=_tainted_post_render)
-    assert taint_calls["n"] >= 2
+    assert taint_calls["n"] == 2
     _, d_taint = load_page_json(resolve_page_paths(taint_img))
     assert d_taint["regions"][0]["translation"] == "并发改稿"
     # Stale far-left ink (135..165) was tainted by concurrent edit, so center=200 was NOT pushed right to ~245!
@@ -2397,3 +2405,430 @@ def test_r4_slice2_store_centering_inpaint_and_glossary_regressions(
     assert isinstance(c_paths_commit, list)
     assert [p.source_path.name for p in c_paths_commit] == ["001.png"]
     assert all(isinstance(p, path_resolver.PagePaths) for p in c_paths_commit)
+
+
+def test_r5_slice2_store_centering_sidecar_and_glossary_regressions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace as dc_replace
+
+    # ------------------------------------------------------------------
+    # R5-F02: Resolved `inpainted_path` identity (preserving exact leaf case `.BMP` vs `.bmp`)
+    # in `compute_page_revision`, `_inpainted_stat_sig`, `_non_export_content_digest`, and
+    # `run_closed_loop_bubble_centering` (both post-pre-render rebind and loop-top pass 2).
+    # ------------------------------------------------------------------
+    f02_rebind_dir = tmp_path / "r5_f02_rebind"
+    f02_rebind_dir.mkdir(parents=True)
+    f02_jpg = f02_rebind_dir / "001.jpg"
+    canvas_left = np.full((500, 500, 3), 180, dtype=np.uint8)
+    cv2.rectangle(canvas_left, (80, 100), (240, 340), (255, 255, 255), -1)
+    cv2.rectangle(canvas_left, (80, 100), (240, 340), (0, 0, 0), 4)
+    canvas_right = np.full((500, 500, 3), 180, dtype=np.uint8)
+    cv2.rectangle(canvas_right, (120, 100), (360, 340), (255, 255, 255), -1)
+    cv2.rectangle(canvas_right, (120, 100), (360, 340), (0, 0, 0), 4)
+    Image.fromarray(canvas_left).save(f02_jpg)
+
+    inp_dir_f02 = f02_rebind_dir / "manga_translator_work" / "inpainted"
+    inp_dir_f02.mkdir(parents=True, exist_ok=True)
+    bmp_upper = inp_dir_f02 / "001_inpainted.BMP"
+    Image.fromarray(canvas_left).save(bmp_upper)
+    p_f02_upper = resolve_page_paths(f02_jpg)
+    assert p_f02_upper.inpainted_exists is True
+    assert p_f02_upper.inpainted_path.name == "001_inpainted.BMP"
+    save_page_json_atomic(
+        p_f02_upper,
+        str(f02_jpg.resolve()),
+        {
+            "regions": [
+                {
+                    "lines": [[[135.0, 160.0], [185.0, 160.0], [185.0, 280.0], [135.0, 280.0]]],
+                    "center": [160.0, 220.0],
+                    "translation": "大小写底图切换",
+                    "font_size": 26,
+                    "direction": "v",
+                }
+            ]
+        },
+        auto_initial_snapshot=False,
+    )
+    p_f02_upper = resolve_page_paths(f02_jpg)
+    raw_f02_bytes = p_f02_upper.json_path.read_bytes()
+    st_upper = bmp_upper.stat()
+    p_f02_lower_synth = dc_replace(p_f02_upper, inpainted_path=inp_dir_f02 / "001_inpainted.bmp")
+    rev_bmp_upper = compute_page_revision(
+        p_f02_upper,
+        json_bytes=raw_f02_bytes,
+        inpainted_stat=(st_upper.st_size, st_upper.st_mtime_ns),
+    )
+    rev_bmp_lower = compute_page_revision(
+        p_f02_lower_synth,
+        json_bytes=raw_f02_bytes,
+        inpainted_stat=(st_upper.st_size, st_upper.st_mtime_ns),
+    )
+    assert rev_bmp_upper != rev_bmp_lower
+    assert rev_bmp_upper == compute_page_revision(p_f02_upper)
+
+    # Sub-case 1: `.BMP` -> `.bmp` with identical `(st_size, st_mtime_ns)` during pre-render (line 890 rebind)
+    f02_out = f02_rebind_dir / "manga_translator_work" / "result" / "001.jpg"
+
+    def _switch_bmp_case_in_prerender(pp):
+        if bmp_upper.exists():
+            bmp_upper.unlink()
+        bmp_lower = inp_dir_f02 / "001_inpainted.bmp"
+        Image.fromarray(canvas_right).save(bmp_lower)
+        os.utime(bmp_lower, ns=(st_upper.st_atime_ns, st_upper.st_mtime_ns))
+        st_now = bmp_lower.stat()
+        assert st_now.st_size == st_upper.st_size
+        assert st_now.st_mtime_ns == st_upper.st_mtime_ns
+        assert resolve_page_paths(f02_jpg).inpainted_path.name == "001_inpainted.bmp"
+        _, d_cur = load_page_json(pp)
+        cx_now = int(round(d_cur["regions"][0]["center"][0]))
+        ren = canvas_right.copy()
+        ren[170:270, max(0, cx_now - 15) : min(500, cx_now + 15)] = 10
+        save_rgb_image_atomic(ren, f02_out)
+        os.utime(f02_out, (time.time() + 5.0, time.time() + 5.0))
+        return {"status": "ok", "output_path": str(f02_out)}
+
+    run_closed_loop_bubble_centering(f02_rebind_dir, passes=1, render_page_fn=_switch_bmp_case_in_prerender)
+    _, d_f02_rebind = load_page_json(resolve_page_paths(f02_jpg))
+    assert abs(d_f02_rebind["regions"][0]["center"][0] - 240.0) <= 6.0
+
+    # Sub-case 2: `.BMP` -> `.bmp` with identical `(st_size, st_mtime_ns)` between Pass 1 and Pass 2 (line 823 loop top)
+    f02_loop_dir = tmp_path / "r5_f02_loop"
+    f02_loop_dir.mkdir(parents=True)
+    f02_loop_jpg = f02_loop_dir / "001.jpg"
+    Image.fromarray(canvas_left).save(f02_loop_jpg)
+    inp_loop_dir = f02_loop_dir / "manga_translator_work" / "inpainted"
+    inp_loop_dir.mkdir(parents=True, exist_ok=True)
+    bmp_loop_upper = inp_loop_dir / "001_inpainted.BMP"
+    Image.fromarray(canvas_left).save(bmp_loop_upper)
+    st_loop_upper = bmp_loop_upper.stat()
+    p_loop_init = resolve_page_paths(f02_loop_jpg)
+    f02_loop_out = f02_loop_dir / "manga_translator_work" / "result" / "001.jpg"
+    save_page_json_atomic(
+        p_loop_init,
+        str(f02_loop_jpg.resolve()),
+        {
+            "last_output_path": str(f02_loop_out),
+            "regions": [
+                {
+                    "lines": [[[175.0, 160.0], [225.0, 160.0], [225.0, 280.0], [175.0, 280.0]]],
+                    "center": [205.0, 220.0],
+                    "translation": "第二轮重分区",
+                    "font_size": 26,
+                    "direction": "v",
+                }
+            ],
+        },
+        auto_initial_snapshot=False,
+    )
+    # Seed a fresh initial rendered output so Pass 0 skips pre-render and shifts center from 205 -> ~160,
+    # then post-write render #1 switches `.BMP` -> `.bmp` (`canvas_right`, optical center ~240) with same size+mtime!
+    init_ren_loop = canvas_left.copy()
+    init_ren_loop[170:270, 190:220] = 10
+    save_rgb_image_atomic(init_ren_loop, f02_loop_out)
+    os.utime(f02_loop_out, (time.time() + 2.0, time.time() + 2.0))
+    loop_calls = {"n": 0}
+
+    def _switch_bmp_case_post_pass1(pp):
+        loop_calls["n"] += 1
+        active_canvas = canvas_right
+        if loop_calls["n"] == 1:
+            bmp_loop_upper.unlink()
+            bmp_loop_lower = inp_loop_dir / "001_inpainted.bmp"
+            Image.fromarray(canvas_right).save(bmp_loop_lower)
+            os.utime(bmp_loop_lower, ns=(st_loop_upper.st_atime_ns, st_loop_upper.st_mtime_ns))
+            st_l = bmp_loop_lower.stat()
+            assert st_l.st_size == st_loop_upper.st_size
+            assert st_l.st_mtime_ns == st_loop_upper.st_mtime_ns
+        _, d_cur = load_page_json(pp)
+        cx_now = int(round(d_cur["regions"][0]["center"][0]))
+        ren = active_canvas.copy()
+        ren[170:270, max(0, cx_now - 15) : min(500, cx_now + 15)] = 10
+        save_rgb_image_atomic(ren, f02_loop_out)
+        nt = time.time() + 5.0 + loop_calls["n"] * 2.0
+        os.utime(f02_loop_out, (nt, nt))
+        return {"status": "ok", "output_path": str(f02_loop_out)}
+
+    run_closed_loop_bubble_centering(f02_loop_dir, passes=2, render_page_fn=_switch_bmp_case_post_pass1)
+    assert loop_calls["n"] == 2
+    _, d_f02_loop = load_page_json(resolve_page_paths(f02_loop_jpg))
+    assert abs(d_f02_loop["regions"][0]["center"][0] - 240.0) <= 6.0
+
+    # ------------------------------------------------------------------
+    # R5-F06 + R5-F07 + R5-F08: Unified sidecar ownership (`owned` | `conflict` | `unverifiable`)
+    # and fail-fast pre-write snapshot restore rejection!
+    # ------------------------------------------------------------------
+    class _FakeFile:
+        def __init__(self, name: str) -> None:
+            self.name = name
+            p = Path(name)
+            self.stem = p.stem
+            self.suffix = p.suffix
+
+        def is_file(self) -> bool:
+            return True
+
+    class _UnreadableSrcDir:
+        def is_dir(self) -> bool:
+            return True
+
+        def iterdir(self):
+            raise PermissionError("execute-only directory: cannot enumerate")
+
+    unreadable_src = _UnreadableSrcDir()
+    assert (
+        path_resolver._check_inpainted_sidecar_ownership(
+            _FakeFile("001_inpainted.jpg"),
+            unreadable_src,  # type: ignore[arg-type]
+            "001",
+            ".jpg",
+        )
+        == "owned"
+    )
+    assert (
+        path_resolver._check_inpainted_sidecar_ownership(
+            _FakeFile("001_inpainted.PNG"),
+            unreadable_src,  # type: ignore[arg-type]
+            "001",
+            ".jpg",
+        )
+        == "unverifiable"
+    )
+
+    f06_dir = tmp_path / "r5_f06_unreadable"
+    p_f06_jpg = _create_sample_manga_page(f06_dir, "001.jpg")
+    f06_paths = resolve_page_paths(p_f06_jpg)
+    # Create an old cross-extension `.png` fallback snapshot first while `f06_dir` is readable
+    f06_paths.inpainted_path.unlink()
+    f06_png_sidecar = f06_paths.work_dir / "inpainted" / "001_inpainted.png"
+    save_rgb_image_atomic(np.full((800, 600, 3), 55, dtype=np.uint8), f06_png_sidecar)
+    snap_f06_cross = create_snapshot(resolve_page_paths(p_f06_jpg), label="cross_png")
+    # Also create an exact primary `.jpg` snapshot
+    f06_jpg_sidecar = f06_paths.work_dir / "inpainted" / "001_inpainted.jpg"
+    save_rgb_image_atomic(np.full((800, 600, 3), 85, dtype=np.uint8), f06_jpg_sidecar)
+    snap_f06_primary = create_snapshot(resolve_page_paths(p_f06_jpg), label="primary_jpg")
+    apply_region_updates_to_page(p_f06_jpg, [{"region_index": 0, "translation": "未读目录前修改"}])
+    f06_json_before = resolve_page_paths(p_f06_jpg).json_path.read_bytes()
+
+    real_path_iterdir = Path.iterdir
+
+    def _deny_f06_src_iterdir(self: Path):
+        if os.path.normcase(os.path.abspath(str(self))) == os.path.normcase(os.path.abspath(str(f06_dir))):
+            raise PermissionError("src_dir iterdir denied")
+        return real_path_iterdir(self)
+
+    monkeypatch.setattr(Path, "iterdir", _deny_f06_src_iterdir)
+    # Cross-extension fallback is rejected when `src_dir` cannot be enumerated (once primary is absent)
+    f06_jpg_sidecar.unlink()
+    assert resolve_page_paths(p_f06_jpg).inpainted_exists is False
+    # Restoring cross-extension snapshot fails pre-write with zero `.rollback_*` or JSON mutation (`R5-F06` + `R5-F08`)
+    with pytest.raises(RuntimeError, match="Cannot verify sidecar ownership"):
+        restore_snapshot(p_f06_jpg, snap_f06_cross["snapshot_id"])
+    assert resolve_page_paths(p_f06_jpg).json_path.read_bytes() == f06_json_before
+    assert list(f06_paths.json_path.parent.glob(".rollback_*")) == []
+    # Restoring exact primary `<stem>_inpainted<ext>` succeeds WITHOUT needing `src_dir` enumeration AND leaves unverified `.png` untouched!
+    restore_snapshot(p_f06_jpg, snap_f06_primary["snapshot_id"])
+    assert f06_jpg_sidecar.is_file()
+    assert f06_png_sidecar.is_file()
+    monkeypatch.setattr(Path, "iterdir", real_path_iterdir)
+
+    # R5-F07: Multiple same-stem source pages (`001.jpg` + `001.png`) must NEVER share ambiguous `001_inpainted.webp`
+    f07_dir = tmp_path / "r5_f07_ambig"
+    p_f07_jpg = _create_sample_manga_page(f07_dir, "001.jpg")
+    f07_jpg_paths = resolve_page_paths(p_f07_jpg)
+    f07_jpg_paths.inpainted_path.unlink()
+    ambig_webp = f07_jpg_paths.work_dir / "inpainted" / "001_inpainted.webp"
+    webp_orig_px = np.full((800, 600, 3), 120, dtype=np.uint8)
+    save_rgb_image_atomic(webp_orig_px, ambig_webp, quality=100)
+    # While `001.jpg` is the ONLY `001.*` source page, cross-extension `.webp` fallback IS allowed
+    assert resolve_page_paths(p_f07_jpg).inpainted_exists is True
+    assert resolve_page_paths(p_f07_jpg).inpainted_path.name == "001_inpainted.webp"
+    snap_f07_webp = create_snapshot(resolve_page_paths(p_f07_jpg), label="solo_webp")
+
+    # Add sibling `001.png` (and remove its primary `.png` sidecar so ONLY `001_inpainted.webp` exists)
+    p_f07_png = _create_sample_manga_page(f07_dir, "001.png")
+    resolve_page_paths(p_f07_png).inpainted_path.unlink()
+    assert resolve_page_paths(p_f07_jpg).inpainted_exists is False
+    assert resolve_page_paths(p_f07_png).inpainted_exists is False
+
+    # Case-only extension variant (`001_inpainted.JPG`) is uniquely attributable to `001.jpg`, NOT `001.png`
+    assert (
+        path_resolver._check_inpainted_sidecar_ownership(
+            _FakeFile("001_inpainted.JPG"),
+            f07_dir,
+            "001",
+            ".jpg",
+        )
+        == "owned"
+    )
+    assert (
+        path_resolver._check_inpainted_sidecar_ownership(
+            _FakeFile("001_inpainted.JPG"),
+            f07_dir,
+            "001",
+            ".png",
+        )
+        == "conflict"
+    )
+
+    # R5-F08: Conflict in `restore_snapshot` fails BEFORE any `.rollback_*` staging or JSON write!
+    apply_region_updates_to_page(p_f07_jpg, [{"region_index": 0, "translation": "写入前冲突拦截"}])
+    f07_json_path = resolve_page_paths(p_f07_jpg).json_path
+    f07_json_bytes_before = f07_json_path.read_bytes()
+    f07_json_mtime_before = f07_json_path.stat().st_mtime_ns
+    write_calls_f08: list[Path] = []
+    real_write_bytes = project_store._write_bytes_atomic
+    real_copy_atomic = project_store._copy_file_atomic
+
+    monkeypatch.setattr(
+        project_store,
+        "_write_bytes_atomic",
+        lambda b, d: (write_calls_f08.append(Path(d)), real_write_bytes(b, d))[1],
+    )
+    monkeypatch.setattr(
+        project_store,
+        "_copy_file_atomic",
+        lambda s, d: (write_calls_f08.append(Path(d)), real_copy_atomic(s, d))[1],
+    )
+    with pytest.raises(RuntimeError, match="conflicts with"):
+        restore_snapshot(p_f07_jpg, snap_f07_webp["snapshot_id"])
+    monkeypatch.setattr(project_store, "_write_bytes_atomic", real_write_bytes)
+    monkeypatch.setattr(project_store, "_copy_file_atomic", real_copy_atomic)
+
+    assert write_calls_f08 == []
+    assert f07_json_path.read_bytes() == f07_json_bytes_before
+    assert f07_json_path.stat().st_mtime_ns == f07_json_mtime_before
+    assert ambig_webp.is_file()
+
+    # Restoring `001.jpg`'s own primary `001_inpainted.jpg` leaves ambiguous `001_inpainted.webp` untouched
+    own_f07_jpg_inp = f07_jpg_paths.work_dir / "inpainted" / "001_inpainted.jpg"
+    save_rgb_image_atomic(np.full((800, 600, 3), 200, dtype=np.uint8), own_f07_jpg_inp)
+    snap_f07_own_jpg = create_snapshot(resolve_page_paths(p_f07_jpg), label="own_jpg")
+    apply_region_updates_to_page(p_f07_jpg, [{"region_index": 0, "translation": "临时改动"}])
+    restore_snapshot(p_f07_jpg, snap_f07_own_jpg["snapshot_id"])
+    assert own_f07_jpg_inp.is_file()
+    assert ambig_webp.is_file()
+
+    # ------------------------------------------------------------------
+    # R5-F09: `get_page_details_dict` resolves `display_base_path` & metadata-dependent paths
+    # from the exact `raw_bytes` JSON sample used for `revision`, and re-verifies post-read!
+    # ------------------------------------------------------------------
+    f09_meta_dir = tmp_path / "r5_f09_meta"
+    p_f09_meta = _create_sample_manga_page(f09_meta_dir, "001.png")
+    p_f09_paths = resolve_page_paths(p_f09_meta)
+    eb_path = p_f09_paths.work_dir / "editor_base" / "001.png"
+    eb_path.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(np.full((1600, 1200, 3), 240, dtype=np.uint8)).save(eb_path)
+    assert resolve_page_paths(p_f09_meta).display_base_path == eb_path
+
+    # Sub-case A: External writer disables `upscale_ratio` right AFTER initial `resolve_page_paths` probe
+    # and BEFORE `raw_bytes = json_path.read_bytes()`.
+    real_store_resolve = project_store.resolve_page_paths
+    probe_hook_fired = {"done": False}
+
+    def _flip_upscale_after_first_probe(target, *args, **kwargs):
+        res = real_store_resolve(target, *args, **kwargs)
+        if not probe_hook_fired["done"] and kwargs.get("preloaded_raw_json") is None:
+            probe_hook_fired["done"] = True
+            raw_obj = json.loads(res.json_path.read_text(encoding="utf-8"))
+            ent = next(iter(raw_obj.values()))
+            ent["upscale_ratio"] = None
+            res.json_path.write_text(json.dumps(raw_obj, ensure_ascii=False), encoding="utf-8")
+        return res
+
+    monkeypatch.setattr(project_store, "resolve_page_paths", _flip_upscale_after_first_probe)
+    details_f09 = get_page_details_dict(p_f09_meta)
+    monkeypatch.setattr(project_store, "resolve_page_paths", real_store_resolve)
+
+    assert probe_hook_fired["done"] is True
+    assert details_f09["upscale_ratio"] is None
+    assert details_f09["display_base_path"] == str(p_f09_meta)
+    assert details_f09["image_size"] == [600, 800]
+    assert details_f09["revision"] == compute_page_revision(resolve_page_paths(p_f09_meta))
+
+    # Sub-case B: Continuous external JSON churn between sample read and post-read verification raises RuntimeError
+    churn_counter = {"n": 0}
+
+    def _churn_json_on_post_verify(target, *args, **kwargs):
+        if kwargs.get("preloaded_raw_json") is not None:
+            res = real_store_resolve(target, *args, **kwargs)
+            # Mutate on-disk JSON AFTER `raw_bytes` was sampled so post-read verification sees a mismatch
+            churn_counter["n"] += 1
+            raw_obj = json.loads(res.json_path.read_text(encoding="utf-8"))
+            ent = next(iter(raw_obj.values()))
+            ent["upscale_ratio"] = 2 if (churn_counter["n"] % 2 == 1) else None
+            res.json_path.write_text(json.dumps(raw_obj, ensure_ascii=False), encoding="utf-8")
+            return res
+        return real_store_resolve(target, *args, **kwargs)
+
+    monkeypatch.setattr(project_store, "resolve_page_paths", _churn_json_on_post_verify)
+    with pytest.raises(RuntimeError, match="Concurrent modification prevented reading a consistent page snapshot"):
+        get_page_details_dict(p_f09_meta)
+    monkeypatch.setattr(project_store, "resolve_page_paths", real_store_resolve)
+    assert churn_counter["n"] == 5
+
+    # ------------------------------------------------------------------
+    # R5-F25: `list_manga_pages_in_path` builds a reusable per-`src_dir` index once (`O(N)`),
+    # while standalone `resolve_page_paths` continues reading live directory state.
+    # ------------------------------------------------------------------
+    f25_dir = tmp_path / "r5_f25_chapter"
+    f25_inp_dir = f25_dir / "manga_translator_work" / "inpainted"
+    f25_inp_dir.mkdir(parents=True)
+    small_px = np.full((64, 64, 3), 230, dtype=np.uint8)
+    for idx_p in range(1, 13):
+        Image.fromarray(small_px).save(f25_dir / f"{idx_p:03d}.jpg")
+        Image.fromarray(small_px).save(f25_inp_dir / f"{idx_p:03d}_inpainted.png")
+
+    f25_src_iter_calls = {"n": 0}
+
+    def _count_f25_iterdir(self: Path):
+        if os.path.normcase(os.path.abspath(str(self))) == os.path.normcase(os.path.abspath(str(f25_dir))):
+            f25_src_iter_calls["n"] += 1
+        return real_path_iterdir(self)
+
+    monkeypatch.setattr(Path, "iterdir", _count_f25_iterdir)
+    f25_pages = list_manga_pages_in_path(f25_dir)
+    monkeypatch.setattr(Path, "iterdir", real_path_iterdir)
+
+    assert len(f25_pages) == 12
+    assert all(pp.inpainted_exists and pp.inpainted_path.suffix == ".png" for pp in f25_pages)
+    assert f25_src_iter_calls["n"] == 1
+
+    # Standalone `resolve_page_paths` immediately observes a newly added `001.png` sibling (no stale index!)
+    Image.fromarray(small_px).save(f25_dir / "001.png")
+    assert resolve_page_paths(f25_dir / "001.jpg").inpainted_exists is False
+    assert resolve_page_paths(f25_dir / "001.png").inpainted_exists is True
+
+    # ------------------------------------------------------------------
+    # R5-F26: Reject TXT glossary `upsert` entries that cannot round-trip (`\t` in `original`,
+    # `#` / `//` prefixes) before mutating or writing, while keeping intra-line `\t` in `translation`.
+    # ------------------------------------------------------------------
+    txt_f26 = tmp_path / "r5_f26_glossary.txt"
+    txt_f26.write_text("London\t伦敦\n", encoding="utf-8")
+    baseline_txt_f26 = txt_f26.read_text(encoding="utf-8")
+
+    for bad_batch in (
+        [{"original": "New\tYork", "translation": "纽约"}],
+        [{"original": "\tNew York", "translation": "纽约"}],
+        [{"original": "#1", "translation": "第一"}],
+        [{"original": "//note", "translation": "注释"}],
+        [
+            {"original": "Boston", "translation": "波士顿"},
+            {"original": "Los\tAngeles", "translation": "洛杉矶"},
+        ],
+    ):
+        with pytest.raises(ValueError):
+            manage_glossary_entries("upsert", glossary_file=str(txt_f26), entries=bad_batch)
+        assert txt_f26.read_text(encoding="utf-8") == baseline_txt_f26
+
+    manage_glossary_entries(
+        "upsert",
+        glossary_file=str(txt_f26),
+        entries=[{"original": "New York", "translation": "纽约\t大苹果"}],
+    )
+    assert manage_glossary_entries("list", glossary_file=str(txt_f26))["entries"] == [
+        {"original": "London", "translation": "伦敦"},
+        {"original": "New York", "translation": "纽约\t大苹果"},
+    ]

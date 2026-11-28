@@ -54,6 +54,147 @@ def _acquire_page_edit_lock(
         yield target
 
 
+def _material_change_mask(base_rgb: Any, other_rgb: Any) -> Any:
+    """Return boolean `(H, W)` mask where `other_rgb` materially differs from `base_rgb` (`R5-F01` JPEG tolerant)."""
+    import cv2
+    import numpy as np
+
+    base_u8 = np.asarray(base_rgb, dtype=np.uint8)
+    other_u8 = np.asarray(other_rgb, dtype=np.uint8)
+    if base_u8.shape != other_u8.shape or np.array_equal(other_u8, base_u8):
+        return np.zeros(base_u8.shape[:2], dtype=bool)
+
+    base_gray = cv2.cvtColor(base_u8, cv2.COLOR_RGB2GRAY)
+    other_gray = cv2.cvtColor(other_u8, cv2.COLOR_RGB2GRAY)
+    luma_diff = cv2.absdiff(other_gray, base_gray)
+    mean5_luma = cv2.blur(luma_diff, (5, 5))
+    pixel_rgb_diff = np.max(cv2.absdiff(other_u8, base_u8), axis=2)
+
+    blur7_base = cv2.blur(base_u8, (7, 7))
+    blur7_other = cv2.blur(other_u8, (7, 7))
+    diff7_rgb = cv2.absdiff(blur7_other, blur7_base)
+    mean7_rgb_max = np.max(diff7_rgb, axis=2)
+    mean7_rgb_sum = (
+        diff7_rgb[..., 0].astype(np.uint16)
+        + diff7_rgb[..., 1].astype(np.uint16)
+        + diff7_rgb[..., 2].astype(np.uint16)
+    )
+
+    return (
+        (luma_diff >= 32)
+        | ((luma_diff >= 14) & (mean5_luma >= 11))
+        | ((pixel_rgb_diff >= 12) & ((mean7_rgb_max >= 26) | (mean7_rgb_sum >= 45)))
+    )
+
+
+def _has_material_image_change(base_rgb: Any, other_rgb: Any) -> bool:
+    """Return True iff `other_rgb` has any material non-JPEG-compression pixel change vs `base_rgb` (`R5-F01`)."""
+    import numpy as np
+
+    return bool(np.any(_material_change_mask(base_rgb, other_rgb)))
+
+
+def _unrepaired_prev_mask_components(
+    base_rgb: Any,
+    prev_inpaint: Any,
+    prev_mask: Any,
+) -> tuple[Any, bool]:
+    """Identify unrepaired components and residual-ink sub-regions of `prev_mask > 0` in `O(H * W)` (`R4-F01`, `R5-F01`, `R5-F11`, `R5-F17`, `R5-F22`, `R5-F35`)."""
+    import cv2
+    import numpy as np
+
+    base_u8 = np.asarray(base_rgb, dtype=np.uint8)
+    prev_u8 = np.asarray(prev_inpaint, dtype=np.uint8)
+    h, w = base_u8.shape[:2]
+    unrepaired = np.zeros((h, w), dtype=np.uint8)
+    if prev_mask is None:
+        return unrepaired, True
+    prev_bin = np.where(np.asarray(prev_mask) > 0, 1, 0).astype(np.uint8)
+    if not np.any(prev_bin):
+        return unrepaired, True
+
+    mask_bool = prev_bin > 0
+    pixel_rgb_diff = np.max(cv2.absdiff(prev_u8, base_u8), axis=2)
+    mask_f32 = prev_bin.astype(np.float32)
+    count7 = cv2.boxFilter(mask_f32, ddepth=-1, ksize=(7, 7), normalize=False, borderType=cv2.BORDER_CONSTANT)
+    denom7 = np.maximum(9.0, count7)[..., None]
+    signed_in_mask = (prev_u8.astype(np.float32) - base_u8.astype(np.float32)) * mask_f32[..., None]
+    masked_mean7 = (
+        np.abs(
+            cv2.boxFilter(signed_in_mask, ddepth=-1, ksize=(7, 7), normalize=False, borderType=cv2.BORDER_CONSTANT)
+        )
+        / denom7
+    )
+    masked_rgb_max = np.max(masked_mean7, axis=2)
+    masked_rgb_sum = np.sum(masked_mean7, axis=2)
+
+    changed = _material_change_mask(base_u8, prev_u8) | (
+        mask_bool & (pixel_rgb_diff >= 12) & ((masked_rgb_max >= 26.0) | (masked_rgb_sum >= 45.0))
+    )
+    repaired_seed = mask_bool & changed
+
+    n_comp, comp_lbl = cv2.connectedComponents(prev_bin, connectivity=8)
+    if n_comp <= 1:
+        return unrepaired, True
+
+    lbl_flat = comp_lbl.ravel()
+    comp_repaired = np.bincount(lbl_flat, weights=repaired_seed.ravel().astype(np.int32), minlength=n_comp)
+
+    # 1. Single-pass `O(H * W)` LUT mapping for completely un-inpainted components (`comp_repaired == 0`):
+    zero_lut = np.zeros(n_comp, dtype=np.uint8)
+    zero_lut[1:] = np.where(comp_repaired[1:] == 0, 255, 0).astype(np.uint8)
+    unrepaired = zero_lut[comp_lbl]
+    any_inpainted = bool(np.any(comp_repaired[1:] > 0))
+    if not any_inpainted:
+        return unrepaired, False
+
+    # 2. Partially-repaired / bridged components (`comp_repaired > 0` with untouched residual-ink sub-regions):
+    comp_total = np.bincount(lbl_flat, minlength=n_comp)
+    mixed_lut = np.zeros(n_comp, dtype=bool)
+    mixed_lut[1:] = (comp_repaired[1:] > 0) & (comp_repaired[1:] < comp_total[1:])
+    if not np.any(mixed_lut):
+        return unrepaired, True
+
+    cand_untouched = mixed_lut[comp_lbl] & (~repaired_seed)
+    if not np.any(cand_untouched):
+        return unrepaired, True
+
+    k5 = np.ones((5, 5), np.uint8)
+    masked_low = np.where(mask_bool[..., None], prev_u8, 0)
+    masked_high = np.where(mask_bool[..., None], prev_u8, 255)
+    in_mask_range5 = np.max(cv2.dilate(masked_low, k5) - cv2.erode(masked_high, k5), axis=2)
+    diff_blur51 = np.max(cv2.absdiff(prev_u8, cv2.blur(prev_u8, (51, 51))), axis=2)
+
+    rep_flat = repaired_seed.ravel()
+    rep_lbl = np.where(rep_flat, lbl_flat, 0)
+    denom = np.maximum(1, comp_repaired).astype(np.float32)
+    comp_rep_mean = np.zeros((n_comp, 3), dtype=np.float32)
+    for ch in range(3):
+        ch_sum = np.bincount(rep_lbl, weights=prev_u8[..., ch].ravel(), minlength=n_comp)
+        comp_rep_mean[:, ch] = ch_sum / denom
+    rep_mean_i16 = np.rint(comp_rep_mean).astype(np.int16)[comp_lbl]
+    dist_to_repaired = np.max(np.abs(prev_u8.astype(np.int16) - rep_mean_i16), axis=2)
+
+    ink_seed = cand_untouched & ((in_mask_range5 >= 24) | ((diff_blur51 >= 28) & (dist_to_repaired >= 36)))
+    if not np.any(ink_seed):
+        return unrepaired, True
+
+    ink_body = cand_untouched & ((in_mask_range5 >= 24) | (diff_blur51 >= 26))
+    n_ib, ib_lbl = cv2.connectedComponents(ink_body.astype(np.uint8), connectivity=8)
+    if n_ib > 1:
+        ib_seeds = np.bincount(ib_lbl.ravel(), weights=ink_seed.ravel().astype(np.int32), minlength=n_ib)
+        ib_lut = np.zeros(n_ib, dtype=np.uint8)
+        ib_lut[1:] = np.where(ib_seeds[1:] > 0, 255, 0).astype(np.uint8)
+        confirmed_ink = ib_lut[ib_lbl]
+        if np.any(confirmed_ink):
+            dilated_ink = (
+                cv2.dilate(confirmed_ink, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))) > 0
+            ) & cand_untouched
+            unrepaired = np.where((unrepaired > 0) | dilated_ink, 255, 0).astype(np.uint8)
+
+    return unrepaired, True
+
+
 def _regions_list_from_entry(val: Any) -> Optional[list[dict[str, Any]]]:
     if isinstance(val, dict):
         regs = val.get("regions", [])
@@ -1056,24 +1197,16 @@ class EngineRuntime:
                         if params.get("prev_mask_b64") is not None
                         else np.where((current_mask > 0) & (added_mask == 0), 255, 0).astype(np.uint8)
                     )
-                    prev_bin = np.where(prev_raw_mask > 0, 1, 0).astype(np.uint8)
-                    any_inpainted_comp = not bool(np.any(prev_bin))
-                    if np.any(prev_bin):
-                        n_comp, comp_lbl = cv2.connectedComponents(prev_bin, connectivity=8)
-                        unrepaired = np.zeros((h, w), dtype=np.uint8)
-                        for cid in range(1, n_comp):
-                            comp = comp_lbl == cid
-                            if np.array_equal(prev_rgb[comp], base_rgb[comp]):
-                                unrepaired[comp] = 255
-                            else:
-                                any_inpainted_comp = True
-                        if np.any(unrepaired > 0):
-                            added_mask = np.where(
-                                (added_mask > 0) | ((unrepaired > 0) & (current_mask > 0)),
-                                255,
-                                0,
-                            ).astype(np.uint8)
-                    if not any_inpainted_comp and np.array_equal(prev_rgb, base_rgb):
+                    unrepaired, any_inpainted_comp = _unrepaired_prev_mask_components(
+                        base_rgb, prev_rgb, prev_raw_mask
+                    )
+                    if np.any(unrepaired > 0):
+                        added_mask = np.where(
+                            (added_mask > 0) | ((unrepaired > 0) & (current_mask > 0)),
+                            255,
+                            0,
+                        ).astype(np.uint8)
+                    if not any_inpainted_comp and not _has_material_image_change(base_rgb, prev_rgb):
                         prev_rgb = None
 
             crop_box_used: Optional[list[int]] = None

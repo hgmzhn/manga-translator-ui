@@ -2483,10 +2483,11 @@ def test_r4_round4_desktop_and_transport_regressions(
             finally:
                 peer_ovf.close()
 
-        # 1b. R4-F29: Exact 256 KiB wire payload must NOT be rejected by overestimated probe timeout_sec
+        # 1b. R4-F29 & R5-F24: Exact 256 KiB wire payload must NOT be rejected by overestimated probe timeout_sec,
+        # using isolated `mtui_mcp.gui_bridge._monotonic` (unaffected by Qt event pump) and asserting exact wire byte length!
         fixed_fake_mono = 123456.789012
         with monkeypatch.context() as mp_f29:
-            mp_f29.setattr("mtui_mcp.gui_bridge.time.monotonic", lambda: fixed_fake_mono)
+            mp_f29.setattr("mtui_mcp.gui_bridge._monotonic", lambda: fixed_fake_mono)
             # Actual compact wire frame has timeout_sec=30.0 (4 chars "30.0"), whereas old probe had 30.123456 (9 chars)!
             sample_wire = json.dumps(
                 {
@@ -2501,7 +2502,37 @@ def test_r4_round4_desktop_and_transport_regressions(
             exact_pad_len = MAX_GUI_REQUEST_BYTES - len(sample_wire)
             assert exact_pad_len > 0
 
-        # Use real monotonic clock with pad sized so compact wire frame fits <= 256 KiB (within 2 bytes of limit!)
+        import mtui_mcp.gui_bridge as gui_bridge_mod
+
+        orig_connect_ipc = gui_bridge_mod._connect_ipc_client
+        orig_deliver_chal = gui_bridge_mod.deliver_challenge
+
+        def _make_ipc_frame_recorder():
+            sent_rpc_frame_lengths: list[int] = []
+            handshake_complete = {"done": False}
+
+            class _SpyIpcConn:
+                def __init__(self, inner: Any) -> None:
+                    self._inner = inner
+
+                def send_bytes(self, buf: Any, *args: Any, **kwargs: Any) -> Any:
+                    if handshake_complete["done"]:
+                        sent_rpc_frame_lengths.append(len(memoryview(buf)))
+                    return self._inner.send_bytes(buf, *args, **kwargs)
+
+                def __getattr__(self, name: str) -> Any:
+                    return getattr(self._inner, name)
+
+            def _spy_connect(addr: str, dl: float) -> Any:
+                handshake_complete["done"] = False
+                return _SpyIpcConn(orig_connect_ipc(addr, dl))
+
+            def _spy_deliver(conn_obj: Any, key_b: bytes) -> None:
+                orig_deliver_chal(conn_obj, key_b)
+                handshake_complete["done"] = True
+
+            return sent_rpc_frame_lengths, _spy_connect, _spy_deliver
+
         now_probe = time.monotonic()
         fixed_dl_probe = math.floor((now_probe + 30.0) * 1_000_000) / 1_000_000
         worst_send_wire = json.dumps(
@@ -2515,12 +2546,10 @@ def test_r4_round4_desktop_and_transport_regressions(
             separators=(",", ":"),
         ).encode("utf-8")
         tight_pad = "p" * (MAX_GUI_REQUEST_BYTES - len(worst_send_wire))
-        # Note: with old 30.123456 probe on budget=30.0 when send_remaining=29.5 ("29.5" = 4 chars vs "30.123456" = 9 chars),
-        # adding 3 extra chars still fits actual send when timeout_sec is e.g. 29.5; verify deterministic exact-fit via controlled clock!
-        mono_state = {"Calls": 0, "base": time.monotonic()}
+        mono_state = {"Calls": 0, "base": math.floor(time.monotonic()) + 0.125}
 
         def _controlled_mono() -> float:
-            # Keep clock advancing tiny step during handshake so send_remaining == 29.5 ("29.5" -> 4 bytes in JSON)
+            # Isolated to mtui_mcp.gui_bridge._monotonic: Qt pump's time.monotonic() never touches this!
             mono_state["Calls"] += 1
             if mono_state["Calls"] == 1:
                 return mono_state["base"]
@@ -2537,8 +2566,15 @@ def test_r4_round4_desktop_and_transport_regressions(
             separators=(",", ":"),
         ).encode("utf-8")
         exact_256k_pad = "z" * (MAX_GUI_REQUEST_BYTES - len(exact_29_5_base))
+        sent_exact_lengths, spy_conn_exact, spy_deliv_exact = _make_ipc_frame_recorder()
         with monkeypatch.context() as mp_f29_exact:
-            mp_f29_exact.setattr("mtui_mcp.gui_bridge.time.monotonic", _controlled_mono)
+            mp_f29_exact.setattr("mtui_mcp.gui_bridge._monotonic", _controlled_mono)
+            mp_f29_exact.setattr("mtui_mcp.gui_bridge._connect_ipc_client", spy_conn_exact)
+            mp_f29_exact.setattr("mtui_mcp.gui_bridge.deliver_challenge", spy_deliv_exact)
+            # Pumping Qt / reading global time.monotonic() before call_live_gui MUST NOT consume _controlled_mono!
+            _ = time.monotonic()
+            _QAPP.processEvents()
+            assert mono_state["Calls"] == 0
             exact_res = _run_in_worker_pumping_qt(
                 lambda: call_live_gui(
                     "list_pages",
@@ -2547,10 +2583,11 @@ def test_r4_round4_desktop_and_transport_regressions(
                     pad=exact_256k_pad,
                 )
             )
+            assert sent_exact_lengths == [MAX_GUI_REQUEST_BYTES]
             assert exact_res["status"] == "ok"
 
         # Truly oversized wire payload (min_probe <= 256 KiB with timeout_sec=0, but actual send timeout_sec=29.123456 > 256 KiB) still raises ValueError!
-        mono_state2 = {"Calls": 0, "base": time.monotonic()}
+        mono_state2 = {"Calls": 0, "base": math.floor(time.monotonic()) + 0.125}
 
         def _controlled_mono_frac() -> float:
             mono_state2["Calls"] += 1
@@ -2569,8 +2606,11 @@ def test_r4_round4_desktop_and_transport_regressions(
             separators=(",", ":"),
         ).encode("utf-8")
         overflow_on_wire_pad = "q" * (MAX_GUI_REQUEST_BYTES - len(min_zero_base))
+        sent_over_lengths, spy_conn_over, spy_deliv_over = _make_ipc_frame_recorder()
         with monkeypatch.context() as mp_f29_over:
-            mp_f29_over.setattr("mtui_mcp.gui_bridge.time.monotonic", _controlled_mono_frac)
+            mp_f29_over.setattr("mtui_mcp.gui_bridge._monotonic", _controlled_mono_frac)
+            mp_f29_over.setattr("mtui_mcp.gui_bridge._connect_ipc_client", spy_conn_over)
+            mp_f29_over.setattr("mtui_mcp.gui_bridge.deliver_challenge", spy_deliv_over)
             with pytest.raises(ValueError, match="exceeds 256 KiB"):
                 _run_in_worker_pumping_qt(
                     lambda: call_live_gui(
@@ -2580,6 +2620,7 @@ def test_r4_round4_desktop_and_transport_regressions(
                         pad=overflow_on_wire_pad,
                     )
                 )
+            assert sent_over_lengths == []
         assert len(tight_pad) > 0
 
         # 1c. R4-F28: Standard `call_live_gui("save_page", timeout_sec=0.24)` receives `"in_progress"` BEFORE client receive deadline!
@@ -2893,50 +2934,107 @@ def test_r4_round4_desktop_and_transport_regressions(
     assert unready_srv._server is None
     assert unready_srv.bound_port is None
 
-    # Sub-case B: Concurrent start publishes a newer server right before Start #1 enters timeout cleanup ->
-    # Start #1 MUST NOT detach or stop Start #2's active server!
+    # Sub-case B (R4-F30 & R5-F23): Concurrent Start #2 publishes a newer server right at Start #1's
+    # readiness-timeout cleanup boundary (after Start #1 genuinely expires its readiness loop!) ->
+    # Start #1 MUST re-verify ownership before detaching and MUST NOT detach or stop Start #2's active server!
     race_f30_srv = EmbeddedMcpHttpServer(host="127.0.0.1", port=0, mtui_root=ROOT, warm_up=False)
     orig_uvicorn_server = __import__("uvicorn").Server
     uvicorn_call_idx = {"n": 0}
-    start1_exited_loop = threading.Event()
+    server2_holder: dict[str, Any] = {"srv": None}
+    start1_timeout = 0.12
+    start1_first_check_mono: dict[str, Any] = {"t": None}
+    gen1_active_checks: list[bool] = []
+    start1_at_cleanup_boundary = threading.Event()
     start2_published = threading.Event()
+    start2_outcome: dict[str, Any] = {"ok": None, "err": None}
+    stopped_servers: list[Any] = []
+    orig_stop_detached = EmbeddedMcpHttpServer._stop_detached_handles
 
     def _f30_server_factory(cfg: Any):
         uvicorn_call_idx["n"] += 1
         if uvicorn_call_idx["n"] == 1:
             return _NeverReadyUvicornServer()
-        return orig_uvicorn_server(cfg)
+        srv2 = orig_uvicorn_server(cfg)
+        server2_holder["srv"] = srv2
+        return srv2
 
     orig_gen_active_f30 = race_f30_srv._is_start_generation_active
 
     def _hook_timeout_window(gen: int, srv_obj: Any, thr_obj: Any) -> bool:
-        return orig_gen_active_f30(gen, srv_obj, thr_obj)
+        active = orig_gen_active_f30(gen, srv_obj, thr_obj)
+        if gen == 1:
+            if start1_first_check_mono["t"] is None:
+                start1_first_check_mono["t"] = time.monotonic()
+            gen1_active_checks.append(active)
+        return active
+
+    def _spy_stop_detached(
+        srv_arg: Any,
+        thr_arg: Any,
+        sock_arg: Any,
+        *,
+        timeout: float,
+    ) -> None:
+        stopped_servers.append(srv_arg)
+        orig_stop_detached(srv_arg, thr_arg, sock_arg, timeout=timeout)
+
+    start1_caller_thread = threading.current_thread()
+
+    def _start2_runner() -> None:
+        if not start1_at_cleanup_boundary.wait(timeout=5.0):
+            start2_outcome["err"] = TimeoutError("Start #1 never reached timeout cleanup boundary")
+            start2_published.set()
+            return
+        try:
+            start2_outcome["ok"] = race_f30_srv.start(timeout=5.0)
+        except BaseException as exc:  # noqa: BLE001
+            start2_outcome["err"] = exc
+        finally:
+            start2_published.set()
+
+    start2_thr = threading.Thread(target=_start2_runner, daemon=True)
+    start2_thr.start()
 
     with monkeypatch.context() as mp_f30b:
         mp_f30b.setattr("mtui_mcp.embedded_server.uvicorn.Server", _f30_server_factory)
+        mp_f30b.setattr(race_f30_srv, "_is_start_generation_active", _hook_timeout_window)
+        mp_f30b.setattr(EmbeddedMcpHttpServer, "_stop_detached_handles", staticmethod(_spy_stop_detached))
         orig_sleep = time.sleep
 
         def _sleep_and_trigger_start2(sec: float) -> None:
             orig_sleep(sec)
-            if isinstance(race_f30_srv._server, _NeverReadyUvicornServer) and not start1_exited_loop.is_set():
-                start1_exited_loop.set()
-
-                def _run_start2() -> None:
-                    assert race_f30_srv.start(timeout=5.0) is True
-                    start2_published.set()
-
-                threading.Thread(target=_run_start2, daemon=True).start()
+            # Only trigger Start #2 on the final sleep that causes Start #1's readiness loop deadline to expire
+            # (t_first_check >= t_deadline_start, so time.monotonic() >= t_first_check + start1_timeout guarantees
+            # `while time.monotonic() < deadline:` immediately exits into timeout cleanup without re-entering loop!)
+            if (
+                threading.current_thread() is start1_caller_thread
+                and start1_first_check_mono["t"] is not None
+                and not start1_at_cleanup_boundary.is_set()
+                and time.monotonic() >= start1_first_check_mono["t"] + start1_timeout
+            ):
+                start1_at_cleanup_boundary.set()
                 assert start2_published.wait(timeout=5.0) is True
 
         mp_f30b.setattr("mtui_mcp.embedded_server.time.sleep", _sleep_and_trigger_start2)
-        assert _hook_timeout_window is not None
         try:
-            assert race_f30_srv.start(timeout=0.12) is False
-            # Start #2's server MUST still be alive and serving /health!
+            assert race_f30_srv.start(timeout=start1_timeout) is False
+            start1_at_cleanup_boundary.set()
+            start2_thr.join(timeout=5.0)
+            assert start2_outcome["err"] is None
+            assert start2_outcome["ok"] is True
+            # Prove Start #1 stayed active on EVERY loop iteration and genuinely hit the post-loop timeout cleanup!
+            assert len(gen1_active_checks) >= 2
+            assert all(gen1_active_checks)
+            # Prove Start #2's server was NEVER detached or stopped by Start #1's timeout cleanup!
+            assert server2_holder["srv"] is not None
+            assert server2_holder["srv"] not in stopped_servers
+            assert race_f30_srv._server is server2_holder["srv"]
             assert race_f30_srv.is_running is True
             with urllib.request.urlopen(race_f30_srv.health_url, timeout=3.0) as resp:
                 assert resp.status == 200
         finally:
+            start1_at_cleanup_boundary.set()
+            start2_thr.join(timeout=2.0)
             race_f30_srv.stop()
 
     # ------------------------------------------------------------------
@@ -3050,3 +3148,511 @@ def test_r4_round4_desktop_and_transport_regressions(
         finally:
             srv_gen1._stop_detached_handles(srv_gen1._server, srv_gen1._thread, srv_gen1._socket, timeout=1.0)
             srv_gen2.stop()
+
+
+def test_r5_round5_desktop_and_transport_regressions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cover R5-F03, R5-F18, R5-F23, R5-F24, R5-F27, R5-F28, and R5-F30."""
+    import mtui_mcp.embedded_server as emb_mod
+
+    for proxy_key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+        monkeypatch.delenv(proxy_key, raising=False)
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
+    monkeypatch.setenv("no_proxy", "127.0.0.1,localhost")
+
+    rt_settings = get_runtime_settings()
+
+    # ------------------------------------------------------------------
+    # 1. R5-F03: Unified worker ownership across stop() and warm-up rollback
+    # ------------------------------------------------------------------
+    with monkeypatch.context() as mp_f03:
+        mp_f03.setattr(rt_settings, "mtui_root", ROOT)
+
+        # 1a. Pre-existing external worker is NEVER shut down by full start() + stop() OR no-op stop()
+        ext_proc_r5 = types.SimpleNamespace(name="ext_proc_r5", poll=lambda: None)
+        ext_shutdowns: list[Any] = []
+        ext_wc_r5 = types.SimpleNamespace(
+            _proc=ext_proc_r5,
+            is_running=True,
+            ensure_started=lambda: 9100,
+            shutdown=lambda expected_proc=None: ext_shutdowns.append(expected_proc),
+        )
+        mp_f03.setattr("mtui_mcp.embedded_server.get_worker_client", lambda: ext_wc_r5)
+
+        idle_srv = EmbeddedMcpHttpServer(host="127.0.0.1", port=0, mtui_root=ROOT, warm_up=False)
+        idle_srv.stop()  # Never started -> detached nothing -> MUST NOT call shutdown()!
+        assert ext_shutdowns == []
+
+        for warm_mode in (False, True):
+            ext_srv = EmbeddedMcpHttpServer(host="127.0.0.1", port=0, mtui_root=ROOT, warm_up=warm_mode)
+            try:
+                assert ext_srv.start(timeout=5.0) is True
+                assert ext_srv.is_running is True
+            finally:
+                ext_srv.stop()
+                ext_srv.stop()  # Repeated idempotent stop() -> no-op
+            assert ext_shutdowns == [], f"stop() with warm_up={warm_mode} must preserve external worker!"
+
+        # 1b. Multiple active EmbeddedMcpHttpServer instances share owned worker; only the LAST owner's stop() shuts it down,
+        # and no-op stop() on an unstarted/already-stopped instance never kills an active peer's worker!
+        shared_shutdowns: list[Any] = []
+
+        class _SharedOwnedWorker:
+            def __init__(self) -> None:
+                self._proc: Any = None
+                self.is_running = False
+                self.spawn_count = 0
+
+            def ensure_started(self) -> int:
+                if self._proc is None:
+                    self.spawn_count += 1
+                    self._proc = types.SimpleNamespace(
+                        name=f"shared_proc_{self.spawn_count}",
+                        poll=lambda: None,
+                    )
+                    self.is_running = True
+                return 9200
+
+            def shutdown(self, expected_proc: Any = None) -> None:
+                if expected_proc is not None and self._proc is not expected_proc:
+                    return
+                shared_shutdowns.append(self._proc)
+                self._proc = None
+                self.is_running = False
+
+        shared_wc = _SharedOwnedWorker()
+        mp_f03.setattr("mtui_mcp.embedded_server.get_worker_client", lambda: shared_wc)
+
+        srv_a = EmbeddedMcpHttpServer(host="127.0.0.1", port=0, mtui_root=ROOT, warm_up=True)
+        srv_b = EmbeddedMcpHttpServer(host="127.0.0.1", port=0, mtui_root=ROOT, warm_up=False)
+        srv_never = EmbeddedMcpHttpServer(host="127.0.0.1", port=0, mtui_root=ROOT, warm_up=False)
+        try:
+            assert srv_a.start(timeout=5.0) is True
+            assert shared_wc.is_running is True
+            first_proc = shared_wc._proc
+            assert first_proc is not None
+
+            assert srv_b.start(timeout=5.0) is True
+            # Stopping an unstarted server while srv_a & srv_b are active MUST NOT touch shared_wc
+            srv_never.stop()
+            assert shared_wc.is_running is True
+            assert shared_shutdowns == []
+
+            # Stopping srv_a while srv_b (warm_up=False!) is still serving MUST keep shared_wc alive!
+            srv_a.stop()
+            assert srv_a.is_running is False
+            assert srv_b.is_running is True
+            assert shared_wc.is_running is True
+            assert shared_wc._proc is first_proc
+            assert shared_shutdowns == []
+
+            # Repeating srv_a.stop() after srv_a already detached everything MUST remain a no-op!
+            srv_a.stop()
+            assert shared_wc.is_running is True
+            assert shared_shutdowns == []
+
+            # Stopping srv_b (the last active embedded server!) MUST now shut down the owned worker!
+            srv_b.stop()
+            assert srv_b.is_running is False
+            assert shared_wc.is_running is False
+            assert shared_shutdowns == [first_proc]
+        finally:
+            srv_a.stop()
+            srv_b.stop()
+
+        # 1c. Re-starting a new generation WHILE `stop()` is blocked inside `_stop_detached_handles` joining old thread:
+        # `stop()` MUST detect the newly registered active generation and preserve the shared worker!
+        shared_shutdowns.clear()
+        srv_rebind = EmbeddedMcpHttpServer(host="127.0.0.1", port=0, mtui_root=ROOT, warm_up=True)
+        orig_stop_handles = EmbeddedMcpHttpServer._stop_detached_handles
+        in_stop_join = threading.Event()
+        gen2_ready_during_stop = threading.Event()
+        rebind_hook_armed = {"armed": False}
+
+        def _stop_handles_with_concurrent_gen2(
+            s_obj: Any,
+            t_obj: Any,
+            sk_obj: Any,
+            *,
+            timeout: float,
+        ) -> None:
+            orig_stop_handles(s_obj, t_obj, sk_obj, timeout=timeout)
+            if rebind_hook_armed["armed"]:
+                rebind_hook_armed["armed"] = False
+                in_stop_join.set()
+                assert gen2_ready_during_stop.wait(timeout=5.0) is True
+
+        with monkeypatch.context() as mp_rebind:
+            mp_rebind.setattr(
+                EmbeddedMcpHttpServer,
+                "_stop_detached_handles",
+                staticmethod(_stop_handles_with_concurrent_gen2),
+            )
+            try:
+                assert srv_rebind.start(timeout=5.0) is True
+                rebind_proc = shared_wc._proc
+                assert rebind_proc is not None
+                rebind_hook_armed["armed"] = True
+
+                stop_thr = threading.Thread(target=srv_rebind.stop, daemon=True)
+                stop_thr.start()
+                assert in_stop_join.wait(timeout=5.0) is True
+
+                # Start Gen 2 on the SAME EmbeddedMcpHttpServer instance before Gen 1's stop() reaches worker shutdown!
+                assert srv_rebind.start(timeout=5.0) is True
+                gen2_ready_during_stop.set()
+                stop_thr.join(timeout=5.0)
+                assert stop_thr.is_alive() is False
+
+                assert srv_rebind.is_running is True
+                assert shared_wc.is_running is True
+                assert shared_wc._proc is rebind_proc
+                assert shared_shutdowns == []
+            finally:
+                rebind_hook_armed["armed"] = False
+                gen2_ready_during_stop.set()
+                srv_rebind.stop()
+        assert shared_wc.is_running is False
+        assert len(shared_shutdowns) == 1
+
+    # ------------------------------------------------------------------
+    # 2. R5-F27: Exited `_serve_thread()` unregisters its generation and is NOT treated as an active server
+    # ------------------------------------------------------------------
+    with monkeypatch.context() as mp_f27:
+        mp_f27.setattr(rt_settings, "mtui_root", ROOT)
+        f27_shutdowns: list[Any] = []
+        f27_proc = types.SimpleNamespace(name="f27_proc", poll=lambda: None)
+        f27_wc = types.SimpleNamespace(
+            _proc=None,
+            is_running=False,
+        )
+
+        def _f27_ensure() -> int:
+            f27_wc._proc = f27_proc
+            f27_wc.is_running = True
+            return 9300
+
+        def _f27_shutdown(expected_proc: Any = None) -> None:
+            if expected_proc is not None and f27_wc._proc is not expected_proc:
+                return
+            if f27_wc._proc is not None:
+                f27_shutdowns.append(f27_wc._proc)
+                f27_wc._proc = None
+                f27_wc.is_running = False
+
+        f27_wc.ensure_started = _f27_ensure
+        f27_wc.shutdown = _f27_shutdown
+        mp_f27.setattr("mtui_mcp.embedded_server.get_worker_client", lambda: f27_wc)
+
+        crash_gate = threading.Event()
+
+        class _CrashingAfterReadyServer:
+            started = False
+            should_exit = False
+            force_exit = False
+
+            @staticmethod
+            def install_signal_handlers() -> None:
+                return None
+
+            async def serve(self, sockets: Any = None) -> None:
+                self.started = True
+                while not crash_gate.is_set() and not self.should_exit:
+                    await __import__("asyncio").sleep(0.005)
+                # Exit unexpectedly with should_exit STILL False!
+
+        srv_crash = EmbeddedMcpHttpServer(host="127.0.0.1", port=0, mtui_root=ROOT, warm_up=False)
+        with monkeypatch.context() as mp_crash_srv:
+            mp_crash_srv.setattr(
+                "mtui_mcp.embedded_server.uvicorn.Server",
+                lambda _cfg: _CrashingAfterReadyServer(),
+            )
+            assert srv_crash.start(timeout=5.0) is True
+            crashed_thread = srv_crash._thread
+            assert crashed_thread is not None and crashed_thread.is_alive()
+
+            # Trigger unexpected exit of `_serve_thread()` WITHOUT calling srv_crash.stop()
+            crash_gate.set()
+            crashed_thread.join(timeout=3.0)
+            assert crashed_thread.is_alive() is False
+
+        # `_serve_thread()` exit MUST have unregistered srv_crash from `_ACTIVE_SERVER_GENERATIONS`
+        with emb_mod._EMBEDDED_LIFECYCLE_LOCK:
+            assert all(k[0] != id(srv_crash) for k in emb_mod._ACTIVE_SERVER_GENERATIONS)
+        assert srv_crash.is_running is False
+
+        # Now start a `warm_up=True` peer that rolls back: it MUST NOT mistake dead `srv_crash` for an active peer!
+        srv_rollback_peer = EmbeddedMcpHttpServer(host="127.0.0.1", port=0, mtui_root=ROOT, warm_up=True)
+
+        def _flip_peer_on_warmup() -> int:
+            res = _f27_ensure()
+            with srv_rollback_peer._lock:
+                srv_rollback_peer._start_generation += 1
+            return res
+
+        f27_wc.ensure_started = _flip_peer_on_warmup
+        try:
+            assert srv_rollback_peer.start(timeout=5.0) is False
+            assert f27_shutdowns == [f27_proc]
+            assert f27_wc.is_running is False
+        finally:
+            srv_rollback_peer._stop_detached_handles(
+                srv_rollback_peer._server,
+                srv_rollback_peer._thread,
+                srv_rollback_peer._socket,
+                timeout=1.0,
+            )
+            srv_rollback_peer.stop()
+            srv_crash.stop()
+
+    # ------------------------------------------------------------------
+    # 3. R5-F28: Cancelled warm-up check + shutdown is atomic wrt `warm_up=False` server registrations
+    # ------------------------------------------------------------------
+    with monkeypatch.context() as mp_f28_emb:
+        mp_f28_emb.setattr(rt_settings, "mtui_root", ROOT)
+        f28_proc = types.SimpleNamespace(name="f28_proc", poll=lambda: None)
+        f28_shutdowns: list[Any] = []
+        warm_in_ensure = threading.Event()
+        release_warm_ensure = threading.Event()
+
+        class _AtomicRaceWorker:
+            def __init__(self) -> None:
+                self._proc: Any = None
+                self.is_running = False
+
+            def ensure_started(self) -> int:
+                self._proc = f28_proc
+                self.is_running = True
+                warm_in_ensure.set()
+                release_warm_ensure.wait(timeout=5.0)
+                return 9400
+
+            def shutdown(self, expected_proc: Any = None) -> None:
+                if expected_proc is not None and self._proc is not expected_proc:
+                    return
+                if self._proc is not None:
+                    f28_shutdowns.append(self._proc)
+                    self._proc = None
+                    self.is_running = False
+
+        f28_wc = _AtomicRaceWorker()
+        mp_f28_emb.setattr("mtui_mcp.embedded_server.get_worker_client", lambda: f28_wc)
+
+        srv_warm = EmbeddedMcpHttpServer(host="127.0.0.1", port=0, mtui_root=ROOT, warm_up=True)
+        srv_cold = EmbeddedMcpHttpServer(host="127.0.0.1", port=0, mtui_root=ROOT, warm_up=False)
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool_f28:
+                fut_warm = pool_f28.submit(srv_warm.start, 5.0)
+                assert warm_in_ensure.wait(timeout=5.0) is True
+
+                # Start `warm_up=False` server WHILE `srv_warm` holds `_EMBEDDED_WARMUP_LOCK`!
+                # `srv_cold.start()` registers atomically under `_EMBEDDED_LIFECYCLE_LOCK` without waiting on warmup.
+                assert srv_cold.start(timeout=5.0) is True
+                assert srv_cold.is_running is True
+
+                # Cancel `srv_warm` so its rollback runs: MUST see `srv_cold` in `_ACTIVE_SERVER_GENERATIONS`
+                # and preserve `f28_proc` for `srv_cold`!
+                with srv_warm._lock:
+                    srv_warm._start_generation += 1
+                release_warm_ensure.set()
+                assert fut_warm.result(timeout=5.0) is False
+
+            assert f28_shutdowns == []
+            assert f28_wc.is_running is True
+            assert f28_wc._proc is f28_proc
+
+            # When `srv_cold` (`warm_up=False`) finally stops, it releases the last ownership claim and shuts down `f28_proc`!
+            srv_cold.stop()
+            assert f28_shutdowns == [f28_proc]
+            assert f28_wc.is_running is False
+        finally:
+            release_warm_ensure.set()
+            srv_warm._stop_detached_handles(
+                srv_warm._server,
+                srv_warm._thread,
+                srv_warm._socket,
+                timeout=1.0,
+            )
+            srv_warm.stop()
+            srv_cold.stop()
+
+    # ------------------------------------------------------------------
+    # 4. R5-F18 & R5-F30: `save_reply_deadline <= request_deadline` clamping and post-send `save_page` non-timeout errors
+    # ------------------------------------------------------------------
+    r5_sess = f"pytest-r5-ipc-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+    monkeypatch.setenv("MTUI_MCP_SESSION", r5_sess)
+    r5_dir = tmp_path / "r5_ch"
+    r5_dir.mkdir(parents=True)
+    r5_page = r5_dir / "001.png"
+    Image.fromarray(np.full((32, 32, 3), 220, dtype=np.uint8)).save(r5_page)
+
+    r5_model = EditorModel()
+    r5_model.apply_document_snapshot(
+        DocumentSnapshot(
+            source_path=str(r5_page.resolve()),
+            image=np.full((32, 32, 3), 220, dtype=np.uint8),
+            display_image_path=str(r5_page.resolve()),
+            regions=[{"text": "原文", "translation": "R5译文"}],
+        )
+    )
+    r5_hist = _GuiHistoryStub(r5_model)
+    r5_save_calls: list[float] = []
+
+    class _R5Controller:
+        history_service = r5_hist
+        export_service = types.SimpleNamespace(
+            unfinished_count=lambda: 0,
+            has_unsaved_changes=lambda: not r5_hist.is_clean(),
+        )
+        document_service = None
+
+        @staticmethod
+        def commit_pending_edits() -> None:
+            pass
+
+        @staticmethod
+        def save_editor_state() -> bool:
+            r5_save_calls.append(time.monotonic())
+            r5_hist.mark_clean()
+            return True
+
+    r5_mw = types.SimpleNamespace(
+        editor_view=object(),
+        stacked_widget=None,
+        editor_controller=_R5Controller(),
+        editor_model=r5_model,
+        editor_logic=None,
+        app_logic=types.SimpleNamespace(
+            source_files=[str(r5_page.resolve())],
+            state_manager=types.SimpleNamespace(is_translating=lambda: False),
+            current_worker=None,
+        ),
+    )
+    r5_bridge = McpGuiBridgeServer(
+        main_window=r5_mw,
+        session_name=r5_sess,
+        dispatch_timeout=25.0,
+    )
+    try:
+        assert r5_bridge.start() is True
+
+        # 4a. R5-F18: Short 3ms `request_deadline` (< old +5ms floor!) MUST clamp `save_reply_deadline <= request_deadline`
+        # and `save_dispatch_wait <= rem_now`, and a queued `save_page` callback MUST NEVER start after `request_deadline`!
+        captured_save_dispatches: list[tuple[float, Any]] = []
+
+        def _capture_save_dispatch(
+            fn_cb: Any,
+            timeout: float = 25.0,
+            *,
+            deadline: Any = None,
+            on_running_timeout: Any = None,
+        ) -> dict[str, Any]:
+            captured_save_dispatches.append((timeout, deadline))
+            assert fn_cb is not None and on_running_timeout is not None
+            raise TimeoutError("Timed out waiting for Qt GUI main thread")
+
+        with monkeypatch.context() as mp_f18_unit:
+            mp_f18_unit.setattr("services.mcp_service.time.monotonic", lambda: 1000.0)
+            mp_f18_unit.setattr(r5_bridge._dispatcher, "dispatch", _capture_save_dispatch)
+            with pytest.raises(TimeoutError):
+                r5_bridge._execute_rpc(
+                    "save_page",
+                    {},
+                    bridge_generation=r5_bridge._bridge_generation,
+                    request_deadline=1000.003,
+                )
+        assert len(captured_save_dispatches) == 1
+        disp_to, disp_dl = captured_save_dispatches[0]
+        assert disp_dl is not None and disp_dl <= 1000.003
+        assert 0.0 < disp_to <= 0.003
+
+        # End-to-end queued Qt signal check: main thread does NOT pump events until `short_deadline` has expired!
+        short_dl_box: dict[str, float] = {}
+
+        def _call_short_save_rpc() -> dict[str, Any]:
+            dl = time.monotonic() + 0.004
+            short_dl_box["dl"] = dl
+            return r5_bridge._execute_rpc(
+                "save_page",
+                {},
+                bridge_generation=r5_bridge._bridge_generation,
+                request_deadline=dl,
+            )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as short_pool:
+            short_fut = short_pool.submit(_call_short_save_rpc)
+            with pytest.raises(TimeoutError):
+                short_fut.result(timeout=2.0)
+
+        while time.monotonic() < short_dl_box["dl"] + 0.002:
+            time.sleep(0.001)
+        for _ in range(10):
+            _QAPP.processEvents()
+            time.sleep(0.002)
+        assert r5_save_calls == [], "Queued save_page callback MUST NOT start after request_deadline expired!"
+
+        # 4b. R5-F30: Post-send `EOFError` and `OSError` on `save_page` report unknown save outcome (chaining `from err`),
+        # while pre-send errors raise their original exception without claiming the request was sent!
+        def _drop_conn_without_reply(conn_obj: Any, _payload: dict[str, Any]) -> None:
+            conn_obj.close()
+
+        with monkeypatch.context() as mp_f30_eof:
+            mp_f30_eof.setattr(r5_bridge, "_send_reply", _drop_conn_without_reply)
+            with pytest.raises(RuntimeError, match="save outcome is unknown") as eof_exc_info:
+                _run_in_worker_pumping_qt(
+                    lambda: call_live_gui("save_page", session_name=r5_sess, timeout_sec=2.0)
+                )
+            assert isinstance(eof_exc_info.value.__cause__, (EOFError, OSError))
+            # Save actually completed on the server before connection dropped — proving why unknown outcome is critical!
+            assert len(r5_save_calls) == 1
+
+        # Simulate explicit post-send BrokenPipeError on recv_bytes()
+        import mtui_mcp.gui_bridge as gb_mod
+
+        orig_gb_connect = gb_mod._connect_ipc_client
+        orig_gb_deliver = gb_mod.deliver_challenge
+
+        with monkeypatch.context() as mp_f30_oserr:
+            state_wrap = {"armed": False}
+
+            class _PostHandshakeBrokenConn:
+                def __init__(self, inner: Any) -> None:
+                    self._inner = inner
+
+                def recv_bytes(self, *args: Any, **kwargs: Any) -> bytes:
+                    if state_wrap["armed"]:
+                        raise BrokenPipeError("simulated broken pipe on reply read")
+                    return self._inner.recv_bytes(*args, **kwargs)
+
+                def __getattr__(self, name: str) -> Any:
+                    return getattr(self._inner, name)
+
+            def _wrap_conn(addr: str, dl: float) -> Any:
+                state_wrap["armed"] = False
+                return _PostHandshakeBrokenConn(orig_gb_connect(addr, dl))
+
+            def _arm_after_deliver(conn_obj: Any, key_b: bytes) -> None:
+                orig_gb_deliver(conn_obj, key_b)
+                state_wrap["armed"] = True
+
+            mp_f30_oserr.setattr(gb_mod, "_connect_ipc_client", _wrap_conn)
+            mp_f30_oserr.setattr(gb_mod, "deliver_challenge", _arm_after_deliver)
+            with pytest.raises(RuntimeError, match="save outcome is unknown") as oserr_info:
+                _run_in_worker_pumping_qt(
+                    lambda: call_live_gui("save_page", session_name=r5_sess, timeout_sec=2.0)
+                )
+            assert isinstance(oserr_info.value.__cause__, BrokenPipeError)
+
+        # Pre-send failure on `save_page` (e.g. connect failure before sending request) raises original error directly
+        with monkeypatch.context() as mp_f30_presend:
+            mp_f30_presend.setattr(
+                gb_mod,
+                "_connect_ipc_client",
+                lambda _a, _d: (_ for _ in ()).throw(ConnectionRefusedError("pre-send connect failed")),
+            )
+            with pytest.raises(ConnectionRefusedError, match="pre-send connect failed"):
+                call_live_gui("save_page", session_name=r5_sess, timeout_sec=1.0)
+    finally:
+        r5_bridge.stop()

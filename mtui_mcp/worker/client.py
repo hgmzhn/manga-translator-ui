@@ -48,7 +48,26 @@ class MtuiWorkerClient:
     def is_running(self) -> bool:
         return self._proc is not None and self._proc.poll() is None and self._port is not None
 
-    def _drain_stderr(self, pipe: Any) -> None:
+    def _on_pipe_reader_exit(self, proc: Any, pipe_name: str, pipe: Any) -> None:
+        with contextlib.suppress(Exception):
+            pipe.close()
+        current = threading.current_thread()
+        with self._lock:
+            readers = self._proc_pipe_readers.get(proc)
+            if readers is None:
+                return
+            if readers.get(pipe_name) is current:
+                readers.pop(pipe_name, None)
+            has_live_reader = any(
+                t_r.ident is not None and t_r.is_alive() and t_r is not current
+                for t_r in readers.values()
+            )
+            if not has_live_reader:
+                self._proc_pipe_readers.pop(proc, None)
+                if proc.poll() is not None:
+                    self._close_exited_proc_pipes_locked(proc)
+
+    def _drain_stderr(self, proc: Any, pipe: Any) -> None:
         try:
             for line in iter(pipe.readline, ""):
                 if not line:
@@ -57,11 +76,10 @@ class MtuiWorkerClient:
         except Exception:
             pass
         finally:
-            with contextlib.suppress(Exception):
-                pipe.close()
+            self._on_pipe_reader_exit(proc, "stderr", pipe)
 
     def _close_exited_proc_pipes_locked(self, proc: Any) -> None:
-        """Close pipes on an exited `proc` ONLY when no reader thread is still blocked on that pipe (`R4-F22`)."""
+        """Close pipes on an exited `proc` ONLY when no reader thread is still blocked on that pipe (`R4-F22`, `R5-F19`)."""
         if proc.poll() is None:
             return
         readers = self._proc_pipe_readers.get(proc) or {}
@@ -69,7 +87,7 @@ class MtuiWorkerClient:
             if pipe is None:
                 continue
             t_reader = readers.get(pipe_name)
-            if t_reader is not None and t_reader.is_alive():
+            if t_reader is not None and t_reader.ident is not None and t_reader.is_alive():
                 continue
             with contextlib.suppress(Exception):
                 pipe.close()
@@ -77,11 +95,11 @@ class MtuiWorkerClient:
         if stdin_pipe is not None:
             with contextlib.suppress(Exception):
                 stdin_pipe.close()
-        if all(not t_r.is_alive() for t_r in readers.values()):
+        if all(t_r.ident is None or not t_r.is_alive() for t_r in readers.values()):
             self._proc_pipe_readers.pop(proc, None)
 
     def _cleanup_proc_pipes(self, proc: Any, *, join_timeout_sec: float = 0.05) -> None:
-        """Join exited-process pipe readers briefly and close only idle pipes (`R4-F22`)."""
+        """Join exited-process pipe readers briefly and close only idle pipes (`R4-F22`, `R5-F19`)."""
         if proc.poll() is None:
             return
         with self._lock:
@@ -92,19 +110,26 @@ class MtuiWorkerClient:
                 rem = join_deadline - time.monotonic()
                 if rem <= 0:
                     break
-                if t_reader.is_alive() and t_reader is not threading.current_thread():
+                if (
+                    t_reader.ident is not None
+                    and t_reader.is_alive()
+                    and t_reader is not threading.current_thread()
+                ):
                     t_reader.join(timeout=rem)
         with self._lock:
             self._close_exited_proc_pipes_locked(proc)
 
     def _reap_shutting_down_procs_locked(self) -> bool:
-        """Remove processes in `_shutting_down_procs` ONLY after `poll()` confirms OS exit (`R3-F11`, `R4-F22`)."""
+        """Remove processes in `_shutting_down_procs` ONLY after `poll()` confirms OS exit (`R3-F11`, `R4-F22`, `R5-F20`)."""
         reaped_any = False
         for p in list(self._shutting_down_procs):
             if p.poll() is not None:
                 self._shutting_down_procs.discard(p)
                 self._close_exited_proc_pipes_locked(p)
                 reaped_any = True
+        for p in list(self._proc_pipe_readers):
+            if p is not self._proc and p.poll() is not None:
+                self._close_exited_proc_pipes_locked(p)
         if reaped_any:
             self._state_cond.notify_all()
         return reaped_any
@@ -197,204 +222,232 @@ class MtuiWorkerClient:
         startup_timeout_sec: float = 45.0,
     ) -> tuple[subprocess.Popen[str], int, str]:
         deadline = time.monotonic() + max(0.01, float(startup_timeout_sec))
+        spawned_proc_to_cleanup: Optional[subprocess.Popen[str]] = None
 
-        with self._lock:
-            while True:
-                # R2-F27 & R3-F11: Never spawn a replacement worker while a previous worker process is still alive/draining
-                self._wait_for_shutting_down_procs_locked(deadline)
-
-                settings = get_runtime_settings()
-                if not settings.is_engine_available or settings.mtui_root is None or settings.mtui_python is None:
-                    raise RuntimeError(
-                        "manga-translator-ui runtime is not configured or its Python environment was not found. "
-                        "Set MTUI_ROOT environment variable or call mtui_status(mtui_root=...)."
-                    )
-
-                if (
-                    self.is_running
-                    and self._proc is not None
-                    and self._port is not None
-                    and self._bound_root == settings.mtui_root
-                    and self._bound_python == settings.mtui_python
-                ):
-                    return self._proc, int(self._port), self._token
-
-                if self._proc is not None:
-                    # R4-F32: Initiate old-worker shutdown asynchronously so config-switch wait stays bounded by `deadline`
-                    old_proc, old_port, old_token = self._detach_active_proc_locked()
-                    if old_proc is not None:
-                        if old_proc.poll() is None:
-                            threading.Thread(
-                                target=self._terminate_detached_proc,
-                                args=(old_proc, old_port, old_token),
-                                daemon=True,
-                            ).start()
-                        else:
-                            self._cleanup_proc_pipes(old_proc, join_timeout_sec=0.02)
-                            self._shutting_down_procs.discard(old_proc)
-                    continue
-
-                break
-
-            # R3-F38: Re-check startup budget after draining old workers before spawning a new process
-            if deadline - time.monotonic() <= 0:
-                raise TimeoutError("Timed out starting MTUI Engine Worker before process spawn")
-
-            worker_script = Path(__file__).resolve().parent / "engine_worker.py"
-            token = secrets.token_hex(32)
-            self._stderr_ring.clear()
-
-            env = os.environ.copy()
-            env["PYTHONIOENCODING"] = "utf-8"
-            env["PYTHONUTF8"] = "1"
-            env["TQDM_DISABLE"] = "1"
-            env["QT_QPA_PLATFORM"] = "offscreen"
-            env.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
-            env.setdefault("QT_IMAGEIO_MAXALLOC", "1024")
-
-            creationflags = 0
-            if sys.platform == "win32":
-                creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
-            is_frozen_self = bool(
-                getattr(sys, "frozen", False)
-                and sys.executable
-                and os.path.normcase(os.path.abspath(str(settings.mtui_python)))
-                == os.path.normcase(os.path.abspath(sys.executable))
-            )
-            if is_frozen_self:
-                cmd = [
-                    str(settings.mtui_python),
-                    "--mtui-engine-worker",
-                    "--mtui-root",
-                    str(settings.mtui_root),
-                    "--port",
-                    "0",
-                    "--token",
-                    token,
-                ]
-            else:
-                cmd = [
-                    str(settings.mtui_python),
-                    "-u",
-                    str(worker_script),
-                    "--mtui-root",
-                    str(settings.mtui_root),
-                    "--port",
-                    "0",
-                    "--token",
-                    token,
-                ]
-
-            proc = subprocess.Popen(
-                cmd,
-                cwd=str(settings.mtui_root),
-                env=env,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                creationflags=creationflags,
-            )
-            self._proc = proc
-            self._token = token
-            self._bound_root = settings.mtui_root
-            self._bound_python = settings.mtui_python
-            readers: dict[str, threading.Thread] = {}
-            self._proc_pipe_readers[proc] = readers
-
-            if proc.stderr is not None:
-                t_stderr = threading.Thread(target=self._drain_stderr, args=(proc.stderr,), daemon=True)
-                readers["stderr"] = t_stderr
-                t_stderr.start()
-
-            # R2-F57: Keep `handshake_q` strictly bounded to READY or EOF; stream pre-READY logs into `_stderr_ring`
-            handshake_q: queue.Queue[Optional[str]] = queue.Queue(maxsize=2)
-
-            def _read_stdout(pipe: Any) -> None:
-                handshake_done = False
-                try:
-                    for raw_line in iter(pipe.readline, ""):
-                        if not raw_line:
-                            break
-                        stripped = raw_line.rstrip("\r\n")
-                        if not handshake_done and "MTUI_WORKER_READY" in stripped:
-                            handshake_done = True
-                            handshake_q.put(stripped)
-                        else:
-                            self._stderr_ring.append(stripped)
-                except Exception:
-                    pass
-                finally:
-                    if not handshake_done:
-                        try:
-                            handshake_q.put_nowait(None)
-                        except queue.Full:
-                            pass
-                    with contextlib.suppress(Exception):
-                        pipe.close()
-
-            if proc.stdout is not None:
-                t_stdout = threading.Thread(target=_read_stdout, args=(proc.stdout,), daemon=True)
-                readers["stdout"] = t_stdout
-                t_stdout.start()
-            else:
-                handshake_q.put_nowait(None)
-
-            ready_port: Optional[int] = None
-            try:
+        try:
+            with self._lock:
                 while True:
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        err_tail = "\n".join(self._stderr_ring)
-                        raise TimeoutError(f"Timed out starting MTUI Engine Worker:\n{err_tail}")
+                    # R2-F27 & R3-F11: Never spawn a replacement worker while a previous worker process is still alive/draining
+                    self._wait_for_shutting_down_procs_locked(deadline)
 
-                    try:
-                        line = handshake_q.get(timeout=min(0.25, remaining))
-                    except queue.Empty:
-                        if proc.poll() is not None:
+                    settings = get_runtime_settings()
+                    if not settings.is_engine_available or settings.mtui_root is None or settings.mtui_python is None:
+                        raise RuntimeError(
+                            "manga-translator-ui runtime is not configured or its Python environment was not found. "
+                            "Set MTUI_ROOT environment variable or call mtui_status(mtui_root=...)."
+                        )
+
+                    if (
+                        self.is_running
+                        and self._proc is not None
+                        and self._port is not None
+                        and self._bound_root == settings.mtui_root
+                        and self._bound_python == settings.mtui_python
+                    ):
+                        return self._proc, int(self._port), self._token
+
+                    if self._proc is not None:
+                        # R4-F32 & R5-F16: Initiate old-worker shutdown asynchronously; restore ownership if Thread.start() fails
+                        old_bound_root = self._bound_root
+                        old_bound_python = self._bound_python
+                        old_proc, old_port, old_token = self._detach_active_proc_locked()
+                        if old_proc is not None:
+                            if old_proc.poll() is None:
+                                t_term = threading.Thread(
+                                    target=self._terminate_detached_proc,
+                                    args=(old_proc, old_port, old_token),
+                                    daemon=True,
+                                )
+                                try:
+                                    t_term.start()
+                                except BaseException:
+                                    self._proc = old_proc
+                                    self._port = old_port
+                                    self._token = old_token
+                                    self._bound_root = old_bound_root
+                                    self._bound_python = old_bound_python
+                                    self._shutting_down_procs.discard(old_proc)
+                                    self._state_cond.notify_all()
+                                    raise
+                            else:
+                                self._cleanup_proc_pipes(old_proc, join_timeout_sec=0.02)
+                                self._shutting_down_procs.discard(old_proc)
+                        continue
+
+                    break
+
+                # R3-F38: Re-check startup budget after draining old workers before spawning a new process
+                if deadline - time.monotonic() <= 0:
+                    raise TimeoutError("Timed out starting MTUI Engine Worker before process spawn")
+
+                worker_script = Path(__file__).resolve().parent / "engine_worker.py"
+                token = secrets.token_hex(32)
+                self._stderr_ring.clear()
+
+                env = os.environ.copy()
+                env["PYTHONIOENCODING"] = "utf-8"
+                env["PYTHONUTF8"] = "1"
+                env["TQDM_DISABLE"] = "1"
+                env["QT_QPA_PLATFORM"] = "offscreen"
+                env.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
+                env.setdefault("QT_IMAGEIO_MAXALLOC", "1024")
+
+                creationflags = 0
+                if sys.platform == "win32":
+                    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+                is_frozen_self = bool(
+                    getattr(sys, "frozen", False)
+                    and sys.executable
+                    and os.path.normcase(os.path.abspath(str(settings.mtui_python)))
+                    == os.path.normcase(os.path.abspath(sys.executable))
+                )
+                if is_frozen_self:
+                    cmd = [
+                        str(settings.mtui_python),
+                        "--mtui-engine-worker",
+                        "--mtui-root",
+                        str(settings.mtui_root),
+                        "--port",
+                        "0",
+                        "--token",
+                        token,
+                    ]
+                else:
+                    cmd = [
+                        str(settings.mtui_python),
+                        "-u",
+                        str(worker_script),
+                        "--mtui-root",
+                        str(settings.mtui_root),
+                        "--port",
+                        "0",
+                        "--token",
+                        token,
+                    ]
+
+                proc = subprocess.Popen(
+                    cmd,
+                    cwd=str(settings.mtui_root),
+                    env=env,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    creationflags=creationflags,
+                )
+                # R5-F19: Guard reader initialization + READY handshake immediately after Popen()
+                try:
+                    self._proc = proc
+                    self._port = None
+                    self._token = token
+                    self._bound_root = settings.mtui_root
+                    self._bound_python = settings.mtui_python
+                    readers: dict[str, threading.Thread] = {}
+                    self._proc_pipe_readers[proc] = readers
+
+                    if proc.stderr is not None:
+                        t_stderr = threading.Thread(
+                            target=self._drain_stderr,
+                            args=(proc, proc.stderr),
+                            daemon=True,
+                        )
+                        t_stderr.start()
+                        readers["stderr"] = t_stderr
+
+                    # R2-F57: Keep `handshake_q` strictly bounded to READY or EOF; stream pre-READY logs into `_stderr_ring`
+                    handshake_q: queue.Queue[Optional[str]] = queue.Queue(maxsize=2)
+
+                    def _read_stdout(proc_obj: Any, pipe: Any) -> None:
+                        handshake_done = False
+                        try:
+                            for raw_line in iter(pipe.readline, ""):
+                                if not raw_line:
+                                    break
+                                stripped = raw_line.rstrip("\r\n")
+                                if not handshake_done and "MTUI_WORKER_READY" in stripped:
+                                    handshake_done = True
+                                    handshake_q.put(stripped)
+                                else:
+                                    self._stderr_ring.append(stripped)
+                        except Exception:
+                            pass
+                        finally:
+                            if not handshake_done:
+                                try:
+                                    handshake_q.put_nowait(None)
+                                except queue.Full:
+                                    pass
+                            self._on_pipe_reader_exit(proc_obj, "stdout", pipe)
+
+                    if proc.stdout is not None:
+                        t_stdout = threading.Thread(
+                            target=_read_stdout,
+                            args=(proc, proc.stdout),
+                            daemon=True,
+                        )
+                        t_stdout.start()
+                        readers["stdout"] = t_stdout
+                    else:
+                        handshake_q.put_nowait(None)
+
+                    ready_port: Optional[int] = None
+                    while True:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            err_tail = "\n".join(self._stderr_ring)
+                            raise TimeoutError(f"Timed out starting MTUI Engine Worker:\n{err_tail}")
+
+                        try:
+                            line = handshake_q.get(timeout=min(0.25, remaining))
+                        except queue.Empty:
+                            if proc.poll() is not None:
+                                err_tail = "\n".join(self._stderr_ring)
+                                raise RuntimeError(
+                                    f"MTUI Engine Worker exited prematurely (code {proc.returncode}):\n{err_tail}"
+                                )
+                            continue
+
+                        if line is None:
+                            try:
+                                proc.wait(timeout=1.0)
+                            except Exception:
+                                pass
                             err_tail = "\n".join(self._stderr_ring)
                             raise RuntimeError(
                                 f"MTUI Engine Worker exited prematurely (code {proc.returncode}):\n{err_tail}"
                             )
-                        continue
 
-                    if line is None:
-                        try:
-                            proc.wait(timeout=1.0)
-                        except Exception:
-                            pass
-                        err_tail = "\n".join(self._stderr_ring)
-                        raise RuntimeError(
-                            f"MTUI Engine Worker exited prematurely (code {proc.returncode}):\n{err_tail}"
-                        )
+                        if "MTUI_WORKER_READY" in line:
+                            json_part = line.split("MTUI_WORKER_READY", 1)[1].strip()
+                            try:
+                                info = json.loads(json_part)
+                                if not isinstance(info, dict):
+                                    raise ValueError("READY payload must be a JSON object")
+                                parsed_port = int(info["port"])
+                                if not (1 <= parsed_port <= 65535):
+                                    raise ValueError(f"Port out of valid range 1..65535: {parsed_port}")
+                            except Exception as parse_exc:
+                                err_tail = "\n".join(self._stderr_ring)
+                                raise RuntimeError(
+                                    f"Invalid MTUI Engine Worker READY handshake ({line!r}): {parse_exc}\n{err_tail}"
+                                ) from parse_exc
+                            ready_port = parsed_port
+                            break
+                        else:
+                            self._stderr_ring.append(line)
 
-                    if "MTUI_WORKER_READY" in line:
-                        json_part = line.split("MTUI_WORKER_READY", 1)[1].strip()
-                        try:
-                            info = json.loads(json_part)
-                            if not isinstance(info, dict):
-                                raise ValueError("READY payload must be a JSON object")
-                            parsed_port = int(info["port"])
-                            if not (1 <= parsed_port <= 65535):
-                                raise ValueError(f"Port out of valid range 1..65535: {parsed_port}")
-                        except Exception as parse_exc:
-                            err_tail = "\n".join(self._stderr_ring)
-                            raise RuntimeError(
-                                f"Invalid MTUI Engine Worker READY handshake ({line!r}): {parse_exc}\n{err_tail}"
-                            ) from parse_exc
-                        ready_port = parsed_port
-                        break
-                    else:
-                        self._stderr_ring.append(line)
-            except BaseException:
-                self.shutdown(expected_proc=proc)
-                raise
-
-            self._port = ready_port
-            return proc, ready_port, token
+                    self._port = ready_port
+                    return proc, ready_port, token
+                except BaseException:
+                    spawned_proc_to_cleanup = proc
+                    raise
+        except BaseException:
+            if spawned_proc_to_cleanup is not None:
+                self.shutdown(expected_proc=spawned_proc_to_cleanup)
+            raise
 
     def ensure_started(self, startup_timeout_sec: float = 45.0) -> int:
         _, port, _ = self._ensure_started_instance(startup_timeout_sec=startup_timeout_sec)
