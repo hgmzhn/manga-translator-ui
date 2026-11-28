@@ -376,8 +376,6 @@ def _normalize_legacy_richtext_nulls(doc: Any) -> None:
     """Normalize legacy `null` list/text fields inside `richtext.v1` dicts in-place so load/save never raises `TypeError`."""
     if not isinstance(doc, dict) or doc.get("format") != "richtext.v1":
         return
-    if doc.get("blocks") is None:
-        doc["blocks"] = []
     blocks = doc.get("blocks")
     if not isinstance(blocks, list):
         return
@@ -842,7 +840,100 @@ def _copy_file_atomic(src: Path, dst: Path) -> None:
                 pass
 
 
-def _is_complete_snapshot_dir(snap_dir: Path, *, require_nonempty: bool = False) -> bool:
+def _write_bytes_atomic(data_bytes: bytes, dst: Path) -> None:
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{dst.name}.",
+        suffix=".tmp",
+        dir=str(dst.parent),
+    )
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data_bytes)
+            f.flush()
+            os.fsync(f.fileno())
+        _atomic_replace_with_retry(tmp_name, dst)
+        tmp_name = ""
+    finally:
+        if tmp_name and os.path.exists(tmp_name):
+            try:
+                os.remove(tmp_name)
+            except OSError:
+                pass
+
+
+def _sync_restored_json_export_metadata(
+    raw_bytes: bytes,
+    source_path: Path,
+    rendered_dst: Path,
+    *,
+    force_update: bool,
+) -> Optional[bytes]:
+    """Return updated UTF-8 JSON bytes pointing `last_output_path`/`last_export_dir` at `rendered_dst` when needed."""
+    raw_obj = json.loads(raw_bytes.decode("utf-8"))
+    if not isinstance(raw_obj, dict) or not raw_obj:
+        return None
+    abs_src = os.path.abspath(str(source_path))
+    target_key: Optional[str] = None
+    if abs_src in raw_obj:
+        target_key = abs_src
+    else:
+        norm_target = os.path.normcase(abs_src)
+        for k in raw_obj.keys():
+            try:
+                if os.path.normcase(os.path.abspath(k)) == norm_target:
+                    target_key = k
+                    break
+            except Exception:
+                continue
+        if target_key is None:
+            target_key = next(iter(raw_obj.keys()))
+
+    val = raw_obj[target_key]
+    if isinstance(val, dict):
+        entry = val
+    elif isinstance(val, list):
+        entry = {"regions": val}
+        raw_obj[target_key] = entry
+    else:
+        return None
+
+    is_inline_in_src_dir = _norm_abs_path_str(rendered_dst.parent) == _norm_abs_path_str(source_path.parent)
+    desired_last_out = str(rendered_dst)
+    desired_export_dir = None if is_inline_in_src_dir else str(rendered_dst.parent)
+
+    cur_last_out = entry.get("last_output_path")
+    cur_export_dir = entry.get("last_export_dir")
+    out_mismatch = (
+        isinstance(cur_last_out, str)
+        and cur_last_out.strip()
+        and _norm_abs_path_str(cur_last_out.strip()) != _norm_abs_path_str(rendered_dst)
+    )
+    dir_mismatch = (
+        isinstance(cur_export_dir, str)
+        and cur_export_dir.strip()
+        and (
+            is_inline_in_src_dir
+            or _norm_abs_path_str(cur_export_dir.strip()) != _norm_abs_path_str(rendered_dst.parent)
+        )
+    )
+    if not (force_update or out_mismatch or dir_mismatch):
+        return None
+
+    entry["last_output_path"] = desired_last_out
+    if desired_export_dir is None:
+        entry.pop("last_export_dir", None)
+    else:
+        entry["last_export_dir"] = desired_export_dir
+    return (json.dumps(raw_obj, indent=2, ensure_ascii=False, cls=_NumpySafeEncoder) + "\n").encode("utf-8")
+
+
+def _is_complete_snapshot_dir(
+    snap_dir: Path,
+    *,
+    require_nonempty: bool = False,
+    expected_page_name: Optional[str] = None,
+) -> bool:
     mf = snap_dir / "manifest.json"
     if mf.is_symlink() or not mf.is_file():
         return False
@@ -854,6 +945,8 @@ def _is_complete_snapshot_dir(snap_dir: Path, *, require_nonempty: bool = False)
         page_val = data.get("page")
         files_map = data.get("files")
         if not isinstance(page_val, str) or not page_val.strip() or not isinstance(files_map, dict):
+            return False
+        if expected_page_name is not None and os.path.normcase(page_val) != os.path.normcase(expected_page_name):
             return False
         if require_nonempty and not files_map:
             return False
@@ -972,7 +1065,11 @@ def ensure_initial_snapshot(paths: PagePaths) -> Optional[dict[str, Any]]:
             if (
                 entry.name.startswith(prefix)
                 and re.search(r"__initial_before_mcp(?:_\d+)?$", entry.name) is not None
-                and _is_complete_snapshot_dir(entry, require_nonempty=True)
+                and _is_complete_snapshot_dir(
+                    entry,
+                    require_nonempty=True,
+                    expected_page_name=paths.source_path.name,
+                )
             ):
                 return None
     return create_snapshot(paths, label="initial_before_mcp")
@@ -1152,10 +1249,14 @@ def _validate_and_plan_snapshot_restore(
                 raise ValueError(
                     f"Snapshot manifest entry 'inpainted' ({orig_raw!r}) does not belong to page {paths.source_path.name}"
                 )
+            target_suffix = orig_p.suffix if orig_p.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS else src.suffix
             dst = (
                 paths.inpainted_path
-                if orig_p.suffix.lower() == paths.inpainted_path.suffix.lower()
-                else (inpainted_dir / f"{paths.source_path.stem}_inpainted{orig_p.suffix}")
+                if (
+                    _norm_abs_path_str(paths.inpainted_path.parent) == inpainted_dir_norm
+                    and paths.inpainted_path.suffix.lower() == target_suffix.lower()
+                )
+                else (inpainted_dir / f"{paths.source_path.stem}_inpainted{target_suffix}")
             )
             _assert_safe_restore_target(dst, src_dir_real, src_real)
             copies.append((src, dst, kind, None))
@@ -1302,18 +1403,218 @@ def restore_snapshot(
             manifest = json.load(f)
 
         copies = _validate_and_plan_snapshot_restore(paths, snap_dir, resolved_id, manifest)
-        restored: list[str] = []
-        for src, dst, kind, extra_sync in copies:
-            _copy_file_atomic(src, dst)
+        files_map = manifest.get("files") if isinstance(manifest, dict) else {}
+
+        # Plan any conflicting sibling `<stem>_inpainted.*` cleanup (R3-F23) and redirected rendered JSON sync (R3-F22)
+        src_real = paths.source_path.resolve()
+        src_dir_real = paths.source_path.parent.resolve()
+        inpainted_dir = paths.work_dir / "inpainted"
+        expected_inp_stem = os.path.normcase(f"{paths.source_path.stem}_inpainted")
+
+        inpainted_dst: Optional[Path] = None
+        rendered_dst: Optional[Path] = None
+        rendered_redirected = False
+        json_copy_entry: Optional[tuple[Path, Path, str, Optional[Path]]] = None
+        for item in copies:
+            c_src, c_dst, c_kind, c_extra = item
+            if c_kind == "inpainted":
+                inpainted_dst = c_dst
+            elif c_kind == "rendered":
+                rendered_dst = c_dst
+                orig_ren_raw = ((files_map or {}).get("rendered") or {}).get("original")
+                if isinstance(orig_ren_raw, str) and orig_ren_raw.strip():
+                    rendered_redirected = _norm_abs_path_str(c_dst) != _norm_abs_path_str(Path(orig_ren_raw))
+            elif c_kind == "json":
+                json_copy_entry = (c_src, c_dst, c_kind, c_extra)
+
+        conflicting_inpainted_siblings: list[Path] = []
+        if inpainted_dst is not None and inpainted_dir.exists():
+            if inpainted_dir.is_symlink():
+                raise ValueError(f"Snapshot restore target directory {inpainted_dir} must not be a symlink")
+            for entry in sorted(inpainted_dir.iterdir(), key=lambda p: p.name):
+                if entry.name.startswith("."):
+                    continue
+                if (entry.is_file() or entry.is_symlink()) and entry.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS:
+                    if (
+                        os.path.normcase(entry.stem) == expected_inp_stem
+                        and _norm_abs_path_str(entry) != _norm_abs_path_str(inpainted_dst)
+                    ):
+                        _assert_safe_restore_target(entry, src_dir_real, src_real)
+                        conflicting_inpainted_siblings.append(entry)
+
+        json_override_bytes: Optional[bytes] = None
+        standalone_json_sync_dst: Optional[Path] = None
+        if rendered_dst is not None:
+            if json_copy_entry is not None:
+                json_override_bytes = _sync_restored_json_export_metadata(
+                    json_copy_entry[0].read_bytes(),
+                    paths.source_path,
+                    rendered_dst,
+                    force_update=rendered_redirected,
+                )
+            elif paths.json_exists and paths.json_path.is_file():
+                _assert_safe_restore_target(paths.json_path, src_dir_real, src_real)
+                json_override_bytes = _sync_restored_json_export_metadata(
+                    paths.json_path.read_bytes(),
+                    paths.source_path,
+                    rendered_dst,
+                    force_update=rendered_redirected,
+                )
+                if json_override_bytes is not None:
+                    standalone_json_sync_dst = paths.json_path
+
+        # Stage pre-mutation rollback backups for EVERY target that may be modified or unlinked (R3-F24)
+        all_target_paths: list[Path] = []
+        seen_target_norms: set[str] = set()
+
+        def _register_target(tp: Path) -> None:
+            tn = _norm_abs_path_str(tp)
+            if tn not in seen_target_norms:
+                seen_target_norms.add(tn)
+                all_target_paths.append(tp)
+
+        for _src, dst, _kind, extra_sync in copies:
+            _register_target(dst)
             if extra_sync is not None and _norm_abs_path_str(extra_sync) != _norm_abs_path_str(dst):
-                _copy_file_atomic(src, extra_sync)
-            restored.append(f"{kind}:{dst}")
-        return {
-            "page": paths.source_path.name,
-            "snapshot_id": resolved_id,
-            "label": manifest.get("label"),
-            "restored": restored,
-        }
+                _register_target(extra_sync)
+        if standalone_json_sync_dst is not None:
+            _register_target(standalone_json_sync_dst)
+        elif rendered_dst is not None and json_copy_entry is None and paths.json_exists and paths.json_path.is_file():
+            # Also stage existing JSON in case post-restore shadowed rendered check needs metadata sync
+            _assert_safe_restore_target(paths.json_path, src_dir_real, src_real)
+            _register_target(paths.json_path)
+        for sib in conflicting_inpainted_siblings:
+            _register_target(sib)
+
+        rollback_state: dict[str, tuple[Path, bool, Optional[Path]]] = {}
+        touched_norms: list[str] = []
+        preserve_backups_on_error = False
+
+        def _mark_touched(tp: Path) -> None:
+            tn = _norm_abs_path_str(tp)
+            if tn not in touched_norms:
+                touched_norms.append(tn)
+
+        try:
+            for tp in all_target_paths:
+                tn = _norm_abs_path_str(tp)
+                if tp.is_file():
+                    fd, bak_name = tempfile.mkstemp(
+                        prefix=f".rollback_{tp.name}.",
+                        suffix=".bak",
+                        dir=str(tp.parent),
+                    )
+                    os.close(fd)
+                    bak_p = Path(bak_name)
+                    shutil.copy2(tp, bak_p)
+                    rollback_state[tn] = (tp, True, bak_p)
+                else:
+                    rollback_state[tn] = (tp, False, None)
+
+            try:
+                restored: list[str] = []
+                for src, dst, kind, extra_sync in copies:
+                    _mark_touched(dst)
+                    if kind == "json" and json_override_bytes is not None:
+                        _write_bytes_atomic(json_override_bytes, dst)
+                    elif kind in ("inpainted", "rendered") and src.suffix.lower() != dst.suffix.lower():
+                        save_rgb_image_atomic(open_rgb_image(src), dst)
+                    else:
+                        _copy_file_atomic(src, dst)
+
+                    if extra_sync is not None and _norm_abs_path_str(extra_sync) != _norm_abs_path_str(dst):
+                        _mark_touched(extra_sync)
+                        if kind == "json" and json_override_bytes is not None:
+                            _write_bytes_atomic(json_override_bytes, extra_sync)
+                        else:
+                            _copy_file_atomic(src, extra_sync)
+                    restored.append(f"{kind}:{dst}")
+
+                if standalone_json_sync_dst is not None and json_override_bytes is not None:
+                    _mark_touched(standalone_json_sync_dst)
+                    _write_bytes_atomic(json_override_bytes, standalone_json_sync_dst)
+
+                for sib in conflicting_inpainted_siblings:
+                    _mark_touched(sib)
+                    if sib.exists():
+                        sib.unlink()
+
+                resolved_after = resolve_page_paths(paths.source_path)
+                if inpainted_dst is not None and (
+                    not resolved_after.inpainted_exists
+                    or _norm_abs_path_str(resolved_after.inpainted_path) != _norm_abs_path_str(inpainted_dst)
+                ):
+                    raise RuntimeError(
+                        f"Restored inpainted path {inpainted_dst} is shadowed by {resolved_after.inpainted_path}"
+                    )
+                if rendered_dst is not None and (
+                    not resolved_after.rendered_output_exists
+                    or _norm_abs_path_str(resolved_after.rendered_output_path) != _norm_abs_path_str(rendered_dst)
+                ):
+                    active_json_p = resolved_after.json_path if resolved_after.json_exists else None
+                    if active_json_p is not None and active_json_p.is_file():
+                        forced_bytes = _sync_restored_json_export_metadata(
+                            active_json_p.read_bytes(),
+                            paths.source_path,
+                            rendered_dst,
+                            force_update=True,
+                        )
+                        if forced_bytes is not None:
+                            _mark_touched(active_json_p)
+                            _write_bytes_atomic(forced_bytes, active_json_p)
+                            resolved_after = resolve_page_paths(paths.source_path)
+                    if (
+                        not resolved_after.rendered_output_exists
+                        or _norm_abs_path_str(resolved_after.rendered_output_path) != _norm_abs_path_str(rendered_dst)
+                    ):
+                        raise RuntimeError(
+                            f"Restored rendered output {rendered_dst} is shadowed by {resolved_after.rendered_output_path}"
+                        )
+
+                return {
+                    "page": paths.source_path.name,
+                    "snapshot_id": resolved_id,
+                    "label": manifest.get("label"),
+                    "restored": restored,
+                }
+            except BaseException as orig_exc:
+                rollback_errors: list[str] = []
+                preserved_paths: list[str] = []
+                for tn in reversed(touched_norms):
+                    tp, existed, bak_p = rollback_state[tn]
+                    try:
+                        if existed and bak_p is not None and bak_p.is_file():
+                            _atomic_replace_with_retry(bak_p, tp)
+                            rollback_state[tn] = (tp, existed, None)
+                        elif not existed and tp.exists():
+                            tp.unlink()
+                    except OSError as rb_exc:
+                        if existed and bak_p is not None and bak_p.exists():
+                            preserve_backups_on_error = True
+                            preserved_paths.append(f"{tp} (backup: {bak_p})")
+                            rollback_errors.append(f"{tp}: {rb_exc} (backup preserved at {bak_p})")
+                        else:
+                            rollback_errors.append(f"{tp}: {rb_exc} (uncommitted file remains on disk)")
+                if rollback_errors:
+                    diag = (
+                        f"Snapshot restore rollback failed for {'; '.join(rollback_errors)}"
+                        + (f"; preserved backups: {', '.join(preserved_paths)}" if preserved_paths else "")
+                    )
+                    logger.error("%s", diag)
+                    if isinstance(orig_exc, OSError):
+                        raise OSError(orig_exc.errno, f"{orig_exc} [{diag}]") from orig_exc
+                    if isinstance(orig_exc, Exception):
+                        raise RuntimeError(f"{orig_exc} [{diag}]") from orig_exc
+                    orig_exc.add_note(diag)
+                raise
+        finally:
+            if not preserve_backups_on_error:
+                for _tp, _existed, bak_p in rollback_state.values():
+                    if bak_p is not None and bak_p.exists():
+                        try:
+                            bak_p.unlink()
+                        except OSError:
+                            pass
 
 
 def create_snapshots_for_target(target_path: str | Path, label: str = "checkpoint") -> dict[str, Any]:

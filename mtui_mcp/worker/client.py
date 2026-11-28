@@ -55,6 +55,37 @@ class MtuiWorkerClient:
         except Exception:
             pass
 
+    def _reap_shutting_down_procs_locked(self) -> bool:
+        """Remove processes in `_shutting_down_procs` ONLY after `poll()` confirms OS exit (R3-F11)."""
+        reaped_any = False
+        for p in list(self._shutting_down_procs):
+            if p.poll() is not None:
+                self._shutting_down_procs.discard(p)
+                reaped_any = True
+        if reaped_any:
+            self._state_cond.notify_all()
+        return reaped_any
+
+    def _wait_for_shutting_down_procs_locked(self, deadline: float) -> None:
+        self._reap_shutting_down_procs_locked()
+        while self._shutting_down_procs:
+            remaining_drain = deadline - time.monotonic()
+            if remaining_drain <= 0:
+                self._reap_shutting_down_procs_locked()
+                if not self._shutting_down_procs:
+                    break
+                lingering_pids = [
+                    pid
+                    for p in self._shutting_down_procs
+                    if p.poll() is None and (pid := getattr(p, "pid", None)) is not None
+                ]
+                pid_suffix = f" (lingering worker pids: {lingering_pids})" if lingering_pids else ""
+                raise TimeoutError(
+                    f"Timed out waiting for previous MTUI Engine Worker to finish shutting down{pid_suffix}"
+                )
+            self._state_cond.wait(timeout=min(0.25, remaining_drain))
+            self._reap_shutting_down_procs_locked()
+
     def _ensure_started_instance(
         self,
         startup_timeout_sec: float = 45.0,
@@ -62,12 +93,8 @@ class MtuiWorkerClient:
         deadline = time.monotonic() + max(0.1, float(startup_timeout_sec))
 
         with self._lock:
-            # R2-F27: Never spawn a replacement worker while a previous worker process is still draining/exiting
-            while self._shutting_down_procs:
-                remaining_drain = deadline - time.monotonic()
-                if remaining_drain <= 0:
-                    raise TimeoutError("Timed out waiting for previous MTUI Engine Worker to finish shutting down")
-                self._state_cond.wait(timeout=min(0.25, remaining_drain))
+            # R2-F27 & R3-F11: Never spawn a replacement worker while a previous worker process is still alive/draining
+            self._wait_for_shutting_down_procs_locked(deadline)
 
             settings = get_runtime_settings()
             if not settings.is_engine_available or settings.mtui_root is None or settings.mtui_python is None:
@@ -86,6 +113,11 @@ class MtuiWorkerClient:
                 return self._proc, int(self._port), self._token
 
             self.shutdown()
+            self._wait_for_shutting_down_procs_locked(deadline)
+
+            # R3-F38: Re-check startup budget after draining old workers before spawning a new process
+            if deadline - time.monotonic() <= 0:
+                raise TimeoutError("Timed out starting MTUI Engine Worker before process spawn")
 
             worker_script = Path(__file__).resolve().parent / "engine_worker.py"
             token = secrets.token_hex(32)
@@ -354,8 +386,10 @@ class MtuiWorkerClient:
         wait_deadline = time.monotonic() + _SHUTDOWN_DRAIN_WAIT_SEC + 4.0
         with self._lock:
             if expected_proc is not None and self._proc is not expected_proc:
+                self._reap_shutting_down_procs_locked()
                 while expected_proc in self._shutting_down_procs and time.monotonic() < wait_deadline:
                     self._state_cond.wait(timeout=0.25)
+                    self._reap_shutting_down_procs_locked()
                 return
             proc = self._proc
             port = self._port
@@ -366,8 +400,10 @@ class MtuiWorkerClient:
             self._bound_root = None
             self._bound_python = None
             if proc is None:
+                self._reap_shutting_down_procs_locked()
                 while self._shutting_down_procs and time.monotonic() < wait_deadline:
                     self._state_cond.wait(timeout=0.25)
+                    self._reap_shutting_down_procs_locked()
                 return
             self._shutting_down_procs.add(proc)
 
@@ -420,7 +456,10 @@ class MtuiWorkerClient:
                     except Exception:
                         pass
             with self._lock:
-                self._shutting_down_procs.discard(proc)
+                # R3-F11: Only unregister `proc` once OS exit is confirmed (`proc.poll() is not None`)
+                if proc.poll() is not None:
+                    self._shutting_down_procs.discard(proc)
+                self._reap_shutting_down_procs_locked()
                 self._state_cond.notify_all()
 
 

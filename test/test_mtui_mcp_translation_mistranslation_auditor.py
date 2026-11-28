@@ -149,3 +149,39 @@ def test_ocr_lv_trap_number_drop_invented_ellipsis_and_polarity_reversal(tmp_pat
     assert (2, "negation_or_prohibition_drop_suspect") in by_idx
     assert (3, "negation_or_prohibition_drop_suspect") in by_idx
     assert (4, "same_bubble_split_regions") in by_idx
+
+
+def test_r3_compound_units_mixed_quantities_and_exact_decimal_units() -> None:
+    from mtui_mcp.translation_auditor import (
+        _parse_decimal_with_units_exact,
+        _parse_num_span,
+        _translation_contains_number,
+        audit_region_translation_accuracy,
+    )
+
+    # R3-F55: Consecutive section multipliers (`一万亿` == `1万亿` == 10^12), preserving additive `一亿二千万`
+    assert _parse_num_span("一万亿") == 1_000_000_000_000
+    assert _parse_num_span("1万亿") == 1_000_000_000_000
+    assert _parse_num_span("一万二千亿") == 1_200_000_000_000
+    assert _parse_num_span("一亿二千万") == 120_000_000
+    assert _translation_contains_number("预算高达一万亿法利", 1_000_000_000_000) is True
+    assert audit_region_translation_accuracy(0, {"text": "予算は1万億だ", "translation": "预算是一万亿"}) == []
+    assert audit_region_translation_accuracy(0, {"text": "被害1億2000万", "translation": "损失一亿二千万"}) == []
+
+    # R3-F56: Mixed compound `2万3千` / `2万3500` parsed as single quantity without backtracking to bare `2`
+    assert audit_region_translation_accuracy(0, {"text": "敵は2万3千人", "translation": "敌人有23000人"}) == []
+    assert audit_region_translation_accuracy(0, {"text": "敵は2万3千人", "translation": "敌人有两万三千人"}) == []
+    assert audit_region_translation_accuracy(0, {"text": "敵は2万3500人", "translation": "敌人有23500人"}) == []
+    wrong_2man = audit_region_translation_accuracy(0, {"text": "敵は2万人", "translation": "敌人有2人"})
+    assert any(i["category"] == "translation_number_mismatch" and i["missing_number"] == 20000 for i in wrong_2man)
+
+    # R3-F57: Exact base-10 decimal-with-unit conversion (no float tolerance false integers or OverflowError)
+    assert _parse_decimal_with_units_exact("2.5", "万") == 25000
+    assert _parse_decimal_with_units_exact("0.000000019999999999", "亿") is None
+    assert _parse_decimal_with_units_exact("9" * 400 + ".5", "万") is None
+    assert audit_region_translation_accuracy(0, {"text": "賞金2.5万", "translation": "赏金25000"}) == []
+    assert audit_region_translation_accuracy(0, {"text": "確率0.000000019999999999億", "translation": "概率极低"}) == []
+    non_int_tr = audit_region_translation_accuracy(
+        0, {"text": "相手は2人だ", "translation": "对手有0.000000019999999999亿人"}
+    )
+    assert any(i["category"] == "translation_number_mismatch" and i["missing_number"] == 2 for i in non_int_tr)

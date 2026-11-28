@@ -9,6 +9,7 @@ Generates crisp, pixel-ruler-annotated comparison sheets so Vision Agents can:
 from __future__ import annotations
 
 import math
+import os
 from pathlib import Path
 from typing import Any, Optional
 
@@ -331,10 +332,21 @@ def _resize_if_needed(img_rgb: np.ndarray, target_w: int, target_h: int) -> np.n
     return cv2.resize(img_rgb, (target_w, target_h), interpolation=interp)
 
 
+def _uses_distinct_editor_base(paths: PagePaths) -> bool:
+    try:
+        return os.path.normcase(os.path.abspath(str(paths.display_base_path))) != os.path.normcase(
+            os.path.abspath(str(paths.source_path))
+        )
+    except Exception:
+        return bool(getattr(paths, "editor_base_valid", False))
+
+
 def _inpainted_panel_source_info(paths: PagePaths) -> tuple[str, str]:
     """Return ``(inpainted_panel_source, fallback_short_label)``."""
     if paths.inpainted_exists:
         return "inpainted", ""
+    if _uses_distinct_editor_base(paths):
+        return "editor_base_fallback", "fallback: editor_base"
     return "original_fallback", "fallback: original"
 
 
@@ -344,6 +356,8 @@ def _rendered_panel_source_info(paths: PagePaths) -> tuple[str, str]:
         return "rendered", ""
     if paths.inpainted_exists:
         return "inpainted_fallback", "fallback: inpainted"
+    if _uses_distinct_editor_base(paths):
+        return "editor_base_fallback", "fallback: editor_base"
     return "original_fallback", "fallback: original"
 
 
@@ -422,9 +436,12 @@ def generate_page_inspection_image(
             ren_view = inp_view.copy()
         del raw_inp
 
-        mask_u8 = decode_mask_base64(image_data.get("mask_raw"), (h, w))
-        if mask_u8 is not None and mask_u8.shape != (vh, vw):
-            mask_u8 = _resize_binary_mask_preserve_thin(mask_u8, vw, vh)
+        mask_u8 = decode_mask_base64(image_data.get("mask_raw"), None)
+        if mask_u8 is not None:
+            if mask_u8.size == 0:
+                mask_u8 = None
+            elif mask_u8.shape[:2] != (vh, vw):
+                mask_u8 = _resize_binary_mask_preserve_thin(mask_u8, vw, vh)
 
         p1 = _wrap_panel_with_world_rulers(
             _annotate_regions_on_rgb(base_view, regions, draw_polygons=True, coord_scale=(sx, sy)),
@@ -556,7 +573,12 @@ def generate_region_loupe_image(
             f"Selected region/crop rectangle(s) do not intersect page bounds [0, 0, {w}, {h}]"
         )
 
-    mask_u8 = decode_mask_base64(image_data.get("mask_raw"), (h, w))
+    mask_u8 = decode_mask_base64(image_data.get("mask_raw"), None)
+    if mask_u8 is not None:
+        if mask_u8.size == 0:
+            mask_u8 = None
+        elif mask_u8.shape[:2] != (h, w):
+            mask_u8 = _resize_binary_mask_preserve_thin(mask_u8, w, h)
     inpaint_rgb = open_rgb_image(paths.inpainted_path) if paths.inpainted_exists else base_rgb.copy()
     if inpaint_rgb.shape[:2] != (h, w):
         inpaint_rgb = cv2.resize(inpaint_rgb, (w, h), interpolation=cv2.INTER_LANCZOS4)

@@ -46,6 +46,84 @@ from .richtext_builder import (
 logger = logging.getLogger("mtui_mcp.inpaint")
 
 
+def _clip_polygon_halfplane(
+    pts: list[tuple[float, float]],
+    inside_fn: Any,
+    intersect_fn: Any,
+) -> list[tuple[float, float]]:
+    if not pts:
+        return []
+    out: list[tuple[float, float]] = []
+    px, py = pts[-1]
+    prev_in = inside_fn(px, py)
+    for cx_p, cy_p in pts:
+        cur_in = inside_fn(cx_p, cy_p)
+        if cur_in:
+            if not prev_in:
+                out.append(intersect_fn(px, py, cx_p, cy_p))
+            out.append((cx_p, cy_p))
+        elif prev_in:
+            out.append(intersect_fn(px, py, cx_p, cy_p))
+        px, py = cx_p, cy_p
+        prev_in = cur_in
+    return out
+
+
+def _clip_polygon_to_rect(
+    poly_xy: np.ndarray,
+    x_min: float,
+    y_min: float,
+    x_max: float,
+    y_max: float,
+) -> list[tuple[float, float]]:
+    pts = [(float(p[0]), float(p[1])) for p in poly_xy]
+    pts = _clip_polygon_halfplane(
+        pts,
+        lambda x, _y: x >= x_min,
+        lambda x1, y1, x2, y2: (
+            x_min,
+            y1 + (y2 - y1) * ((x_min - x1) / (x2 - x1)) if abs(x2 - x1) > 1e-12 else y1,
+        ),
+    )
+    pts = _clip_polygon_halfplane(
+        pts,
+        lambda x, _y: x <= x_max,
+        lambda x1, y1, x2, y2: (
+            x_max,
+            y1 + (y2 - y1) * ((x_max - x1) / (x2 - x1)) if abs(x2 - x1) > 1e-12 else y1,
+        ),
+    )
+    pts = _clip_polygon_halfplane(
+        pts,
+        lambda _x, y: y >= y_min,
+        lambda x1, y1, x2, y2: (
+            x1 + (x2 - x1) * ((y_min - y1) / (y2 - y1)) if abs(y2 - y1) > 1e-12 else x1,
+            y_min,
+        ),
+    )
+    pts = _clip_polygon_halfplane(
+        pts,
+        lambda _x, y: y <= y_max,
+        lambda x1, y1, x2, y2: (
+            x1 + (x2 - x1) * ((y_max - y1) / (y2 - y1)) if abs(y2 - y1) > 1e-12 else x1,
+            y_max,
+        ),
+    )
+    return pts
+
+
+def _clipped_polygon_has_area(pts: list[tuple[float, float]]) -> bool:
+    if len(pts) < 3:
+        return False
+    x0, y0 = pts[0]
+    for i in range(1, len(pts) - 1):
+        x1, y1 = pts[i]
+        x2, y2 = pts[i + 1]
+        if 0.5 * abs((x1 - x0) * (y2 - y0) - (y1 - y0) * (x2 - x0)) > 1e-3:
+            return True
+    return False
+
+
 def build_region_polygon_mask(
     region: dict[str, Any],
     shape_hw: tuple[int, int],
@@ -87,9 +165,15 @@ def build_region_polygon_mask(
             world_pts = np.column_stack((wx, wy))
         else:
             world_pts = arr
-        pts = np.rint(world_pts).astype(np.int32)
-        pts[:, 0] = np.clip(pts[:, 0], 0, max(0, w - 1))
-        pts[:, 1] = np.clip(pts[:, 1], 0, max(0, h - 1))
+        canvas_clipped = _clip_polygon_to_rect(world_pts, 0.0, 0.0, float(w), float(h))
+        if not _clipped_polygon_has_area(canvas_clipped):
+            continue
+        # Clip to a small guard band outside [0, w] x [0, h] so huge coordinates cannot overflow int32/fixed-point
+        # rasterization and concave off-canvas bridges never land on canvas border pixels.
+        guard_clipped = _clip_polygon_to_rect(world_pts, -8.0, -8.0, float(w + 8), float(h + 8))
+        if len(guard_clipped) < 3:
+            continue
+        pts = np.rint(np.asarray(guard_clipped, dtype=np.float64)).astype(np.int32)
         polys.append(pts)
 
     if polys:
@@ -736,7 +820,16 @@ def _commit_inpainted_and_json_atomic(
                     if isinstance(orig_exc, Exception):
                         raise RuntimeError(f"{orig_exc} [{recovery_msg}]") from orig_exc
                 else:
-                    logger.warning("Failed to roll back %s after JSON save error: %s", paths.inpainted_path, rb_exc)
+                    recovery_msg = (
+                        f"Failed to remove uncommitted inpainted image {paths.inpainted_path} "
+                        f"during rollback ({rb_exc})"
+                    )
+                    logger.error("%s", recovery_msg)
+                    if isinstance(orig_exc, OSError):
+                        raise OSError(orig_exc.errno, f"{orig_exc} [{recovery_msg}]") from orig_exc
+                    if isinstance(orig_exc, Exception):
+                        raise RuntimeError(f"{orig_exc} [{recovery_msg}]") from orig_exc
+                    orig_exc.add_note(recovery_msg)
         raise
     finally:
         if not preserve_backup_on_error and backup_tmp_path is not None and backup_tmp_path.exists():

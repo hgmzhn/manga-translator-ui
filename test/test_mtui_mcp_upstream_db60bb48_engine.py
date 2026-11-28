@@ -913,13 +913,19 @@ def test_r2_f01_concurrent_same_page_render_and_inpaint_no_lock_inversion(
         def call(self, action: str, params: dict[str, Any] | None = None, timeout_sec: float = 10.0) -> dict[str, Any]:
             assert action == "incremental_neural_inpaint"
             inpaint_waiting_runtime.set()
-            with rt._runtime_lock():
+            lck = rt._runtime_lock()
+            if not lck.acquire(timeout=4.0):
+                raise TimeoutError("Timed out acquiring _runtime_lock in InProcessWorkerStub")
+            try:
                 return {"status": "ok", "inpainted_path": str(paths.inpainted_path)}
+            finally:
+                lck.release()
 
     monkeypatch.setattr(server_mod, "get_worker_client", lambda: InProcessWorkerStub())
     monkeypatch.setattr(type(server_mod.get_runtime_settings()), "is_engine_available", property(lambda _s: True))
 
     render_out: dict[str, Any] = {}
+    inpaint_out: dict[str, Any] = {}
     errors: list[BaseException] = []
 
     def _run_render() -> None:
@@ -936,25 +942,41 @@ def test_r2_f01_concurrent_same_page_render_and_inpaint_no_lock_inversion(
         except BaseException as exc:
             errors.append(exc)
 
-    t_render = threading.Thread(target=_run_render)
-    t_render.start()
-    assert in_export.wait(timeout=2.0)
+    def _run_inpaint() -> None:
+        try:
+            inpaint_out["res"] = json.loads(
+                server_mod.mtui_edit_mask_and_inpaint(
+                    str(page_path),
+                    add_rects=[[10, 10, 30, 30]],
+                    inpaint_method="neural",
+                    re_render=False,
+                )
+            )
+        except BaseException as exc:
+            errors.append(exc)
 
-    # Hold `page_edit_lock` inside `mtui_edit_mask_and_inpaint` while `render_page` holds `_runtime_lock`
-    inp_payload = json.loads(
-        server_mod.mtui_edit_mask_and_inpaint(
-            str(page_path),
-            add_rects=[[10, 10, 30, 30]],
-            inpaint_method="neural",
-            re_render=False,
+    # R3-F52: Run BOTH concurrent operations on bounded daemon threads sharing one test deadline
+    t_render = threading.Thread(target=_run_render, daemon=True)
+    t_inpaint = threading.Thread(target=_run_inpaint, daemon=True)
+    try:
+        t_render.start()
+        assert in_export.wait(timeout=2.0)
+
+        test_deadline = time.monotonic() + 3.0
+        t_inpaint.start()
+        t_inpaint.join(timeout=max(0.0, test_deadline - time.monotonic()))
+        t_render.join(timeout=max(0.0, test_deadline - time.monotonic()))
+        assert not t_inpaint.is_alive() and not t_render.is_alive(), (
+            "Deadlock detected between render_page and mtui_edit_mask_and_inpaint"
         )
-    )
-    t_render.join(timeout=3.0)
-    assert not t_render.is_alive(), "Deadlock detected between render_page and mtui_edit_mask_and_inpaint"
-    assert not errors
-    assert inp_payload["inpaint_result"]["status"] == "ok"
-    assert render_out["res"]["status"] == "ok"
-    assert render_out["res"]["metadata_saved"] is True
+        assert not errors, f"Unexpected concurrent error(s): {errors!r}"
+        assert inpaint_out["res"]["inpaint_result"]["status"] == "ok"
+        assert render_out["res"]["status"] == "ok"
+        assert render_out["res"]["metadata_saved"] is True
+    finally:
+        inpaint_waiting_runtime.set()
+        t_inpaint.join(timeout=0.5)
+        t_render.join(timeout=0.5)
 
 
 def test_r2_f14_f54_page_entry_ownership_and_legacy_list_metadata_persist(tmp_path: Path) -> None:
@@ -1706,24 +1728,634 @@ def test_r2_f18_f43_f44_f45_f46_f47_f48_f58_f77_f78_server_contracts(
     assert "error" not in qa_out["regression_diff"]
     assert (fake_home / "after_qa.json").is_file()
 
-    # R2-F58: `mtui_center_bubbles` and `mtui_render_pages(center_bubbles=True)` surface `"status": "partial"` + `render_results`
+    # R2-F58 & R3-F53: `mtui_center_bubbles` and `mtui_render_pages(center_bubbles=True)` surface `"status": "partial"`
+    # from closed-loop re-renders even when `mtui_render_pages`'s initial render returns `"status": "ok"`.
+    in_closed_loop = {"active": False}
+
     def _fake_closed_loop(target_p: Any, *, passes: int = 2, render_page_fn: Any = None, **kw: Any) -> dict[str, Any]:
-        r_res = render_page_fn(resolve_page_paths(page_p)) if callable(render_page_fn) else {"status": "partial"}
+        in_closed_loop["active"] = True
+        try:
+            r_res = render_page_fn(resolve_page_paths(page_p)) if callable(render_page_fn) else {"status": "partial"}
+        finally:
+            in_closed_loop["active"] = False
         if isinstance(kw.get("render_results_out"), dict):
             kw["render_results_out"]["001.png"] = r_res
         return {"001.png": [{"index": 0, "old_center": [40.0, 40.0], "optical_center": [42.0, 42.0]}]}
 
+    def _selective_render_stub(pp: Any, **_kw: Any) -> dict[str, Any]:
+        if in_closed_loop["active"]:
+            return {"status": "partial", "metadata_saved": False, "output_path": str(pp.rendered_output_path)}
+        return {"status": "ok", "metadata_saved": True, "output_path": str(pp.rendered_output_path)}
+
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(server_mod, "run_closed_loop_bubble_centering", _fake_closed_loop)
-        mp.setattr(
-            server_mod,
-            "_render_single_page_via_worker",
-            lambda pp, **_kw: {"status": "partial", "metadata_saved": False, "output_path": str(pp.rendered_output_path)},
-        )
+        mp.setattr(server_mod, "_render_single_page_via_worker", _selective_render_stub)
         cb_out = json.loads(server_mod.mtui_center_bubbles(str(page_p.parent), passes=2))
         assert cb_out["status"] == "partial"
         assert cb_out["render_results"]["001.png"]["status"] == "partial"
 
         rp_out = json.loads(server_mod.mtui_render_pages(str(page_p.parent), center_bubbles=True))
+        assert rp_out["results"][0]["status"] == "ok"
         assert rp_out["status"] == "partial"
         assert rp_out["render_results"]["001.png"]["status"] == "partial"
+
+
+# ===========================================================================
+# Round 3 Slice 3 Regression Tests (R3-F01, R3-F03, R3-F11, R3-F12,
+# R3-F15..F17, R3-F34, R3-F38, R3-F42)
+# ===========================================================================
+
+
+def test_r3_f01_first_render_advances_revision_while_preserving_concurrent_edit_guard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify `mtui_style_region_richtext` & `mtui_update_regions` include their own export metadata write in `revision` (`R3-F01`) without swallowing concurrent edits (`R2-F46`)."""
+    ch_dir = tmp_path / "ch_r3_f01"
+    ch_dir.mkdir()
+    page_p = _make_sample_page(ch_dir, "001.png", size_hw=(160, 160))
+    paths = resolve_page_paths(page_p)
+    save_page_json_atomic(
+        paths,
+        str(page_p.resolve()),
+        {
+            "regions": [
+                {
+                    "region_uid": "r0",
+                    "lines": [[[20.0, 20.0], [100.0, 20.0], [100.0, 80.0], [20.0, 80.0]]],
+                    "text": "初版",
+                    "translation": "初版译文",
+                }
+            ]
+        },
+        auto_initial_snapshot=False,
+    )
+
+    # 1. Normal first render (writes `last_export_dir` & `last_output_path` for the first time):
+    #    returned `revision` MUST match post-render on-disk revision so next `expected_revision` edit succeeds!
+    def _first_export_render(pp: Any, *, output_dir: str | None = None, proof_only: bool = False, **_kw: Any) -> dict[str, Any]:
+        resolved = resolve_page_paths(pp.source_path, explicit_output_dir=output_dir)
+        out_path = resolved.rendered_output_path
+        rev_info: dict[str, str] = {}
+        if not proof_only:
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            Image.open(page_p).save(out_path)
+            engine_worker.EngineRuntime._persist_last_export_dir(
+                str(resolved.json_path),
+                str(out_path.parent),
+                output_path=str(out_path),
+                source_path=str(resolved.source_path),
+                revisions_out=rev_info,
+            )
+        return {"status": "ok", "output_path": str(out_path), "metadata_saved": True, **rev_info}
+
+    monkeypatch.setattr(server_mod, "_render_single_page_via_worker", _first_export_render)
+
+    styled = json.loads(
+        server_mod.mtui_style_region_richtext(
+            str(page_p),
+            region_index=0,
+            whole_style={"bold": True},
+            re_render=True,
+        )
+    )
+    disk_rev_after_style = server_mod.compute_page_revision(resolve_page_paths(page_p))
+    assert styled["revision"] == disk_rev_after_style
+    assert styled["render_result"]["pre_persist_revision"] != styled["render_result"]["post_persist_revision"]
+
+    # Chained edit carrying `expected_revision=styled["revision"]` + new `output_dir` succeeds without conflict!
+    alt_out = tmp_path / "custom_export_dir"
+    upd = json.loads(
+        server_mod.mtui_update_regions(
+            str(page_p),
+            updates=[{"region_index": 0, "translation": "第二次编辑"}],
+            expected_revision=styled["revision"],
+            output_dir=str(alt_out),
+            re_render=True,
+        )
+    )
+    assert upd["revision"] == server_mod.compute_page_revision(resolve_page_paths(page_p))
+
+    # 2. Concurrent external edit BEFORE `_persist_last_export_dir`: `pre_persist_revision != committed_revision`
+    #    -> `mtui_style_region_richtext` MUST NOT advance to `post_persist_revision`, preserving conflict detection!
+    def _concurrent_before_persist_render(pp: Any, **_kw: Any) -> dict[str, Any]:
+        resolved = resolve_page_paths(pp.source_path)
+        server_mod.apply_region_updates_to_page(
+            resolved.source_path,
+            [{"region_index": 0, "translation": "其他客户端并发修改A"}],
+        )
+        rev_info: dict[str, str] = {}
+        out_p = tmp_path / "exp2" / "001.png"
+        engine_worker.EngineRuntime._persist_last_export_dir(
+            str(resolved.json_path),
+            str(out_p.parent),
+            output_path=str(out_p),
+            source_path=str(resolved.source_path),
+            revisions_out=rev_info,
+        )
+        return {"status": "ok", "output_path": str(out_p), "metadata_saved": True, **rev_info}
+
+    monkeypatch.setattr(server_mod, "_render_single_page_via_worker", _concurrent_before_persist_render)
+    styled_race_before = json.loads(
+        server_mod.mtui_style_region_richtext(
+            str(page_p),
+            region_index=0,
+            whole_style={"italic": True},
+            re_render=True,
+        )
+    )
+    assert styled_race_before["revision"] != server_mod.compute_page_revision(resolve_page_paths(page_p))
+    with pytest.raises(ValueError, match="Revision conflict"):
+        server_mod.mtui_update_regions(
+            str(page_p),
+            updates=[{"region_index": 0, "font_size": 30}],
+            expected_revision=styled_race_before["revision"],
+            re_render=False,
+        )
+
+    # 3. Concurrent external edit AFTER `_persist_last_export_dir`: `mtui_style_region_richtext` advances ONLY
+    #    to its own `post_persist_revision` and NEVER swallows the later external edit!
+    def _concurrent_after_persist_render(pp: Any, **_kw: Any) -> dict[str, Any]:
+        resolved = resolve_page_paths(pp.source_path)
+        rev_info: dict[str, str] = {}
+        out_p = tmp_path / "exp3" / "001.png"
+        engine_worker.EngineRuntime._persist_last_export_dir(
+            str(resolved.json_path),
+            str(out_p.parent),
+            output_path=str(out_p),
+            source_path=str(resolved.source_path),
+            revisions_out=rev_info,
+        )
+        server_mod.apply_region_updates_to_page(
+            resolved.source_path,
+            [{"region_index": 0, "translation": "其他客户端并发修改B"}],
+        )
+        return {"status": "ok", "output_path": str(out_p), "metadata_saved": True, **rev_info}
+
+    monkeypatch.setattr(server_mod, "_render_single_page_via_worker", _concurrent_after_persist_render)
+    styled_race_after = json.loads(
+        server_mod.mtui_style_region_richtext(
+            str(page_p),
+            region_index=0,
+            whole_style={"underline": True},
+            re_render=True,
+        )
+    )
+    assert styled_race_after["revision"] == styled_race_after["render_result"]["post_persist_revision"]
+    assert styled_race_after["revision"] != server_mod.compute_page_revision(resolve_page_paths(page_p))
+    with pytest.raises(ValueError, match="Revision conflict"):
+        server_mod.mtui_update_regions(
+            str(page_p),
+            updates=[{"region_index": 0, "font_size": 32}],
+            expected_revision=styled_race_after["revision"],
+            re_render=False,
+        )
+
+
+def test_r3_f03_unchanged_and_not_requested_closed_loop_renders_report_ok(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify `render_status='unchanged'` / `'not_requested'` in closed-loop centering returns `status='ok'` (`R3-F03`)."""
+    ch_dir = tmp_path / "ch_r3_f03"
+    ch_dir.mkdir()
+    page_p = _make_sample_page(ch_dir, "001.png", size_hw=(160, 160))
+    paths = resolve_page_paths(page_p)
+    save_page_json_atomic(paths, str(page_p.resolve()), {"regions": []}, auto_initial_snapshot=False)
+
+    monkeypatch.setattr(
+        server_mod,
+        "_render_single_page_via_worker",
+        lambda pp, **_kw: {"status": "ok", "metadata_saved": True, "output_path": str(pp.rendered_output_path)},
+    )
+    monkeypatch.setattr(
+        server_mod,
+        "run_closed_loop_bubble_centering",
+        lambda *_a, **_kw: {
+            "001.png": [
+                {"index": 0, "old_center": [50.0, 50.0], "optical_center": [50.2, 50.1], "render_status": "unchanged"},
+                {"index": 1, "old_center": [90.0, 50.0], "optical_center": [90.0, 50.0], "render_status": "not_requested"},
+            ]
+        },
+    )
+
+    cb_ok = json.loads(server_mod.mtui_center_bubbles(str(ch_dir), passes=2))
+    assert cb_ok["status"] == "ok"
+    assert cb_ok["render_results"] == {}
+
+    rp_ok = json.loads(server_mod.mtui_render_pages(str(ch_dir), center_bubbles=True))
+    assert rp_ok["status"] == "ok"
+    assert rp_ok["render_results"] == {}
+
+    # Genuine incomplete render_status ("partial" / "error") MUST still report `"partial"`
+    monkeypatch.setattr(
+        server_mod,
+        "run_closed_loop_bubble_centering",
+        lambda *_a, **_kw: {
+            "001.png": [
+                {"index": 0, "old_center": [50.0, 50.0], "optical_center": [55.0, 50.0], "render_status": "error"}
+            ]
+        },
+    )
+    cb_err = json.loads(server_mod.mtui_center_bubbles(str(ch_dir), passes=2))
+    assert cb_err["status"] == "partial"
+
+
+def test_r3_f12_f34_unsynced_imported_inpaint_runs_full_repair_and_unlink_failure_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify unsynced imported pages run full-mask repair (`R3-F12`) and new-file rollback unlink errors surface (`R3-F34`)."""
+    # 1. R3-F12: Imported page has mask A (`[20:50, 20:50]`), an existing `001_inpainted.png` that STILL has dark strokes at A,
+    #    and NO `mask_inpainted_sha1` / `mask_inpainted_stat` evidence in JSON.
+    ch_dir = tmp_path / "ch_r3_f12"
+    ch_dir.mkdir()
+    page_p = ch_dir / "001.png"
+    base_rgb = np.full((180, 180, 3), 255, dtype=np.uint8)
+    base_rgb[25:45, 25:45] = (10, 10, 10)  # Un-erased original ink A
+    base_rgb[125:145, 125:145] = (10, 10, 10)  # Un-erased original ink B
+    Image.fromarray(base_rgb).save(page_p)
+
+    paths = resolve_page_paths(page_p)
+    paths.inpainted_path.parent.mkdir(parents=True, exist_ok=True)
+    # Pre-existing unsynced `inpainted_path` still has ink A & B untouched!
+    Image.fromarray(base_rgb).save(paths.inpainted_path)
+
+    mask_a = np.zeros((180, 180), dtype=np.uint8)
+    mask_a[20:50, 20:50] = 255
+    save_page_json_atomic(
+        paths,
+        str(page_p.resolve()),
+        {"mask_raw": encode_mask_base64(mask_a), "regions": []},
+        auto_initial_snapshot=False,
+    )
+
+    # Adding mask B (`[120, 120, 150, 150]`) via local `solid_fill` MUST detect `prev_mask_synced=False` and repair BOTH A and B!
+    server_mod.mtui_edit_mask_and_inpaint(
+        str(page_p),
+        add_rects=[[120, 120, 150, 150]],
+        inpaint_method="solid_fill",
+        re_render=False,
+    )
+    repaired_rgb = np.asarray(Image.open(paths.inpainted_path).convert("RGB"))
+    assert float(np.mean(repaired_rgb[25:45, 25:45])) > 245.0, "Mask A must also be repaired when sync proof was missing"
+    assert float(np.mean(repaired_rgb[125:145, 125:145])) > 245.0, "Newly added mask B must be repaired"
+
+    _, synced_json = load_page_json(resolve_page_paths(page_p))
+    cur_m = np.zeros((180, 180), dtype=np.uint8)
+    cur_m[20:50, 20:50] = 255
+    cur_m[120:150, 120:150] = 255
+    assert server_mod._is_prev_mask_synced(
+        synced_json,
+        server_mod._mask_sha1_hex(cur_m, (180, 180)),
+        paths.inpainted_path,
+    ) is True
+
+    # 2. R3-F34: Fresh page WITHOUT pre-existing `inpainted_path`: if JSON save fails AND unlinking the newly
+    #    created `inpainted_path` raises `OSError`, caller gets both original save error and residual file path!
+    page2 = ch_dir / "002.png"
+    Image.fromarray(base_rgb).save(page2)
+    paths2 = resolve_page_paths(page2)
+    save_page_json_atomic(paths2, str(page2.resolve()), {"regions": []}, auto_initial_snapshot=False)
+    assert not paths2.inpainted_path.exists()
+
+    orig_unlink = Path.unlink
+
+    def _fail_inpaint_unlink(self_p: Path, *a: Any, **kw: Any) -> None:
+        if os.path.normcase(os.path.abspath(str(self_p))) == os.path.normcase(os.path.abspath(str(paths2.inpainted_path))):
+            raise PermissionError("locked by external viewer")
+        orig_unlink(self_p, *a, **kw)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            server_mod,
+            "save_page_json_atomic",
+            lambda *_a, **_kw: (_ for _ in ()).throw(OSError("disk quota exceeded")),
+        )
+        mp.setattr(Path, "unlink", _fail_inpaint_unlink)
+        with pytest.raises(RuntimeError, match="disk quota exceeded") as exc_info:
+            server_mod.mtui_edit_mask_and_inpaint(
+                str(page2),
+                add_rects=[[20, 20, 50, 50]],
+                inpaint_method="solid_fill",
+                re_render=False,
+            )
+    err_str = str(exc_info.value)
+    assert str(paths2.inpainted_path) in err_str
+    assert "locked by external viewer" in err_str
+    assert isinstance(exc_info.value.__cause__, OSError)
+    orig_unlink(paths2.inpainted_path)
+
+
+def test_r3_f11_f38_worker_client_lingering_proc_blocks_spawn_and_pre_spawn_deadline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify unconfirmed worker exit blocks replacement spawn (`R3-F11`) and expired post-drain budget skips `Popen` (`R3-F38`)."""
+    settings = get_runtime_settings()
+    monkeypatch.setattr(type(settings), "is_engine_available", property(lambda _s: True))
+    monkeypatch.setattr(settings, "mtui_root", tmp_path)
+    monkeypatch.setattr(settings, "mtui_python", Path(sys.executable))
+
+    spawn_count = {"n": 0}
+
+    class ReadyReplacementProc:
+        def __init__(self, *_a: Any, **_kw: Any) -> None:
+            spawn_count["n"] += 1
+            self.pid = 55555
+            self.stdout = io.StringIO('MTUI_WORKER_READY {"port": 44556}\n')
+            self.stderr = io.StringIO("")
+            self.stdin = None
+            self.returncode: int | None = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def wait(self, timeout: float | None = None) -> int:
+            self.returncode = 0
+            return 0
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+    monkeypatch.setattr("mtui_mcp.worker.client.subprocess.Popen", ReadyReplacementProc)
+
+    # 1. R3-F11: `shutdown()` cannot confirm exit (`wait(timeout=2.0)` times out & `poll()` remains `None`)
+    class LingeringGpuProc:
+        pid = 98765
+        stdout = None
+        stderr = None
+        stdin = None
+
+        def __init__(self) -> None:
+            self.alive = True
+
+        def poll(self) -> int | None:
+            return None if self.alive else -9
+
+        def kill(self) -> None:
+            # Simulates uninterruptible kernel/driver sleep where SIGKILL does not reap within 2s
+            pass
+
+        def wait(self, timeout: float | None = None) -> int:
+            if self.alive:
+                raise subprocess.TimeoutExpired(cmd=["worker"], timeout=0.01)
+            return -9
+
+    client = MtuiWorkerClient()
+    lingering = LingeringGpuProc()
+    client._proc = lingering  # type: ignore[assignment]
+    client._port = 44550
+    client._token = ""
+    client._bound_root = tmp_path
+    client._bound_python = Path(sys.executable)
+
+    client.shutdown()
+    assert lingering in client._shutting_down_procs
+
+    with pytest.raises(TimeoutError, match="98765"):
+        client._ensure_started_instance(startup_timeout_sec=0.12)
+    assert spawn_count["n"] == 0, "Must NEVER spawn a replacement worker while lingering GPU worker is still alive"
+
+    # Once lingering process finally exits in OS, subsequent start reaps it and spawns cleanly!
+    lingering.alive = False
+    _, new_port, _ = client._ensure_started_instance(startup_timeout_sec=2.0)
+    assert new_port == 44556
+    assert client._shutting_down_procs == set()
+    assert spawn_count["n"] == 1
+    client._proc = None
+
+    # 2. R3-F38: Old worker exits right AFTER `startup_timeout_sec` budget expires during `_wait_for_shutting_down_procs_locked`
+    spawn_count["n"] = 0
+    late_exit_proc = LingeringGpuProc()
+    client._shutting_down_procs.add(late_exit_proc)  # type: ignore[arg-type]
+
+    def _flip_exit_after_budget() -> None:
+        time.sleep(0.14)
+        late_exit_proc.alive = False
+        with client._lock:
+            client._state_cond.notify_all()
+
+    t_flip = threading.Thread(target=_flip_exit_after_budget, daemon=True)
+    t_flip.start()
+    with pytest.raises(TimeoutError):
+        client._ensure_started_instance(startup_timeout_sec=0.1)
+    t_flip.join(timeout=1.0)
+    assert spawn_count["n"] == 0, "Must NOT call Popen after startup budget was already exhausted waiting for drain"
+    client._shutting_down_procs.clear()
+
+
+def test_r3_f15_f16_f17_f42_engine_worker_integrity_and_cli_guards(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify `translation_raw` conflict check (`R3-F15`), `translation_map.json` preservation (`R3-F16`), relative migrated key rejection (`R3-F17`), and `memory_percent` rounding guard (`R3-F42`)."""
+    # 1. R3-F17: Relative migrated key pointing to ANOTHER existing page (`../../../other/ch2/001.png`) is rejected,
+    #    while migrated relative key whose old path no longer exists on disk is still supported!
+    book_ch2 = tmp_path / "book" / "ch2"
+    other_ch2 = tmp_path / "other" / "ch2"
+    book_other_ch2 = tmp_path / "book" / "other" / "ch2"
+    for d in (book_ch2, other_ch2, book_other_ch2):
+        d.mkdir(parents=True, exist_ok=True)
+    p_target = _make_sample_page(book_ch2, "001.png", size_hw=(80, 80))
+    _make_sample_page(other_ch2, "001.png", size_hw=(80, 80))
+    _make_sample_page(book_other_ch2, "001.png", size_hw=(80, 80))
+
+    ch2_json_dir = book_ch2 / "manga_translator_work" / "json"
+    ch2_json_dir.mkdir(parents=True, exist_ok=True)
+    ch2_json = ch2_json_dir / "001_translations.json"
+
+    for bad_rel_key in (
+        "../../../other/ch2/001.png",
+        "../../../../other/ch2/001.png",
+        "../../other/ch2/001.png",
+    ):
+        k_bad, regs_bad = engine_worker._select_page_entry_from_raw_json(
+            {bad_rel_key: {"regions": [{"text": "wrong_page"}]}},
+            p_target,
+            json_path=ch2_json,
+        )
+        assert k_bad is None and regs_bad == [], f"Expected {bad_rel_key!r} pointing to another live page to be rejected"
+
+    gone_rel_key = "../../../unmounted_archive/ch2/001.png"
+    k_ok, regs_ok = engine_worker._select_page_entry_from_raw_json(
+        {gone_rel_key: {"regions": [{"text": "migrated_ok"}]}},
+        p_target,
+        json_path=ch2_json,
+    )
+    assert k_ok == gone_rel_key and len(regs_ok) == 1
+
+    # 2. R3-F15: Concurrent edit to ONLY `translation_raw` when `orig_translation` is non-empty MUST trigger conflict!
+    tr_json = tmp_path / "tr_raw_test_translations.json"
+    tr_page = _make_sample_page(tmp_path, "tr_raw_test.png", size_hw=(100, 100))
+    tr_json.write_text(
+        json.dumps(
+            {
+                str(tr_page): {
+                    "regions": [
+                        {
+                            "region_uid": "u_raw",
+                            "lines": [[[10.0, 10.0], [60.0, 10.0], [60.0, 60.0], [10.0, 60.0]]],
+                            "text": "原文",
+                            "texts": ["原文"],
+                            "translation": "非空原译",
+                            "translation_raw": "非空原译",
+                        }
+                    ]
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeTranslator(str, Enum):
+        openai = "openai"
+
+    class FakeQuad:
+        def __init__(self, pts: np.ndarray, text: str = "", prob: float = 1.0) -> None:
+            self.pts = pts
+            self.text = text
+            self.prob = prob
+
+    class MutateOnlyRawTransSvc:
+        async def translate_text_batch(self, texts: list[str], **_kw: Any) -> list[Any]:
+            cur_doc = json.loads(tr_json.read_text(encoding="utf-8"))
+            cur_doc[str(tr_page)]["regions"][0]["translation_raw"] = "并发仅改translation_raw"
+            tr_json.write_text(json.dumps(cur_doc, ensure_ascii=False), encoding="utf-8")
+            return [types.SimpleNamespace(translated_text=f"AI新译:{t}") for t in texts]
+
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: False, empty_cache=lambda: None)),
+    )
+    monkeypatch.setitem(sys.modules, "manga_translator", types.ModuleType("manga_translator"))
+    monkeypatch.setitem(sys.modules, "manga_translator.utils", types.SimpleNamespace(Quadrilateral=FakeQuad))
+    monkeypatch.setitem(sys.modules, "manga_translator.config", types.SimpleNamespace(Translator=FakeTranslator))
+    monkeypatch.setitem(
+        sys.modules,
+        "services",
+        types.SimpleNamespace(
+            get_config_service=lambda: None,
+            get_ocr_service=lambda: None,
+            get_translation_service=lambda: MutateOnlyRawTransSvc(),
+        ),
+    )
+
+    rt = engine_worker.EngineRuntime(str(tmp_path))
+    rt._initialized = True
+    tr_res = rt.ocr_or_translate_regions(
+        {
+            "source_path": str(tr_page),
+            "display_base_path": str(tr_page),
+            "json_path": str(tr_json),
+            "region_indices": [0],
+            "run_ocr": False,
+            "run_translate": True,
+            "commit": True,
+        }
+    )
+    assert tr_res["status"] == "partial"
+    assert tr_res["committed"] is False
+    assert tr_res["conflict_count"] == 1
+    assert tr_res["results"][0]["conflict_reason"] == "source_or_translation_modified_during_translate"
+    after_tr_reg = json.loads(tr_json.read_text(encoding="utf-8"))[str(tr_page)]["regions"][0]
+    assert after_tr_reg["translation_raw"] == "并发仅改translation_raw"
+
+    # 3. R3-F16: Unreadable/corrupt existing `translation_map.json` MUST NOT be overwritten; `render_page` reports `"partial"`!
+    out_dir = tmp_path / "map_out"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    map_file = out_dir / "translation_map.json"
+    original_map_content = '{"C:/existing/pageA.png": "C:/raw/pageA.png"}\n'
+    map_file.write_text(original_map_content, encoding="utf-8")
+
+    real_open = open
+
+    def _deny_reading_map(file_arg: Any, mode: str = "r", *a: Any, **kw: Any) -> Any:
+        if "r" in mode and os.path.normcase(os.path.abspath(str(file_arg))) == os.path.normcase(str(map_file)):
+            raise PermissionError("transient lock on translation_map.json")
+        return real_open(file_arg, mode, *a, **kw)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "manga_translator.utils.path_manager",
+        types.SimpleNamespace(find_paint_overlay_path=lambda _p: None),
+    )
+    monkeypatch.setitem(sys.modules, "editor", types.ModuleType("editor"))
+    monkeypatch.setitem(
+        sys.modules,
+        "editor.controller_export_service",
+        types.SimpleNamespace(
+            EditorControllerExportService=types.SimpleNamespace(
+                _perspective_quad_world=lambda _r: None,
+                apply_white_frame_center=lambda _r: None,
+            ),
+            ExportJob=type("FakeJob", (), {"__init__": lambda s, **k: s.__dict__.update(k), "release_resources": lambda s: None}),
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "editor.document_state",
+        types.SimpleNamespace(ExportBase=type("FakeBase", (), {"__init__": lambda s, **k: s.__dict__.update(k)})),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "editor.inpaint_state",
+        types.SimpleNamespace(InpaintKey=lambda **_k: None),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "services",
+        types.SimpleNamespace(
+            get_file_service=lambda: types.SimpleNamespace(
+                load_translation_json=lambda _p: ([], None, (100, 100), {"paint": None, "stamp": None, "paste_overlays": []})
+            ),
+            get_render_parameter_service=lambda: types.SimpleNamespace(
+                clear_cache=lambda: None,
+                export_parameters_for_backend=lambda _i, _r: {},
+            ),
+            get_config_service=lambda: None,
+        ),
+    )
+
+    out_b = out_dir / "tr_raw_test.png"
+    rt._export_service = types.SimpleNamespace(
+        execute_export_job=lambda _job: (Image.open(tr_page).save(out_b) or types.SimpleNamespace(error=None))
+    )
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("builtins.open", _deny_reading_map)
+        render_partial = rt.render_page(
+            {
+                "source_path": str(tr_page),
+                "display_base_path": str(tr_page),
+                "inpainted_path": str(tmp_path / "tr_raw_test_inpainted.png"),
+                "output_path": str(out_b),
+                "json_path": str(tr_json),
+            }
+        )
+    assert render_partial["status"] == "partial"
+    assert render_partial["metadata_saved"] is False
+    assert "translation_map:" in render_partial["metadata_error"]
+    assert out_b.is_file(), "Rendered image on disk must NOT be deleted when translation_map update fails"
+    assert map_file.read_text(encoding="utf-8") == original_map_content, "Existing Page A map entry must be preserved!"
+
+    # Also verify corrupt JSON in `translation_map.json` is preserved rather than clobbered
+    corrupt_bytes = "{corrupt-json-do-not-clobber"
+    map_file.write_text(corrupt_bytes, encoding="utf-8")
+    render_corrupt = rt.render_page(
+        {
+            "source_path": str(tr_page),
+            "display_base_path": str(tr_page),
+            "inpainted_path": str(tmp_path / "tr_raw_test_inpainted.png"),
+            "output_path": str(out_b),
+            "json_path": str(tr_json),
+        }
+    )
+    assert render_corrupt["status"] == "partial"
+    assert render_corrupt["metadata_saved"] is False
+    assert map_file.read_text(encoding="utf-8") == corrupt_bytes
+
+    # 4. R3-F42: `memory_percent` in `(0, 0.5]` rounds to `0` and MUST fail validation BEFORE `release_vram()`!
+    vram_evictions = {"count": 0}
+    monkeypatch.setattr(rt, "release_vram", lambda: vram_evictions.__setitem__("count", vram_evictions["count"] + 1) or {})
+    for sub_one_pct in (0.1, 0.4, 0.5):
+        with pytest.raises(ValueError, match="rounds to 0"):
+            rt.run_cli_pipeline({"inputs": [str(tmp_path / "raw")], "memory_percent": sub_one_pct})
+    assert vram_evictions["count"] == 0

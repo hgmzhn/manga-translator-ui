@@ -39,15 +39,26 @@ SUPPORTED_IMAGE_EXTENSIONS = {
     ".heif",
 }
 
+_INPAINTED_FALLBACK_EXT_ORDER: tuple[str, ...] = tuple(
+    dict.fromkeys((".png", ".jpg", ".webp", *sorted(SUPPORTED_IMAGE_EXTENSIONS)))
+)
+_INPAINTED_FALLBACK_EXT_RANK: dict[str, int] = {
+    ext_name: idx for idx, ext_name in enumerate(_INPAINTED_FALLBACK_EXT_ORDER)
+}
+
 
 def natural_sort_key(path: str | Path) -> list[tuple[bool, int | str]]:
     """Natural sort key matching manga-translator-ui's FileService._natural_sort_key."""
     normalized = str(path).replace("\\", "/")
     parts: list[tuple[bool, int | str]] = []
     for part in re.split(r"(\d+)", normalized):
-        if part.isdigit():
-            parts.append((False, int(part)))
-        elif part:
+        if part.isdecimal():
+            try:
+                parts.append((False, int(part)))
+                continue
+            except ValueError:
+                pass
+        if part:
             parts.append((True, part.lower()))
     return parts
 
@@ -277,6 +288,42 @@ class PagePaths:
     snapshots_dir: Path
 
 
+def _resolve_inpainted_sidecar(inpainted_dir: Path, stem: str, ext: str) -> tuple[Path, bool]:
+    """Resolve `<stem>_inpainted<ext>`, keeping exact primary match first then case-insensitive extension fallback."""
+    primary = inpainted_dir / f"{stem}_inpainted{ext}"
+    if primary.is_file():
+        return primary, True
+    if not inpainted_dir.is_dir():
+        return primary, False
+
+    expected_stem = f"{stem}_inpainted"
+    candidates: list[Path] = []
+    try:
+        for entry in inpainted_dir.iterdir():
+            if not entry.is_file():
+                continue
+            ext_low = entry.suffix.lower()
+            if ext_low not in _INPAINTED_FALLBACK_EXT_RANK:
+                continue
+            if entry.stem == expected_stem or os.path.normcase(entry.stem) == os.path.normcase(expected_stem):
+                candidates.append(entry)
+    except OSError:
+        candidates = []
+
+    if candidates:
+        candidates.sort(
+            key=lambda p: (
+                0 if p.stem == expected_stem else 1,
+                _INPAINTED_FALLBACK_EXT_RANK[p.suffix.lower()],
+                0 if p.suffix == p.suffix.lower() else 1,
+                p.name,
+            )
+        )
+        return candidates[0], True
+
+    return primary, False
+
+
 def resolve_page_paths(
     image_or_json_path: str | Path,
     explicit_output_dir: Optional[str | Path] = None,
@@ -321,15 +368,11 @@ def resolve_page_paths(
     display_base_path = actual_editor_base if editor_base_valid else source_path
 
     # Inpainted sidecar
-    inpainted_path = work_dir / INPAINTED_SUBDIR / f"{stem}_inpainted{ext}"
-    inpainted_exists = inpainted_path.is_file()
-    if not inpainted_exists and (work_dir / INPAINTED_SUBDIR).is_dir():
-        for alt_ext in (".png", ".jpg", ".webp", *sorted(SUPPORTED_IMAGE_EXTENSIONS)):
-            alt_inpaint = work_dir / INPAINTED_SUBDIR / f"{stem}_inpainted{alt_ext}"
-            if alt_inpaint.is_file():
-                inpainted_path = alt_inpaint
-                inpainted_exists = True
-                break
+    inpainted_path, inpainted_exists = _resolve_inpainted_sidecar(
+        work_dir / INPAINTED_SUBDIR,
+        stem,
+        ext,
+    )
 
     paint_overlay_path = work_dir / PAINT_OVERLAY_SUBDIR / f"{stem}_overlay.png"
     paint_overlay_exists = paint_overlay_path.is_file()

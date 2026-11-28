@@ -123,20 +123,18 @@ def _is_prev_mask_synced(
     prev_mask_sha1: str,
     inpainted_path: Path,
 ) -> bool:
-    """Return True iff `inpainted_path` exists and matches both saved mask SHA1 and file stat (R2-F47)."""
+    """Return True iff `inpainted_path` exists and matches both saved mask SHA1 and file stat (R2-F47, R3-F12)."""
     cur_stat = _file_stat_sig(inpainted_path)
     if cur_stat is None:
         return False
-    if "mask_inpainted_sha1" in image_data or "mask_inpainted_stat" in image_data:
-        saved_sha1 = image_data.get("mask_inpainted_sha1")
-        saved_stat = image_data.get("mask_inpainted_stat")
-        return bool(
-            saved_sha1
-            and saved_sha1 == prev_mask_sha1
-            and saved_stat is not None
-            and cur_stat == saved_stat
-        )
-    return True
+    saved_sha1 = image_data.get("mask_inpainted_sha1")
+    saved_stat = image_data.get("mask_inpainted_stat")
+    return bool(
+        saved_sha1
+        and saved_sha1 == prev_mask_sha1
+        and saved_stat is not None
+        and cur_stat == saved_stat
+    )
 
 
 def _is_trusted_external_python_target(target_resolved: Path) -> bool:
@@ -707,6 +705,18 @@ def mtui_inspect_region_visual(
 # ===========================================================================
 
 
+def _advance_revision_after_render(committed_revision: str, render_info: Optional[dict[str, Any]]) -> str:
+    """Advance `committed_revision` across `render_page`'s metadata write iff no external edit intervened (R3-F01, R2-F46)."""
+    if (
+        isinstance(render_info, dict)
+        and render_info.get("pre_persist_revision") == committed_revision
+        and isinstance(render_info.get("post_persist_revision"), str)
+        and render_info["post_persist_revision"]
+    ):
+        return render_info["post_persist_revision"]
+    return committed_revision
+
+
 @mcp.tool()
 def mtui_update_regions(
     page_path: str,
@@ -733,11 +743,14 @@ def mtui_update_regions(
     - `rich_style` (dict) / `rich_spans` (list[dict]): Optional `richtext.v1` styling (bold, italic, color, ruby, `rubyInherit`, tcy, stroke, glow, blur/motion-blur).
     Pass `expected_revision` (from `mtui_get_page_details`) to guard against concurrent edits, and `proof_only=True` to render a non-destructive proof in `manga_translator_work/proofread/`.
     """
-    refreshed_paths, summaries = apply_region_updates_to_page(
-        page_path,
-        updates,
-        expected_revision=expected_revision,
-    )
+    init_paths = resolve_page_paths(page_path)
+    with _acquire_page_edit_lock(init_paths):
+        refreshed_paths, summaries = apply_region_updates_to_page(
+            page_path,
+            updates,
+            expected_revision=expected_revision,
+        )
+        committed_revision = compute_page_revision(refreshed_paths)
     render_info: Optional[dict[str, Any]] = None
     if re_render:
         render_info = _render_single_page_via_worker(
@@ -745,10 +758,11 @@ def mtui_update_regions(
             output_dir=output_dir,
             proof_only=proof_only,
         )
+        committed_revision = _advance_revision_after_render(committed_revision, render_info)
     return _json_text(
         {
             "page_name": refreshed_paths.source_path.name,
-            "revision": compute_page_revision(refreshed_paths),
+            "revision": committed_revision,
             "json_path": str(refreshed_paths.json_path),
             "updated_regions": summaries,
             "render_result": render_info,
@@ -829,6 +843,7 @@ def mtui_style_region_richtext(
         committed_revision = compute_page_revision(refreshed)
 
     render_info = _render_single_page_via_worker(refreshed, proof_only=proof_only) if re_render else None
+    committed_revision = _advance_revision_after_render(committed_revision, render_info)
 
     return _json_text(
         {
@@ -1013,13 +1028,28 @@ def mtui_edit_mask_and_inpaint(
                             raise RuntimeError(f"{orig_exc} ({recovery_msg})") from orig_exc
                         orig_exc.add_note(recovery_msg)
                 elif not prev_inpaint_had_file:
-                    for created_cand in {paths.inpainted_path, actual_inp_path}:
-                        if created_cand.is_file():
-                            try:
-                                created_cand.unlink()
-                            except OSError:
-                                pass
                     cleanup_backup = True
+                    seen_cands: dict[str, Path] = {}
+                    for cand in (paths.inpainted_path, actual_inp_path):
+                        norm_cand = os.path.normcase(os.path.abspath(str(cand)))
+                        seen_cands.setdefault(norm_cand, cand)
+                    unlink_failures: list[str] = []
+                    for created_cand in seen_cands.values():
+                        try:
+                            created_cand.unlink()
+                        except FileNotFoundError:
+                            pass
+                        except OSError as rb_exc:
+                            unlink_failures.append(f"{created_cand} ({rb_exc})")
+                    if unlink_failures:
+                        residual_msg = (
+                            "Rollback failed to remove newly created uncommitted inpainted file(s): "
+                            + "; ".join(unlink_failures)
+                        )
+                        logger.error(residual_msg)
+                        if isinstance(orig_exc, Exception):
+                            raise RuntimeError(f"{orig_exc} ({residual_msg})") from orig_exc
+                        orig_exc.add_note(residual_msg)
             raise
         finally:
             if cleanup_backup and inpaint_backup_tmp and os.path.exists(inpaint_backup_tmp):
@@ -1408,15 +1438,29 @@ def _invoke_closed_loop_centering(
     return run_closed_loop_bubble_centering(target_path, **call_kwargs)
 
 
+_COMPLETE_CLOSED_LOOP_STATUSES = (None, "ok", "success", "unchanged", "not_requested")
+
+
+def _is_closed_loop_render_result_incomplete(res: Any) -> bool:
+    if not isinstance(res, dict):
+        return False
+    st = res.get("status")
+    return (
+        st not in _COMPLETE_CLOSED_LOOP_STATUSES
+        or res.get("metadata_saved") is False
+        or res.get("output_updated") is False
+    )
+
+
 def _has_incomplete_closed_loop_renders(
     report: dict[str, list[dict[str, Any]]],
     render_results: dict[str, Any],
 ) -> bool:
-    if any(_is_render_result_incomplete(v) for v in render_results.values()):
+    if any(_is_closed_loop_render_result_incomplete(v) for v in render_results.values()):
         return True
     for items in report.values():
         for item in items or []:
-            if isinstance(item, dict) and item.get("render_status") not in (None, "ok", "success"):
+            if isinstance(item, dict) and item.get("render_status") not in _COMPLETE_CLOSED_LOOP_STATUSES:
                 return True
     return False
 

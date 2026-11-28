@@ -327,7 +327,18 @@ def manage_glossary_entries(
                         continue
                     if orig in orig_locs:
                         line_i, lead_ws, sep_tok = orig_locs[orig]
-                        out_lines[line_i] = f"{lead_ws}{orig}{sep_tok}{trans}"
+                        cand_line = f"{lead_ws}{orig}{sep_tok}{trans}"
+                        parsed_cand = _parse_txt_glossary_line(cand_line)
+                        if (
+                            "\t" in trans
+                            or parsed_cand is None
+                            or parsed_cand[1] != orig
+                            or parsed_cand[3] != trans
+                        ):
+                            sep_tok = "\t"
+                            cand_line = f"{lead_ws}{orig}\t{trans}"
+                        orig_locs[orig] = (line_i, lead_ws, sep_tok)
+                        out_lines[line_i] = cand_line
                         for dup_i in extra_dup_indices.get(orig, []):
                             drop_line_indices.add(dup_i)
                     else:
@@ -804,6 +815,7 @@ def batch_edit_chapter_pages(
         # Phase 2: Commit staged pages atomically; if a runtime/OS error occurs mid-commit, report committed_pages & failed_page!
         committed_pages: list[str] = []
         for paths, image_key, image_data, page_hits, staged_rev in staged_pages:
+            page_committed_now = False
             try:
                 with page_edit_lock(paths):
                     cur_paths = resolve_page_paths(paths.source_path)
@@ -813,11 +825,12 @@ def batch_edit_chapter_pages(
                             continue
                         image_key, image_data, page_hits, _ = re_staged
                     saved_json = save_page_json_atomic(cur_paths, image_key, image_data)
+                    committed_pages.append(paths.source_path.name)
+                    page_committed_now = True
                     refreshed = resolve_page_paths(saved_json)
+                    modified_page_paths.append(refreshed)
                     _, saved_data = load_page_json(refreshed)
                     saved_regs = saved_data.get("regions", [])
-                    modified_page_paths.append(refreshed)
-                    committed_pages.append(paths.source_path.name)
                     for r_idx, uid, before_vis, fallback_reg in page_hits:
                         try:
                             s_idx = resolve_region_target_index(saved_regs, region_uid=uid) if uid else r_idx
@@ -834,12 +847,24 @@ def batch_edit_chapter_pages(
                         )
             except Exception as exc:
                 if committed_pages:
-                    partial_err = RuntimeError(
-                        f"Batch edit failed on {paths.source_path.name} after committing "
-                        f"committed_pages={committed_pages!r} (failed_page={paths.source_path.name!r}): {exc}"
-                    )
+                    if page_committed_now:
+                        partial_err = RuntimeError(
+                            f"Batch edit committed {paths.source_path.name} but post-commit summary reload failed "
+                            f"(committed_pages={committed_pages!r}, failed_page={paths.source_path.name!r}, "
+                            f"failure_stage='post_commit_summary'): {exc}"
+                        )
+                    else:
+                        partial_err = RuntimeError(
+                            f"Batch edit failed on {paths.source_path.name} after committing "
+                            f"committed_pages={committed_pages!r} (failed_page={paths.source_path.name!r}, "
+                            f"failure_stage='commit'): {exc}"
+                        )
                     partial_err.committed_pages = list(committed_pages)  # type: ignore[attr-defined]
                     partial_err.failed_page = paths.source_path.name  # type: ignore[attr-defined]
+                    partial_err.page_committed = page_committed_now  # type: ignore[attr-defined]
+                    partial_err.failure_stage = (  # type: ignore[attr-defined]
+                        "post_commit_summary" if page_committed_now else "commit"
+                    )
                     raise partial_err from exc
                 raise
 

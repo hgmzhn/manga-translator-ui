@@ -6,6 +6,7 @@ import os
 import re
 import unicodedata
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
@@ -176,6 +177,8 @@ _CN_SECTION_MULTIPLIERS: dict[str, int] = {
 }
 _CN_ALL_MULTIPLIERS: dict[str, int] = {**_CN_SMALL_MULTIPLIERS, **_CN_SECTION_MULTIPLIERS}
 _CN_MULTIPLIER_CHARS = "十拾百佰千仟万萬亿億"
+_CN_DIGIT_CHARS = "零〇一二三四五六七八九壹贰貳叁參肆伍陆陸柒捌玖两兩廿卅"
+_MAX_AUDIT_NUMBER = 10**18
 _DEC_WITH_UNIT_RE = re.compile(
     rf"(?<!\d\.)(?<![\d{_CN_NUM_BOUNDARY_CHARS}])(\d+\.\d+)\s*([{_CN_MULTIPLIER_CHARS}]+)"
 )
@@ -183,7 +186,13 @@ _DEC_ZERO_FRAC_RE = re.compile(rf"(?<!\d\.)(?<!\d)(\d+)\.0+(?![\d{_CN_MULTIPLIER
 _DEC_ANY_RE = re.compile(r"\d+\.\d+")
 _NUM_SPAN_RE = re.compile(rf"[{_CN_NUM_BOUNDARY_CHARS}\d]+")
 _SRC_NUMBER_TOKEN_RE = re.compile(
-    rf"(?<!\d\.)(?<!\d)(?:\d{{1,3}}(?:,\d{{3}})+|\d{{1,6}})(?:\.\d+)?(?:\s*[{_CN_MULTIPLIER_CHARS}]+)?(?!\.\d)(?!\d)"
+    rf"(?<!\d\.)(?<![\d{_CN_NUM_BOUNDARY_CHARS}])"
+    rf"(?:"
+    rf"(?:\d{{1,3}}(?:,\d{{3}})+|\d+)\.\d+(?:\s*[{_CN_MULTIPLIER_CHARS}]+)?"
+    rf"|(?:[{_CN_NUM_BOUNDARY_CHARS}]+\s*)?(?:\d{{1,3}}(?:,\d{{3}})+|\d{{1,9}})\s*[{_CN_MULTIPLIER_CHARS}]+(?:\s*(?:\d{{1,9}}|[{_CN_DIGIT_CHARS}]+)(?:\s*[{_CN_MULTIPLIER_CHARS}]+)?)*"
+    rf"|(?:\d{{1,3}}(?:,\d{{3}})+|\d{{1,6}})"
+    rf")"
+    rf"(?!\.\d)(?![\d{_CN_MULTIPLIER_CHARS}])"
 )
 
 
@@ -235,16 +244,50 @@ def _int_to_chinese_forms(n: int) -> set[str]:
     return {f for f in forms if f}
 
 
+def _parse_decimal_with_units_exact(dec_str: str, units_str: str) -> Optional[int]:
+    """Convert ``<decimal><CN_units>`` using exact base-10 arithmetic; return ``int`` iff exact integer in ``[0, 10**18]``."""
+    if not dec_str or not units_str or len(dec_str) > 40 or len(units_str) > 8:
+        return None
+    try:
+        val = Decimal(dec_str)
+    except InvalidOperation:
+        return None
+    if not val.is_finite() or val < 0:
+        return None
+    mult = 1
+    for uch in units_str:
+        u_val = _CN_ALL_MULTIPLIERS.get(uch)
+        if u_val is None:
+            return None
+        mult *= u_val
+        if mult > _MAX_AUDIT_NUMBER:
+            return None
+    prod = val * mult
+    if not prod.is_finite() or prod < 0 or prod > _MAX_AUDIT_NUMBER:
+        return None
+    integral = prod.to_integral_value()
+    if prod != integral:
+        return None
+    return int(integral)
+
+
 def _parse_num_span(span: str) -> Optional[int]:
     if not span:
         return None
     if span.isdigit():
-        return int(span)
+        if len(span) > 19:
+            return None
+        parsed_int = int(span)
+        return parsed_int if parsed_int <= _MAX_AUDIT_NUMBER else None
     m_arab_unit = re.fullmatch(rf"(\d+)([{_CN_MULTIPLIER_CHARS}]+)", span)
     if m_arab_unit:
+        if len(m_arab_unit.group(1)) > 19 or len(m_arab_unit.group(2)) > 8:
+            return None
         val = int(m_arab_unit.group(1))
         for uch in m_arab_unit.group(2):
             val *= _CN_ALL_MULTIPLIERS[uch]
+            if val > _MAX_AUDIT_NUMBER:
+                return None
         return val
     if not any(c in _CN_ALL_MULTIPLIERS for c in span):
         if len(span) == 1 and span in _CN_DIGIT_VALUES:
@@ -255,7 +298,8 @@ def _parse_num_span(span: str) -> Optional[int]:
             return (20 if span[0] == "廿" else 30) + _CN_DIGIT_VALUES[span[1]]
         return None
 
-    total = 0
+    yi_total = 0
+    wan_total = 0
     section = 0
     curr: Optional[int] = None
     saw_zero = False
@@ -267,8 +311,10 @@ def _parse_num_span(span: str) -> Optional[int]:
             j = i
             while j < len(span) and span[j].isdigit():
                 j += 1
-            if curr is not None:
+            if curr is not None or (j - i) > 19:
                 return None
+            if (j - i) >= 2 and span[i] == "0":
+                saw_zero = True
             curr = int(span[i:j])
             i = j
             continue
@@ -299,11 +345,33 @@ def _parse_num_span(span: str) -> Optional[int]:
             continue
         if ch in _CN_SECTION_MULTIPLIERS:
             su = _CN_SECTION_MULTIPLIERS[ch]
-            sec_val = section + (curr if curr is not None else 0)
-            if sec_val == 0:
-                sec_val = 1
-            total += sec_val * su
-            section = 0
+            if su == 100_000_000:
+                # Hierarchical 亿/億 section: multiplies accumulated 万-group + sub-10000 section (`一万亿` -> 10^12,
+                # `一万二千亿` -> 1.2e12), while keeping earlier independent 亿-groups additive (`一亿二千万` -> 1.2e8).
+                yi_val = wan_total + section + (curr if curr is not None else 0)
+                if yi_val == 0:
+                    if yi_total > 0 and not saw_zero:
+                        yi_total *= su
+                    else:
+                        yi_total += su
+                else:
+                    yi_total += yi_val * su
+                wan_total = 0
+                section = 0
+            else:
+                sec_val = section + (curr if curr is not None else 0)
+                if sec_val == 0:
+                    if wan_total > 0 and not saw_zero:
+                        wan_total *= su
+                    elif yi_total > 0 and not saw_zero:
+                        return None
+                    else:
+                        wan_total += su
+                else:
+                    wan_total += sec_val * su
+                section = 0
+            if yi_total + wan_total > _MAX_AUDIT_NUMBER:
+                return None
             curr = None
             saw_zero = False
             last_unit = su
@@ -316,7 +384,8 @@ def _parse_num_span(span: str) -> Optional[int]:
             section += curr * (last_unit // 10)
         else:
             section += curr
-    return total + section
+    res = yi_total + wan_total + section
+    return res if res <= _MAX_AUDIT_NUMBER else None
 
 
 def _extract_complete_numbers(text_norm: str) -> set[int]:
@@ -326,18 +395,18 @@ def _extract_complete_numbers(text_norm: str) -> set[int]:
     work = re.sub(rf"(?<=\d)\s+(?=[{_CN_MULTIPLIER_CHARS}])", "", work)
 
     def _consume_dec_unit(m: re.Match[str]) -> str:
-        val = float(m.group(1))
-        for uch in m.group(2):
-            val *= _CN_ALL_MULTIPLIERS[uch]
-        rounded = round(val)
-        if abs(val - rounded) < 1e-6:
-            out.add(int(rounded))
+        exact_val = _parse_decimal_with_units_exact(m.group(1), m.group(2))
+        if exact_val is not None:
+            out.add(exact_val)
         return " "
 
     work = _DEC_WITH_UNIT_RE.sub(_consume_dec_unit, work)
 
     def _consume_dec_zero(m: re.Match[str]) -> str:
-        out.add(int(m.group(1)))
+        if len(m.group(1)) <= 19:
+            val_z = int(m.group(1))
+            if val_z <= _MAX_AUDIT_NUMBER:
+                out.add(val_z)
         return " "
 
     work = _DEC_ZERO_FRAC_RE.sub(_consume_dec_zero, work)
@@ -355,14 +424,13 @@ def _parse_source_number_token(raw_tok: str) -> Optional[int]:
     tok = re.sub(r"\s+", "", tok)
     m_dec_u = re.fullmatch(rf"(\d+\.\d+)([{_CN_MULTIPLIER_CHARS}]+)", tok)
     if m_dec_u:
-        val = float(m_dec_u.group(1))
-        for uch in m_dec_u.group(2):
-            val *= _CN_ALL_MULTIPLIERS[uch]
-        rounded = round(val)
-        return int(rounded) if abs(val - rounded) < 1e-6 else None
+        return _parse_decimal_with_units_exact(m_dec_u.group(1), m_dec_u.group(2))
     m_dec_z = re.fullmatch(r"(\d+)\.0+", tok)
     if m_dec_z:
-        return int(m_dec_z.group(1))
+        if len(m_dec_z.group(1)) > 19:
+            return None
+        val_z = int(m_dec_z.group(1))
+        return val_z if val_z <= _MAX_AUDIT_NUMBER else None
     if "." in tok:
         return None
     return _parse_num_span(tok)

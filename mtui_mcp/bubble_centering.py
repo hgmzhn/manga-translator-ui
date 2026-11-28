@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import math
+import os
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -12,6 +15,7 @@ from PIL import Image
 
 from .path_resolver import PagePaths, list_manga_pages_in_path, resolve_page_paths
 from .project_store import (
+    _parse_loaded_page_json,
     apply_region_updates_to_page,
     compute_page_revision,
     ensure_region_uids,
@@ -619,29 +623,132 @@ def _rendered_artifact_fingerprint(paths: PagePaths) -> Optional[tuple[int, int,
         return None
 
 
+def _exact_float_token(value: Any) -> Any:
+    try:
+        fv = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return ("invalid", repr(value))
+    if math.isnan(fv):
+        return ("nan",)
+    return fv
+
+
 def _regions_partition_signature(regs: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
-    """Capture every region geometry/layout input consumed by ``partition_page_white_bubbles``."""
+    """Capture every exact region geometry/layout input consumed by ``partition_page_white_bubbles``."""
     sig: list[tuple[Any, ...]] = []
     for r in regs:
         if not isinstance(r, dict):
             continue
         c = r.get("center")
-        c_tup = (
-            (round(float(c[0]), 2), round(float(c[1]), 2))
-            if isinstance(c, (list, tuple)) and len(c) >= 2
-            else None
-        )
+        if isinstance(c, (list, tuple)) and len(c) >= 2:
+            cx_tok = _exact_float_token(c[0])
+            cy_tok = _exact_float_token(c[1])
+            px_tok = (
+                (int(round(cx_tok)), int(round(cy_tok)))
+                if isinstance(cx_tok, float)
+                and isinstance(cy_tok, float)
+                and math.isfinite(cx_tok)
+                and math.isfinite(cy_tok)
+                else None
+            )
+            c_tup: Any = (cx_tok, cy_tok, px_tok)
+        else:
+            c_tup = None
+        dir_raw = str(r.get("direction") or "")
+        dir_is_horiz = dir_raw.lower().startswith("h")
         dir_norm = str(r.get("direction") or "auto").strip().lower()
-        ang = round(float(r.get("angle", 0.0) or 0.0), 2)
+        ang_tok = _exact_float_token(r.get("angle", 0.0) or 0.0)
+        ang_ge_3 = bool(isinstance(ang_tok, float) and abs(ang_tok) >= 3.0)
         has_quad = region_has_perspective_quad(r)
         wf_rect = r.get("white_frame_rect_local")
         wf_tup = (
-            tuple(round(float(v), 2) for v in wf_rect[:4])
+            tuple(_exact_float_token(v) for v in wf_rect[:4])
             if isinstance(wf_rect, (list, tuple)) and len(wf_rect) >= 4
             else None
         )
-        sig.append((str(r.get("region_uid") or ""), dir_norm, c_tup, ang, has_quad, wf_tup))
+        sig.append(
+            (
+                str(r.get("region_uid") or "").strip(),
+                dir_is_horiz,
+                dir_norm,
+                c_tup,
+                ang_tok,
+                ang_ge_3,
+                has_quad,
+                wf_tup,
+            )
+        )
     return sig
+
+
+def _non_export_content_digest(raw_parsed: Any, inp_stat: tuple[int, int]) -> str:
+    """Hash page JSON excluding export-path metadata (`last_export_dir`, `last_output_path`) plus `inpainted` stat."""
+    if isinstance(raw_parsed, dict):
+        stripped: Any = {
+            k: (
+                {ek: ev for ek, ev in v.items() if ek not in ("last_export_dir", "last_output_path")}
+                if isinstance(v, dict)
+                else v
+            )
+            for k, v in raw_parsed.items()
+        }
+    else:
+        stripped = raw_parsed
+    h = hashlib.sha256()
+    h.update(json.dumps(stripped, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8"))
+    h.update(f"|inp:{inp_stat[0]}:{inp_stat[1]}".encode("ascii"))
+    return h.hexdigest()
+
+
+def _read_consistent_page_state(
+    source_path: Path,
+) -> Optional[tuple[PagePaths, str, dict[str, Any], str, tuple[int, int]]]:
+    """Read a mutually consistent `(paths, page_rev, image_data, non_export_sig, inp_stat)` snapshot."""
+    canonical_key = os.path.abspath(str(source_path))
+    for _attempt in range(5):
+        p_cur = resolve_page_paths(source_path)
+        if not (
+            p_cur.json_exists
+            and p_cur.json_path.is_file()
+            and p_cur.inpainted_exists
+            and p_cur.inpainted_path.is_file()
+        ):
+            return None
+        try:
+            st_inp_1 = p_cur.inpainted_path.stat()
+            inp_stat_1 = (st_inp_1.st_size, st_inp_1.st_mtime_ns)
+            raw_bytes_1 = p_cur.json_path.read_bytes()
+        except OSError:
+            continue
+        p_after = resolve_page_paths(source_path)
+        if not (
+            p_after.json_exists
+            and p_after.json_path.is_file()
+            and p_after.inpainted_exists
+            and p_after.inpainted_path.is_file()
+        ):
+            return None
+        try:
+            st_inp_2 = p_after.inpainted_path.stat()
+            inp_stat_2 = (st_inp_2.st_size, st_inp_2.st_mtime_ns)
+            raw_bytes_2 = p_after.json_path.read_bytes()
+        except OSError:
+            continue
+        if (
+            os.path.normcase(os.path.abspath(str(p_cur.json_path)))
+            != os.path.normcase(os.path.abspath(str(p_after.json_path)))
+            or os.path.normcase(os.path.abspath(str(p_cur.inpainted_path)))
+            != os.path.normcase(os.path.abspath(str(p_after.inpainted_path)))
+            or inp_stat_1 != inp_stat_2
+            or raw_bytes_1 != raw_bytes_2
+        ):
+            continue
+        raw_parsed = json.loads(raw_bytes_1.decode("utf-8"))
+        _, img_data = _parse_loaded_page_json(raw_parsed, canonical_key)
+        rev = compute_page_revision(p_after, json_bytes=raw_bytes_1)
+        content_sig = _non_export_content_digest(raw_parsed, inp_stat_1)
+        return p_after, rev, img_data, content_sig, inp_stat_1
+    return None
 
 
 def _normalize_render_result(render_res: Any) -> tuple[str, dict[str, Any]]:
@@ -683,15 +790,14 @@ def run_closed_loop_bubble_centering(
 
     for p in pages:
         page_name = p.source_path.name
-        p_init = resolve_page_paths(p.source_path)
-        if not (p_init.json_exists and p_init.inpainted_exists and p_init.inpainted_path.is_file()):
+        init_state = _read_consistent_page_state(p.source_path)
+        if init_state is None:
             continue
-        _, init_data = load_page_json(p_init)
+        p_init, _init_rev, init_data, _init_content_sig, inp_stat = init_state
         init_regs = init_data.get("regions") or []
         if not init_regs:
             continue
 
-        inp_stat = (p_init.inpainted_path.stat().st_size, p_init.inpainted_path.stat().st_mtime_ns)
         with Image.open(p_init.inpainted_path) as im:
             inp_g = np.array(im.convert("L"))
         lobes_by_uid = _partition_lobes_by_uid(inp_g, init_regs)
@@ -702,19 +808,18 @@ def run_closed_loop_bubble_centering(
         last_render_status = "not_requested" if render_page_fn is None else "unchanged"
         verified_fresh_fp: Optional[tuple[int, int, str]] = None
         verified_for_rev: Optional[str] = None
+        tainted_fp: Optional[tuple[int, int, str]] = None
 
         for pass_idx in range(eff_passes):
-            p_fresh = resolve_page_paths(p.source_path)
-            if not (p_fresh.json_exists and p_fresh.inpainted_exists and p_fresh.inpainted_path.is_file()):
+            cur_state = _read_consistent_page_state(p.source_path)
+            if cur_state is None:
                 break
-            page_rev = compute_page_revision(p_fresh)
-            _, img_data = load_page_json(p_fresh)
+            p_fresh, page_rev, img_data, pre_content_sig_0, cur_inp_stat = cur_state
             regs = img_data.get("regions") or []
             if not regs:
                 break
             ensure_region_uids(regs)
             cur_part_sig = _regions_partition_signature(regs)
-            cur_inp_stat = (p_fresh.inpainted_path.stat().st_size, p_fresh.inpainted_path.stat().st_mtime_ns)
             if cur_inp_stat != inp_stat:
                 inp_stat = cur_inp_stat
                 with Image.open(p_fresh.inpainted_path) as im:
@@ -729,34 +834,97 @@ def run_closed_loop_bubble_centering(
                 break
 
             cur_fp = _rendered_artifact_fingerprint(p_fresh)
-            rendered_is_fresh = (
-                verified_fresh_fp is not None
-                and cur_fp == verified_fresh_fp
-                and page_rev == verified_for_rev
-            ) or _is_rendered_output_fresh(p_fresh)
+            is_tainted = tainted_fp is not None and cur_fp == tainted_fp
+            rendered_is_fresh = (not is_tainted) and (
+                (
+                    verified_fresh_fp is not None
+                    and cur_fp == verified_fresh_fp
+                    and page_rev == verified_for_rev
+                )
+                or _is_rendered_output_fresh(p_fresh)
+            )
 
             if not rendered_is_fresh and pass_idx == 0 and render_page_fn is not None:
                 prev_fp_0 = cur_fp
                 pre_res = render_page_fn(p_fresh)
                 last_render_status, pre_res_dict = _normalize_render_result(pre_res)
+
+                post_state_0 = _read_consistent_page_state(p.source_path)
+                if post_state_0 is None:
+                    if render_results_out is not None:
+                        render_results_out[page_name] = pre_res_dict
+                    break
+                p_fresh, rev_before_fp_0, img_data, post_content_sig_0, post_inp_stat_0 = post_state_0
+                post_fp_0 = _rendered_artifact_fingerprint(p_fresh)
+                rev_after_fp_0 = compute_page_revision(resolve_page_paths(p.source_path))
+
+                fp_updated_0 = post_fp_0 is not None and (
+                    prev_fp_0 is None or post_fp_0[0] != prev_fp_0[0] or post_fp_0[2] != prev_fp_0[2]
+                )
+                if last_render_status in ("ok", "success") and not fp_updated_0:
+                    last_render_status = "partial"
+                    pre_res_dict["status"] = "partial"
+                    pre_res_dict["output_updated"] = False
+                    pre_res_dict.setdefault(
+                        "error",
+                        "Rendered output missing or not updated during pre-render",
+                    )
                 if render_results_out is not None:
                     render_results_out[page_name] = pre_res_dict
-                p_fresh = resolve_page_paths(p.source_path)
-                if not (p_fresh.json_exists and p_fresh.inpainted_exists and p_fresh.inpainted_path.is_file()):
+
+                # Re-bind consistent regions, base image, partition cache, and revision after pre-render (R3-F02 / R3-F20)
+                if rev_after_fp_0 != rev_before_fp_0:
+                    re_state_0 = _read_consistent_page_state(p.source_path)
+                    if re_state_0 is None:
+                        break
+                    p_fresh, page_rev, img_data, _, cur_inp_stat = re_state_0
+                else:
+                    page_rev = rev_after_fp_0
+                    cur_inp_stat = post_inp_stat_0
+
+                regs = img_data.get("regions") or []
+                if not regs:
                     break
-                post_fp_0 = _rendered_artifact_fingerprint(p_fresh)
-                page_rev = compute_page_revision(p_fresh)
+                ensure_region_uids(regs)
+                cur_part_sig = _regions_partition_signature(regs)
+                if cur_inp_stat != inp_stat:
+                    inp_stat = cur_inp_stat
+                    with Image.open(p_fresh.inpainted_path) as im:
+                        inp_g = np.array(im.convert("L"))
+                    lobes_by_uid = _partition_lobes_by_uid(inp_g, regs)
+                    cached_part_sig = cur_part_sig
+                elif cur_part_sig != cached_part_sig:
+                    lobes_by_uid = _partition_lobes_by_uid(inp_g, regs)
+                    cached_part_sig = cur_part_sig
+
+                if not lobes_by_uid:
+                    break
+
+                # Only mark output verified when non-export page content was unchanged across pre-render (R3-F50)
                 if (
-                    post_fp_0 is not None
+                    fp_updated_0
                     and last_render_status in ("ok", "partial", "success")
-                    and (prev_fp_0 is None or post_fp_0[0] != prev_fp_0[0] or post_fp_0[2] != prev_fp_0[2])
+                    and post_content_sig_0 == pre_content_sig_0
+                    and rev_before_fp_0 == rev_after_fp_0
                 ):
                     verified_fresh_fp = post_fp_0
-                    verified_for_rev = page_rev
+                    verified_for_rev = rev_after_fp_0
+                    tainted_fp = None
                     rendered_is_fresh = True
+                else:
+                    verified_fresh_fp = None
+                    verified_for_rev = None
+                    if post_fp_0 is not None:
+                        tainted_fp = post_fp_0
+                    rendered_is_fresh = False
 
             res_g: Optional[np.ndarray] = None
-            if rendered_is_fresh and p_fresh.rendered_output_exists and p_fresh.rendered_output_path and p_fresh.rendered_output_path.is_file():
+            if (
+                rendered_is_fresh
+                and p_fresh.rendered_output_exists
+                and p_fresh.rendered_output_path
+                and p_fresh.rendered_output_path.is_file()
+            ):
                 with Image.open(p_fresh.rendered_output_path) as rim:
                     res_g = np.array(rim.convert("L"))
 
@@ -809,27 +977,66 @@ def run_closed_loop_bubble_centering(
             if render_page_fn is None:
                 break
 
-            pre_render_paths = resolve_page_paths(p.source_path)
+            pre_render_state = _read_consistent_page_state(p.source_path)
+            if pre_render_state is None:
+                break
+            pre_render_paths, _pre_render_rev, _, pre_render_content_sig, _ = pre_render_state
             prev_fp = _rendered_artifact_fingerprint(pre_render_paths)
+
             render_res = render_page_fn(pre_render_paths)
             last_render_status, last_render_dict = _normalize_render_result(render_res)
+
+            post_render_state = _read_consistent_page_state(p.source_path)
+            post_render_paths = (
+                post_render_state[0] if post_render_state is not None else resolve_page_paths(p.source_path)
+            )
+            rev_before_fp = post_render_state[1] if post_render_state is not None else None
+            post_render_content_sig = post_render_state[3] if post_render_state is not None else None
+            post_fp = _rendered_artifact_fingerprint(post_render_paths)
+            rev_after_fp = compute_page_revision(resolve_page_paths(p.source_path))
+
+            # Always verify rendered output updated on EVERY post-write render, including the final pass (R3-F19)
+            output_updated = post_fp is not None and (
+                prev_fp is None or post_fp[0] != prev_fp[0] or post_fp[2] != prev_fp[2]
+            )
+            if not output_updated:
+                if last_render_status in ("ok", "success"):
+                    last_render_status = "partial"
+                last_render_dict["status"] = last_render_status
+                last_render_dict["output_updated"] = False
+                last_render_dict.setdefault(
+                    "error",
+                    "Rendered output missing or not updated after bubble centering",
+                )
+
             if render_results_out is not None:
                 render_results_out[page_name] = last_render_dict
             for item in report.get(page_name, []):
                 item["render_status"] = last_render_status
 
+            if not output_updated or last_render_status not in ("ok", "success"):
+                verified_fresh_fp = None
+                verified_for_rev = None
+                if post_fp is not None:
+                    tainted_fp = post_fp
+                break
+
+            # Only record verified_for_rev when non-export page state matches pre-render & revision stayed stable across fp (R3-F50)
+            if (
+                post_render_state is not None
+                and post_render_content_sig == pre_render_content_sig
+                and rev_before_fp is not None
+                and rev_before_fp == rev_after_fp
+            ):
+                verified_fresh_fp = post_fp
+                verified_for_rev = rev_after_fp
+                tainted_fp = None
+            else:
+                verified_fresh_fp = None
+                verified_for_rev = None
+                tainted_fp = post_fp
+
             if pass_idx + 1 >= eff_passes:
                 break
-            if last_render_status not in ("ok", "success"):
-                break
-            post_render_paths = resolve_page_paths(p.source_path)
-            post_fp = _rendered_artifact_fingerprint(post_render_paths)
-            if post_fp is None:
-                break
-            if prev_fp is not None and post_fp[0] == prev_fp[0] and post_fp[2] == prev_fp[2]:
-                # Rendered image on disk was not updated; stop so stale ink is never measured twice
-                break
-            verified_fresh_fp = post_fp
-            verified_for_rev = compute_page_revision(post_render_paths)
 
     return report

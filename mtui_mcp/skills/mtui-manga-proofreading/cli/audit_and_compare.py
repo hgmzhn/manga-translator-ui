@@ -1951,6 +1951,7 @@ def cmd_verify_crops(
     _ensure_repo_src_on_path()
     from mtui_mcp.config import get_runtime_settings
     from mtui_mcp.font_detector import (
+        CACHE_VERSION,
         classify_current_mtui_font,
         load_font_detection_cache,
         lookup_cached_region_prediction,
@@ -1968,6 +1969,7 @@ def cmd_verify_crops(
     from mtui_mcp.qa_auditor import (
         _count_vertical_cells_in_line,
         _estimate_raw_main_char_size,
+        _parse_ym_cache_version,
         measure_page_stroke_metrics,
     )
     from mtui_mcp.richtext_builder import region_is_bold
@@ -2009,6 +2011,7 @@ def cmd_verify_crops(
     selected_pages: list[str] = []
     exported_pages: list[str] = []
     skipped_pages: list[dict] = []
+    skipped_regions: list[dict] = []
     missing_artifact_pages: list[dict] = []
     total_bubbles = 0
     frameless_exported = 0
@@ -2036,14 +2039,30 @@ def cmd_verify_crops(
                 _, img_data = load_page_json(p)
                 regs = img_data.get("regions") or []
                 has_visible_regs = any(visible_text_of_region(r).strip() for r in regs)
-                raw_m = img_data.get("mask_raw")
-                if isinstance(raw_m, str) and raw_m.strip():
-                    dec_probe = decode_mask_base64(raw_m, None)
-                    has_mask_raw = bool(dec_probe is not None and np.any(dec_probe > 0))
-                elif isinstance(raw_m, list) and raw_m:
-                    has_mask_raw = bool(np.any(np.asarray(raw_m) > 0))
             except Exception:
                 missing_parts.append("corrupt_json")
+            else:
+                raw_m = img_data.get("mask_raw")
+                if isinstance(raw_m, str) and raw_m.strip():
+                    try:
+                        dec_probe = decode_mask_base64(raw_m, None)
+                    except Exception:
+                        dec_probe = None
+                    if dec_probe is None:
+                        missing_parts.append("corrupt_mask")
+                    else:
+                        has_mask_raw = bool(np.any(dec_probe > 0))
+                elif isinstance(raw_m, list) and raw_m:
+                    try:
+                        dec_list = decode_mask_base64(raw_m, None)
+                    except Exception:
+                        dec_list = None
+                    if dec_list is None:
+                        missing_parts.append("corrupt_mask")
+                    else:
+                        has_mask_raw = bool(np.any(dec_list > 0))
+                elif raw_m is not None and not isinstance(raw_m, (str, list)):
+                    missing_parts.append("corrupt_mask")
         if not p.display_base_path.is_file():
             missing_parts.append("missing_display_base")
         if not p.rendered_output_exists:
@@ -2063,7 +2082,14 @@ def cmd_verify_crops(
         cards_before_page = len(pair_cards)
         if p.work_dir not in ym_caches_by_work:
             ym_caches_by_work[p.work_dir] = load_font_detection_cache(p.work_dir)
-        page_ym_cache = ((ym_caches_by_work[p.work_dir].get("pages") or {}).get(p.source_path.stem))
+        w_ym_cache = ym_caches_by_work[p.work_dir]
+        w_ym_pages = w_ym_cache.get("pages") if isinstance(w_ym_cache, dict) else None
+        raw_page_ym = (
+            w_ym_pages.get(p.source_path.stem)
+            if isinstance(w_ym_pages, dict) and _parse_ym_cache_version(w_ym_cache) >= CACHE_VERSION
+            else None
+        )
+        page_ym_cache = raw_page_ym if isinstance(raw_page_ym, dict) else None
 
         raw_im = Image.open(p.display_base_path).convert("RGB")
         ren_im = Image.open(p.rendered_output_path).convert("RGB")
@@ -2121,10 +2147,7 @@ def cmd_verify_crops(
         ordered.sort(key=lambda t: (int(t[3] // max(140.0, ih * 0.14)), -t[2]))
 
         for r_i, r, cx, cy in ordered:
-            total_bubbles += 1
             is_in_bub = in_bubbles[r_i] if r_i < len(in_bubbles) else True
-            if not is_in_bub:
-                frameless_exported += 1
             vis = visible_text_of_region(r).strip()
             lns = [ln.strip() for ln in vis.split("\n") if ln.strip()]
             col_lens = [_count_vertical_cells_in_line(ln) for ln in lns]
@@ -2161,7 +2184,19 @@ def cmd_verify_crops(
             ux2 = min(iw, int(math.ceil(max(bx2, cx + ew * 0.52))) + pad_c)
             uy2 = min(ih, int(math.ceil(max(by2, cy + eh * 0.52))) + pad_c)
             if ux2 - ux1 < 24 or uy2 - uy1 < 24:
+                skipped_regions.append(
+                    {
+                        "page": p.source_path.name,
+                        "page_number": p_no,
+                        "region_index": r_i,
+                        "reason": "crop_too_small",
+                    }
+                )
                 continue
+
+            total_bubbles += 1
+            if not is_in_bub:
+                frameless_exported += 1
 
             show_3panel = (not is_in_bub) and (inp_im is not None)
             c_raw = raw_im.crop((ux1, uy1, ux2, uy2))
@@ -2351,6 +2386,7 @@ def cmd_verify_crops(
         "selected_pages": selected_pages,
         "exported_pages": exported_pages,
         "skipped_pages": skipped_pages,
+        "skipped_regions": skipped_regions,
         "missing_artifact_pages": missing_artifact_pages,
         "cards_per_sheet": per_sheet,
         "min_scale_used": round(min_scale_used, 3) if min_scale_used < 999.0 else 1.0,
@@ -2403,6 +2439,134 @@ def cmd_qa_diff(before_json: Path, after_json: Path, *, pages: list[str] | None 
 # ---------------------------------------------------------------------------
 
 
+def _list_dir_images(d: Path, *, exclude_translated_suffix: bool = False) -> list[Path]:
+    if not d.is_dir():
+        return []
+    return sorted(
+        (
+            p
+            for p in d.iterdir()
+            if p.is_file()
+            and p.suffix.lower() in IMAGE_EXTS
+            and (not exclude_translated_suffix or not p.stem.lower().endswith("-translated"))
+        ),
+        key=_natural_sort_key,
+    )
+
+
+def _pair_image_in_list(
+    target: Path,
+    candidates: list[Path],
+    *,
+    target_stem_unique: bool,
+    target_name_cf_unique: bool = True,
+) -> Path | None:
+    """Pair `target` with a file in `candidates` by exact filename first, falling back to case-insensitive stem match
+    ONLY when the stem is unique in BOTH the source page set (`target_stem_unique=True`) and `candidates`."""
+    for cand in candidates:
+        if cand.name == target.name:
+            return cand
+    t_name_cf = target.name.casefold()
+    if target_name_cf_unique:
+        cf_name_hits = [cand for cand in candidates if cand.name.casefold() == t_name_cf]
+        if len(cf_name_hits) == 1:
+            return cf_name_hits[0]
+    if target_stem_unique:
+        t_stem_cf = target.stem.casefold()
+        stem_hits = [cand for cand in candidates if cand.stem.casefold() == t_stem_cf]
+        if len(stem_hits) == 1:
+            return stem_hits[0]
+    return None
+
+
+def _resolve_after_for_compare(
+    src_p: Path,
+    *,
+    target_stem_unique: bool,
+    target_name_cf_unique: bool = True,
+) -> Path | None:
+    """Resolve `src_p`'s rendered After image while honoring exact-filename-first & unique-stem-only pairing."""
+    src_norm = os.path.normcase(os.path.abspath(str(src_p)))
+    work_dir = src_p.parent / "manga_translator_work"
+
+    # 1. Inspect per-page JSON (`last_output_path` / `last_export_dir`) only if its entry matches `src_p` unambiguously
+    json_cands = [
+        work_dir / "json" / f"{src_p.stem}_translations.json",
+        src_p.parent / f"{src_p.parent.name}_translations.json",
+    ]
+    for jp in json_cands:
+        if not jp.is_file():
+            continue
+        try:
+            raw_json = json.loads(jp.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(raw_json, dict) or not raw_json:
+            continue
+        matched_meta: dict | None = None
+        for k, v in raw_json.items():
+            if not isinstance(v, dict):
+                continue
+            k_str = str(k)
+            k_name = Path(k_str).name
+            if (
+                os.path.normcase(os.path.abspath(k_str)) == src_norm
+                or k_name == src_p.name
+                or (target_name_cf_unique and k_name.casefold() == src_p.name.casefold())
+            ):
+                matched_meta = v
+                break
+        if matched_meta is None and target_stem_unique and len(raw_json) == 1:
+            only_val = next(iter(raw_json.values()))
+            if isinstance(only_val, dict):
+                matched_meta = only_val
+        if isinstance(matched_meta, dict):
+            last_out = matched_meta.get("last_output_path")
+            if isinstance(last_out, str) and last_out.strip():
+                cand = Path(last_out)
+                if (
+                    cand.is_file()
+                    and cand.suffix.lower() in IMAGE_EXTS
+                    and os.path.normcase(os.path.abspath(str(cand))) != src_norm
+                ):
+                    return cand.resolve()
+            last_exp = matched_meta.get("last_export_dir")
+            if isinstance(last_exp, str) and last_exp.strip():
+                exp_hit = _pair_image_in_list(
+                    src_p,
+                    _list_dir_images(Path(last_exp)),
+                    target_stem_unique=target_stem_unique,
+                    target_name_cf_unique=target_name_cf_unique,
+                )
+                if exp_hit is not None and os.path.normcase(os.path.abspath(str(exp_hit))) != src_norm:
+                    return exp_hit.resolve()
+
+    # 2. Check sibling `<chapter>-translated` directory and `manga_translator_work/result`
+    sib_dir = src_p.parent.parent / f"{src_p.parent.name}-translated"
+    for out_d in (sib_dir, work_dir / "result"):
+        hit = _pair_image_in_list(
+            src_p,
+            _list_dir_images(out_d),
+            target_stem_unique=target_stem_unique,
+            target_name_cf_unique=target_name_cf_unique,
+        )
+        if hit is not None and os.path.normcase(os.path.abspath(str(hit))) != src_norm:
+            return hit.resolve()
+
+    # 3. Delegate to `_resolve_page_rendered_status` when stem is unique and candidate directory is unambiguous
+    if target_stem_unique:
+        _, rp_out = _resolve_page_rendered_status(src_p)
+        if rp_out is not None and rp_out.is_file():
+            if rp_out.name == src_p.name:
+                return rp_out
+            same_stem_siblings = [
+                p for p in _list_dir_images(rp_out.parent) if p.stem.casefold() == src_p.stem.casefold()
+            ]
+            if len(same_stem_siblings) <= 1:
+                return rp_out
+    return None
+
+
 def cmd_compare(
     raw_dir: Path | None,
     before_dir: Path,
@@ -2410,107 +2574,172 @@ def cmd_compare(
     out_dir: Path,
     prefix: str = "cmp_",
 ) -> dict:
-    """Generate 3-panel (Raw | Before | After) comparison PNGs (falls back to 2-panel if raw_dir omitted).
+    """Generate 3-panel (Raw | Before | After) comparison PNGs (falls back to 2-panel ONLY if raw_dir is None).
     When `after_dir` is omitted (`None`) or lacks a matching file, automatically resolves each page's rendered output
     (`last_output_path` / `last_export_dir` / `-translated` / `manga_translator_work/result`) via `resolve_page_paths`."""
     _ensure_repo_src_on_path()
+    if raw_dir is not None and not raw_dir.is_dir():
+        raise FileNotFoundError(f"raw_dir does not exist or is not a directory: {raw_dir}")
+
     out_dir.mkdir(parents=True, exist_ok=True)
     title_font = _load_cjk_font(24)
-    before_files = sorted(
-        (p for p in before_dir.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTS),
-        key=_natural_sort_key,
-    )
-    before_stems_cf = {bp.stem.casefold() for bp in before_files}
-    missing_before_pages: list[str] = []
-    expected_pages: list[str] = []
-    if raw_dir is not None and raw_dir.is_dir():
-        raw_pages = sorted(
-            (
-                p
-                for p in raw_dir.iterdir()
-                if p.is_file()
-                and p.suffix.lower() in IMAGE_EXTS
-                and not p.stem.lower().endswith("-translated")
-            ),
-            key=_natural_sort_key,
-        )
-        expected_pages = [rp.name for rp in raw_pages]
-        for rp in raw_pages:
-            if rp.stem.casefold() not in before_stems_cf:
-                missing_before_pages.append(rp.name)
-    else:
-        expected_pages = [bp.name for bp in before_files]
+    before_files = _list_dir_images(before_dir)
+    after_files = _list_dir_images(after_dir) if (after_dir is not None and after_dir.is_dir()) else []
 
+    missing_before_pages: list[str] = []
+    missing_after_pages: list[str] = []
+    expected_pages: list[str] = []
+    paired_compared_pages: set[str] = set()
     count = 0
     compared_count = 0
     identical_count = 0
-    missing_after_pages: list[str] = []
-    for idx, bp in enumerate(before_files, 1):
-        rp: Path | None = None
-        if raw_dir is not None and raw_dir.is_dir():
-            rp = _find_rendered_page(raw_dir, bp)
 
-        ap: Path | None = None
-        if after_dir is not None and after_dir.is_dir():
-            ap = _find_rendered_page(after_dir, bp)
-        if (ap is None or not ap.is_file()) and rp is not None and rp.is_file():
-            _, ap = _resolve_page_rendered_status(rp)
-        if (ap is None or not ap.is_file()) and after_dir is not None:
-            chapter_cand = (
-                after_dir.parent.parent
-                if after_dir.parent.name == "manga_translator_work"
-                else after_dir.parent
+    if raw_dir is not None:
+        raw_pages = _list_dir_images(raw_dir, exclude_translated_suffix=True)
+        expected_pages = [rp.name for rp in raw_pages]
+        raw_stem_counts: dict[str, int] = {}
+        raw_name_cf_counts: dict[str, int] = {}
+        for rp in raw_pages:
+            raw_stem_counts[rp.stem.casefold()] = raw_stem_counts.get(rp.stem.casefold(), 0) + 1
+            raw_name_cf_counts[rp.name.casefold()] = raw_name_cf_counts.get(rp.name.casefold(), 0) + 1
+
+        for idx, rp in enumerate(raw_pages, 1):
+            stem_unique = raw_stem_counts.get(rp.stem.casefold(), 0) == 1
+            name_cf_unique = raw_name_cf_counts.get(rp.name.casefold(), 0) == 1
+
+            bp = _pair_image_in_list(
+                rp,
+                before_files,
+                target_stem_unique=stem_unique,
+                target_name_cf_unique=name_cf_unique,
             )
-            if chapter_cand.is_dir():
-                src_cand = _find_rendered_page(chapter_cand, bp)
-                if src_cand is not None and src_cand.is_file():
-                    _, ap = _resolve_page_rendered_status(src_cand)
+            ap = _pair_image_in_list(
+                rp,
+                after_files,
+                target_stem_unique=stem_unique,
+                target_name_cf_unique=name_cf_unique,
+            ) if after_files else None
+            if ap is None or not ap.is_file():
+                ap = _resolve_after_for_compare(
+                    rp,
+                    target_stem_unique=stem_unique,
+                    target_name_cf_unique=name_cf_unique,
+                )
 
-        if ap is None or not ap.is_file():
-            missing_after_pages.append(rp.name if rp is not None else bp.name)
-            continue
-        ib = Image.open(bp).convert("RGB")
-        ia = Image.open(ap).convert("RGB")
-        compared_count += 1
-        if np.array_equal(np.asarray(ib), np.asarray(ia)):
-            identical_count += 1
-            continue
-        w, h = ib.size
-        if ia.size != (w, h):
-            ia = ia.resize((w, h), Image.Resampling.LANCZOS)
+            if bp is None or not bp.is_file():
+                missing_before_pages.append(rp.name)
+            if ap is None or not ap.is_file():
+                missing_after_pages.append(rp.name)
+            if bp is None or not bp.is_file() or ap is None or not ap.is_file():
+                continue
 
-        ir = None
-        if rp is not None and rp.is_file():
+            ib = Image.open(bp).convert("RGB")
+            ia = Image.open(ap).convert("RGB")
+            compared_count += 1
+            paired_compared_pages.add(rp.name)
+            if np.array_equal(np.asarray(ib), np.asarray(ia)):
+                identical_count += 1
+                continue
+            w, h = ib.size
+            if ia.size != (w, h):
+                ia = ia.resize((w, h), Image.Resampling.LANCZOS)
             ir = Image.open(rp).convert("RGB")
             if ir.size != (w, h):
                 ir = ir.resize((w, h), Image.Resampling.LANCZOS)
 
-        header_h, gap, pad = 56, 16, 14
-        ncols = 3 if ir is not None else 2
-        canvas = Image.new("RGB", (pad * 2 + w * ncols + gap * (ncols - 1), header_h + h + pad), (24, 26, 32))
-        draw = ImageDraw.Draw(canvas)
-
-        if ir is not None:
-            draw.text((pad + 8, 14), f"第 {idx:02d} 页 ({bp.name}) — 日文原图 (Raw)", fill=(255, 220, 130), font=title_font)
+            header_h, gap, pad = 56, 16, 14
+            ncols = 3
+            canvas = Image.new("RGB", (pad * 2 + w * ncols + gap * (ncols - 1), header_h + h + pad), (24, 26, 32))
+            draw = ImageDraw.Draw(canvas)
+            draw.text((pad + 8, 14), f"第 {idx:02d} 页 ({rp.name}) — 日文原图 (Raw)", fill=(255, 220, 130), font=title_font)
             draw.text((pad + w + gap + 8, 14), f"第 {idx:02d} 页 — 初译处理前 (Before)", fill=(210, 215, 225), font=title_font)
             draw.text((pad + (w + gap) * 2 + 8, 14), f"第 {idx:02d} 页 — 精修处理后 (After)", fill=(130, 230, 175), font=title_font)
             canvas.paste(ir, (pad, header_h))
             canvas.paste(ib, (pad + w + gap, header_h))
             canvas.paste(ia, (pad + (w + gap) * 2, header_h))
-        else:
+
+            out_p = out_dir / f"{prefix}p{idx:02d}_{rp.stem}.png"
+            canvas.save(out_p, compress_level=3)
+            count += 1
+    else:
+        expected_pages = [bp.name for bp in before_files]
+        before_stem_counts: dict[str, int] = {}
+        before_name_cf_counts: dict[str, int] = {}
+        for bp in before_files:
+            before_stem_counts[bp.stem.casefold()] = before_stem_counts.get(bp.stem.casefold(), 0) + 1
+            before_name_cf_counts[bp.name.casefold()] = before_name_cf_counts.get(bp.name.casefold(), 0) + 1
+
+        chapter_cand: Path | None = None
+        chapter_cand_files: list[Path] = []
+        chapter_stem_counts: dict[str, int] = {}
+        if after_dir is not None:
+            cand_dir = (
+                after_dir.parent.parent
+                if after_dir.parent.name == "manga_translator_work"
+                else after_dir.parent
+            )
+            if cand_dir.is_dir():
+                chapter_cand = cand_dir
+                chapter_cand_files = _list_dir_images(cand_dir, exclude_translated_suffix=True)
+                for cp in chapter_cand_files:
+                    chapter_stem_counts[cp.stem.casefold()] = chapter_stem_counts.get(cp.stem.casefold(), 0) + 1
+
+        for idx, bp in enumerate(before_files, 1):
+            stem_unique = before_stem_counts.get(bp.stem.casefold(), 0) == 1
+            name_cf_unique = before_name_cf_counts.get(bp.name.casefold(), 0) == 1
+
+            ap = _pair_image_in_list(
+                bp,
+                after_files,
+                target_stem_unique=stem_unique,
+                target_name_cf_unique=name_cf_unique,
+            ) if after_files else None
+            if (ap is None or not ap.is_file()) and chapter_cand is not None:
+                src_cand = _pair_image_in_list(
+                    bp,
+                    chapter_cand_files,
+                    target_stem_unique=stem_unique,
+                    target_name_cf_unique=name_cf_unique,
+                )
+                if src_cand is not None and src_cand.is_file():
+                    ap = _resolve_after_for_compare(
+                        src_cand,
+                        target_stem_unique=stem_unique and chapter_stem_counts.get(src_cand.stem.casefold(), 0) == 1,
+                        target_name_cf_unique=name_cf_unique,
+                    )
+            if ap is None or not ap.is_file():
+                missing_after_pages.append(bp.name)
+                continue
+
+            ib = Image.open(bp).convert("RGB")
+            ia = Image.open(ap).convert("RGB")
+            compared_count += 1
+            paired_compared_pages.add(bp.name)
+            if np.array_equal(np.asarray(ib), np.asarray(ia)):
+                identical_count += 1
+                continue
+            w, h = ib.size
+            if ia.size != (w, h):
+                ia = ia.resize((w, h), Image.Resampling.LANCZOS)
+
+            header_h, gap, pad = 56, 16, 14
+            ncols = 2
+            canvas = Image.new("RGB", (pad * 2 + w * ncols + gap * (ncols - 1), header_h + h + pad), (24, 26, 32))
+            draw = ImageDraw.Draw(canvas)
             draw.text((pad + 8, 14), f"第 {idx:02d} 页 ({bp.name}) — 处理前 (Before)", fill=(210, 215, 225), font=title_font)
             draw.text((pad + w + gap + 8, 14), f"第 {idx:02d} 页 ({bp.name}) — 处理后 (After)", fill=(130, 230, 175), font=title_font)
             canvas.paste(ib, (pad, header_h))
             canvas.paste(ia, (pad + w + gap, header_h))
 
-        out_p = out_dir / f"{prefix}p{idx:02d}_{bp.stem}.png"
-        canvas.save(out_p, compress_level=3)
-        count += 1
+            out_p = out_dir / f"{prefix}p{idx:02d}_{bp.stem}.png"
+            canvas.save(out_p, compress_level=3)
+            count += 1
+
     complete_coverage = bool(
         expected_pages
         and not missing_before_pages
         and not missing_after_pages
-        and compared_count == len(expected_pages)
+        and len(paired_compared_pages) == len(expected_pages)
     )
     print(
         f"Generated {count} comparison sheets in {out_dir} "

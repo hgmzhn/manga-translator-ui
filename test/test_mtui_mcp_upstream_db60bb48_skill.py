@@ -16,8 +16,10 @@ from PIL import Image
 
 from mtui_mcp.config import get_runtime_settings
 from mtui_mcp.font_detector import (
+    CACHE_VERSION,
     classify_current_mtui_font,
     recommend_mtui_font_for_prediction,
+    region_bbox_signature,
 )
 from mtui_mcp.path_resolver import SUPPORTED_IMAGE_EXTENSIONS, resolve_page_paths
 from mtui_mcp.project_store import encode_mask_base64, save_page_json_atomic, save_rgb_image_atomic
@@ -670,3 +672,249 @@ def test_s5_r2_slice5_ym_top1_gate_missing_inpainted_snapshot_cleanup_and_compar
     assert cmp_incomplete["sheets_generated"] == 0
     assert cmp_incomplete["missing_after_pages"] == ["002.png"]
     assert cmp_incomplete["complete_coverage"] is False
+
+
+def test_s6_r3_slice5_skipped_regions_corrupt_mask_ym_version_compare_pairing_and_docs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(get_runtime_settings(), "mtui_root", None)
+    aac = _load_aac_module(monkeypatch)
+
+    # 1. R3-F33 & R3-F08 doc contracts in SKILL.md and unattended_batch_ops.md
+    skill_dir = _bootstrap.ROOT / "mtui_mcp" / "skills" / "mtui-manga-proofreading"
+    skill_md = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+    batch_md = (skill_dir / "references" / "unattended_batch_ops.md").read_text(encoding="utf-8")
+
+    assert "regression_diff.passed == True" in skill_md
+    assert "unaudited_pages == []" in skill_md
+    assert "passed=True" in batch_md and "unaudited_pages == []" in batch_md
+    assert "skipped_regions" in skill_md and "mtui_inspect_region_visual" in skill_md
+    assert "skipped_regions" in batch_md and "mtui_inspect_region_visual" in batch_md
+
+    # 2. R3-F08: Visible regions skipped due to `< 24px` crop do NOT inflate `total_bubbles_exported` /
+    #    `frameless_regions_exported` and are recorded in `manifest["skipped_regions"]`.
+    ch_skip_reg = tmp_path / "ch_skip_reg"
+    ch_skip_reg.mkdir()
+    p_sr = ch_skip_reg / "001.png"
+    canvas_sr = np.full((300, 300, 3), 180, dtype=np.uint8)
+    cv2.ellipse(canvas_sr, (120, 140), (60, 85), 0, 0, 360, (255, 255, 255), -1)
+    cv2.ellipse(canvas_sr, (120, 140), (60, 85), 0, 0, 360, (10, 10, 10), 3)
+    Image.fromarray(canvas_sr).save(p_sr)
+    sr_paths = resolve_page_paths(p_sr)
+    save_rgb_image_atomic(canvas_sr, sr_paths.inpainted_path)
+    save_rgb_image_atomic(canvas_sr, sr_paths.rendered_output_path)
+    save_page_json_atomic(
+        sr_paths,
+        str(p_sr.resolve()),
+        {
+            "regions": [
+                {
+                    "lines": [[[90.0, 85.0], [150.0, 85.0], [150.0, 195.0], [90.0, 195.0]]],
+                    "center": [120.0, 140.0],
+                    "text": "大丈夫だ",
+                    "translation": "没问题",
+                    "font_family": "FZHei-B01",
+                    "font_size": 24,
+                    "direction": "v",
+                    "alignment": "left",
+                },
+                {
+                    # Visible region pushed near/past right boundary so clamped crop width < 24px
+                    "lines": [[[342.0, 120.0], [356.0, 120.0], [356.0, 150.0], [342.0, 150.0]]],
+                    "center": [349.0, 135.0],
+                    "text": "あ",
+                    "translation": "啊",
+                    "font_family": "FZHei-B01",
+                    "font_size": 12,
+                    "direction": "v",
+                    "alignment": "left",
+                },
+            ]
+        },
+        auto_initial_snapshot=False,
+    )
+    vc_sr_out = tmp_path / "vc_skip_reg"
+    mf_sr = aac.cmd_verify_crops(ch_skip_reg, vc_sr_out)
+    assert mf_sr["exported_pages"] == ["001.png"]
+    assert mf_sr["total_bubbles_exported"] == 1
+    assert mf_sr["frameless_regions_exported"] == 0
+    assert mf_sr["verify_sheet_count"] == 1
+    assert mf_sr["skipped_regions"] == [
+        {"page": "001.png", "page_number": 1, "region_index": 1, "reason": "crop_too_small"}
+    ]
+    disk_mf_sr = json.loads((vc_sr_out / "verify_crops_manifest.json").read_text(encoding="utf-8"))
+    assert disk_mf_sr["skipped_regions"] == mf_sr["skipped_regions"]
+
+    # 3. R3-F30: Corrupt non-empty `mask_raw` on a page with no visible regions is flagged as `corrupt_mask`
+    #    in `missing_artifact_pages`, whereas a valid all-zero `mask_raw` skips cleanly as `no_visible_regions`.
+    ch_mask = tmp_path / "ch_corrupt_mask"
+    ch_mask.mkdir()
+    pm1 = ch_mask / "001.png"
+    pm2 = ch_mask / "002.png"
+    blank_img = np.full((120, 120, 3), 245, dtype=np.uint8)
+    Image.fromarray(blank_img).save(pm1)
+    Image.fromarray(blank_img).save(pm2)
+
+    pm1_paths = resolve_page_paths(pm1)
+    save_rgb_image_atomic(blank_img, pm1_paths.rendered_output_path)
+    pm1_paths.json_path.parent.mkdir(parents=True, exist_ok=True)
+    pm1_paths.json_path.write_text(
+        json.dumps({str(pm1.resolve()): {"mask_raw": "!!!NOT_VALID_BASE64_MASK!!!", "regions": []}}),
+        encoding="utf-8",
+    )
+
+    pm2_paths = resolve_page_paths(pm2)
+    save_rgb_image_atomic(blank_img, pm2_paths.rendered_output_path)
+    zero_mask_b64 = encode_mask_base64(np.zeros((120, 120), dtype=np.uint8))
+    save_page_json_atomic(
+        pm2_paths,
+        str(pm2.resolve()),
+        {"mask_raw": zero_mask_b64, "regions": []},
+        auto_initial_snapshot=False,
+    )
+
+    mf_mask = aac.cmd_verify_crops(ch_mask, tmp_path / "vc_corrupt_mask")
+    assert mf_mask["missing_artifact_pages"] == [
+        {"page": "001.png", "page_number": 1, "reason": "corrupt_mask"}
+    ]
+    assert mf_mask["skipped_pages"] == [
+        {"page": "001.png", "page_number": 1, "reason": "corrupt_mask"},
+        {"page": "002.png", "page_number": 2, "reason": "no_visible_regions"},
+    ]
+
+    # 4. R3-F32: `cmd_verify_crops` enforces `_parse_ym_cache_version(w_ym_cache) >= CACHE_VERSION`
+    #    and `isinstance(pages, dict)` so stale/invalid caches never emit `[⚠ HIGH-CONF YM MISMATCH!]`.
+    ym_sig = region_bbox_signature([90.0, 85.0, 150.0, 195.0])
+    ym_pred_entry = {
+        "ridx": 0,
+        "bbox_sig": ym_sig,
+        "center": [120.0, 140.0],
+        "n_clean_chars": 6,
+        "pred_family": "POP_CHISEL",
+        "pred_conf": 0.99,
+        "bold_prob": 1.0,
+        "heavy_prob": 0.2,
+        "family_probs": {"POP_CHISEL": 0.99, "ANTIQUE": 0.01},
+        "top_fonts": [{"font": "FOT-ComicReggaeStd-B.otf", "family": "POP_CHISEL", "prob": 0.92}],
+    }
+    ym_pages_payload = {
+        "001": {
+            "region_count": 2,
+            "by_bbox_sig": {ym_sig: ym_pred_entry},
+            "by_ridx": {"0": ym_pred_entry},
+        }
+    }
+    ym_cache_path = sr_paths.work_dir / ".yuzumarker_font_cache.json"
+    for idx_bad, bad_cache in enumerate(
+        (
+            {"version": 1, "pages": ym_pages_payload},
+            {"version": "unknown", "pages": ym_pages_payload},
+            {"pages": ym_pages_payload},
+            {"version": CACHE_VERSION, "pages": ["001"]},
+        )
+    ):
+        ym_cache_path.write_text(json.dumps(bad_cache, ensure_ascii=False), encoding="utf-8")
+        mf_bad_ym = aac.cmd_verify_crops(ch_skip_reg, tmp_path / f"vc_ym_bad_{idx_bad}")
+        assert mf_bad_ym["ym_high_conf_mismatch_flagged"] == 0
+
+    ym_cache_path.write_text(
+        json.dumps({"version": CACHE_VERSION, "pages": ym_pages_payload}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    mf_good_ym = aac.cmd_verify_crops(ch_skip_reg, tmp_path / "vc_ym_current")
+    assert mf_good_ym["ym_high_conf_mismatch_flagged"] == 1
+
+    # 5. R3-F31: `cmd_compare` pairs by exact filename first, restricts cross-extension stem fallback to unique stems,
+    #    and computes `complete_coverage` from paired expected raw pages rather than `compared_count`.
+    raw_dup = tmp_path / "raw_dup_stem"
+    before_dup = tmp_path / "before_dup_stem"
+    after_dup = tmp_path / "after_dup_stem"
+    raw_dup.mkdir()
+    before_dup.mkdir()
+    after_dup.mkdir()
+
+    img_a = np.full((80, 80, 3), (220, 220, 220), dtype=np.uint8)
+    img_b = np.full((80, 80, 3), (180, 200, 220), dtype=np.uint8)
+    img_c = np.full((80, 80, 3), (220, 140, 140), dtype=np.uint8)
+
+    # Raw has BOTH `001.png` and `001.jpg`; Before & After only have `001.png` + stale orphan `002.png`.
+    Image.fromarray(img_a).save(raw_dup / "001.png")
+    Image.fromarray(img_a).save(raw_dup / "001.jpg", quality=95)
+    Image.fromarray(img_b).save(before_dup / "001.png")
+    Image.fromarray(img_b).save(before_dup / "002.png")
+    Image.fromarray(img_c).save(after_dup / "001.png")
+    Image.fromarray(img_c).save(after_dup / "002.png")
+
+    cmp_dup_res = aac.cmd_compare(
+        raw_dir=raw_dup,
+        before_dir=before_dup,
+        after_dir=after_dup,
+        out_dir=tmp_path / "cmp_dup_incomplete",
+    )
+    assert cmp_dup_res["expected_page_count"] == 2
+    assert cmp_dup_res["compared_page_count"] == 1
+    assert cmp_dup_res["sheets_generated"] == 1
+    assert cmp_dup_res["missing_before_pages"] == ["001.jpg"]
+    assert cmp_dup_res["missing_after_pages"] == ["001.jpg"]
+    assert cmp_dup_res["complete_coverage"] is False
+
+    # Once `001.jpg` is also present in Before and After, both raw pages pair cleanly by exact filename.
+    Image.fromarray(img_b).save(before_dup / "001.jpg", quality=95)
+    Image.fromarray(img_c).save(after_dup / "001.jpg", quality=95)
+    cmp_dup_ok = aac.cmd_compare(
+        raw_dir=raw_dup,
+        before_dir=before_dup,
+        after_dir=after_dup,
+        out_dir=tmp_path / "cmp_dup_complete",
+    )
+    assert cmp_dup_ok["expected_page_count"] == 2
+    assert cmp_dup_ok["compared_page_count"] == 2
+    assert cmp_dup_ok["sheets_generated"] == 2
+    assert cmp_dup_ok["missing_before_pages"] == []
+    assert cmp_dup_ok["missing_after_pages"] == []
+    assert cmp_dup_ok["complete_coverage"] is True
+
+    # Ambiguous duplicate stems in `before_dir` (`001.png` + `001.jpg`) must not guess-match `raw / 001.bmp`.
+    raw_ambig = tmp_path / "raw_ambig_target"
+    raw_ambig.mkdir()
+    Image.fromarray(img_a).save(raw_ambig / "001.bmp")
+    cmp_ambig = aac.cmd_compare(
+        raw_dir=raw_ambig,
+        before_dir=before_dup,
+        after_dir=after_dup,
+        out_dir=tmp_path / "cmp_ambig_target",
+    )
+    assert cmp_ambig["missing_before_pages"] == ["001.bmp"]
+    assert cmp_ambig["missing_after_pages"] == ["001.bmp"]
+    assert cmp_ambig["complete_coverage"] is False
+
+    # 6. R3-F63: Explicit non-existent (or non-directory) `raw_dir` raises FileNotFoundError instead of falling back
+    #    to 2-column mode, while `raw_dir=None` still runs 2-column mode cleanly.
+    with pytest.raises(FileNotFoundError, match="raw_dir"):
+        aac.cmd_compare(
+            raw_dir=tmp_path / "does_not_exist_raw_dir",
+            before_dir=before_dup,
+            after_dir=after_dup,
+            out_dir=tmp_path / "cmp_bad_raw",
+        )
+    not_a_dir = tmp_path / "raw_is_a_file.txt"
+    not_a_dir.write_text("x", encoding="utf-8")
+    with pytest.raises(FileNotFoundError, match="raw_dir"):
+        aac.cmd_compare(
+            raw_dir=not_a_dir,
+            before_dir=before_dup,
+            after_dir=after_dup,
+            out_dir=tmp_path / "cmp_file_raw",
+        )
+
+    cmp_2col = aac.cmd_compare(
+        raw_dir=None,
+        before_dir=before_dup,
+        after_dir=after_dup,
+        out_dir=tmp_path / "cmp_2col_ok",
+    )
+    assert cmp_2col["expected_page_count"] == 3
+    assert cmp_2col["compared_page_count"] == 3
+    assert cmp_2col["complete_coverage"] is True
+    with Image.open(next((tmp_path / "cmp_2col_ok").glob("cmp_*.png"))) as im_2c:
+        assert im_2c.width < 80 * 3 + 40

@@ -1110,12 +1110,12 @@ class MainAppLogic(QObject):
             app_cfg = config_dict.get("app") if isinstance(config_dict, dict) else None
             if isinstance(app_cfg, dict):
                 enabled = bool(app_cfg.get("mcp_server_enabled", True))
-                host = str(app_cfg.get("mcp_server_host") or "127.0.0.1")
+                host = str(app_cfg.get("mcp_server_host") or "").strip() or "127.0.0.1"
                 port = int(app_cfg.get("mcp_server_port", 8765))
             elif self.config_service is not None:
                 cfg_obj = self.config_service.get_config()
                 enabled = bool(cfg_obj.app.mcp_server_enabled)
-                host = str(cfg_obj.app.mcp_server_host)
+                host = str(cfg_obj.app.mcp_server_host or "").strip() or "127.0.0.1"
                 port = int(cfg_obj.app.mcp_server_port)
             else:
                 return
@@ -1190,7 +1190,7 @@ class MainAppLogic(QObject):
                 if mcp_service is not None:
                     mcp_service.apply_config(
                         enabled=bool(config_obj.app.mcp_server_enabled),
-                        host=str(config_obj.app.mcp_server_host),
+                        host=str(config_obj.app.mcp_server_host or "").strip() or "127.0.0.1",
                         port=int(config_obj.app.mcp_server_port),
                         override_host=(full_key == 'app.mcp_server_host'),
                         override_port=(full_key == 'app.mcp_server_port'),

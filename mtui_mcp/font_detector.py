@@ -595,6 +595,8 @@ def load_font_detection_cache(work_dir: Path) -> dict[str, Any]:
         if not isinstance(data, dict):
             return {}
         pages_dict = data.get("pages")
+        if pages_dict is not None and not isinstance(pages_dict, dict):
+            return {}
         if isinstance(pages_dict, dict):
             for p_entry in pages_dict.values():
                 if isinstance(p_entry, dict):
@@ -677,21 +679,15 @@ def lookup_cached_region_prediction(
     if not isinstance(by_idx, dict):
         return None
     cand = by_idx.get(str(region_index))
+    if reg_uid and (not isinstance(cand, dict) or str(cand.get("region_uid") or "").strip() != reg_uid):
+        for alt_cand in by_idx.values():
+            if isinstance(alt_cand, dict) and str(alt_cand.get("region_uid") or "").strip() == reg_uid:
+                cand = alt_cand
+                break
     if not isinstance(cand, dict):
         return None
 
-    # 1. Explicit stable region_uid match/mismatch
-    cand_uid = str(cand.get("region_uid") or "").strip()
-    if reg_uid and cand_uid:
-        return cand if reg_uid == cand_uid else None
-    if cand_uid and not reg_uid:
-        return None
-
-    # 2. Cached bbox_sig / center identity verification (present on all real engine_worker cache entries)
     cand_sig = str(cand.get("bbox_sig") or "").strip()
-    if cand_sig and cand_sig == sig:
-        return cand
-
     cand_center = cand.get("center")
     cand_cx = 0.0
     cand_cy = 0.0
@@ -706,8 +702,26 @@ def lookup_cached_region_prediction(
             cand_cx = float(cand_center[0])
             cand_cy = float(cand_center[1])
             has_cand_center = math.isfinite(cand_cx) and math.isfinite(cand_cy)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             has_cand_center = False
+
+    # 1. Explicit stable region_uid match/mismatch — still requires matching crop identity (`R3-F05`)
+    cand_uid = str(cand.get("region_uid") or "").strip()
+    if reg_uid and cand_uid:
+        if reg_uid != cand_uid:
+            return None
+        if cand_sig:
+            return cand if cand_sig == sig else None
+        if has_cand_center:
+            cx, cy = region_center(reg)
+            return cand if math.hypot(cx - cand_cx, cy - cand_cy) <= 24.0 else None
+        return None
+    if cand_uid and not reg_uid:
+        return None
+
+    # 2. Cached bbox_sig / center identity verification (present on all real engine_worker cache entries)
+    if cand_sig and cand_sig == sig:
+        return cand
 
     # Reject invalid or stale region_count, or cached indices exceeding current region list
     if "region_count" in page_cache and page_cache.get("region_count") is not None:

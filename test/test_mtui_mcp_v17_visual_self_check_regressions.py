@@ -369,8 +369,11 @@ def test_r2_visual_inspector_inpaint_fallback_label_and_1px_thin_mask_downscale(
     page = np.full((1000, 1000, 3), 255, dtype=np.uint8)
     Image.fromarray(page).save(img_path)
     paths = resolve_page_paths(img_path)
-    # Provide rendered output WITHOUT inpainted sidecar (`R2-F85`), plus a 1px vertical mask line at x=501 (`R2-F86`)
-    save_rgb_image_atomic(page, paths.rendered_output_path)
+    # R3-F65: Paint a distinct blue block on rendered_output_path (inside Region #0's loupe crop and far from x=501)
+    # while keeping source `img_path` pure white so Panel 2 proves it never used `rendered_output_path`!
+    rendered_page = page.copy()
+    rendered_page[240:380, 340:440] = (0, 80, 220)
+    save_rgb_image_atomic(rendered_page, paths.rendered_output_path)
     thin_mask = np.zeros((1000, 1000), dtype=np.uint8)
     thin_mask[200:800, 501] = 255
     save_page_json_atomic(
@@ -389,6 +392,12 @@ def test_r2_visual_inspector_inpaint_fallback_label_and_1px_thin_mask_downscale(
         },
         auto_initial_snapshot=False,
     )
+
+    def _count_blue_px(arr: np.ndarray) -> int:
+        b_ch = arr[:, :, 2].astype(np.int16)
+        r_ch = arr[:, :, 0].astype(np.int16)
+        g_ch = arr[:, :, 1].astype(np.int16)
+        return int(np.sum((b_ch - r_ch >= 80) & (b_ch - g_ch >= 60)))
 
     seen_titles: list[str] = []
     orig_wrap = vis_mod._wrap_panel_with_world_rulers
@@ -412,8 +421,11 @@ def test_r2_visual_inspector_inpaint_fallback_label_and_1px_thin_mask_downscale(
         comp = open_rgb_image(insp_file)
         panel_w = comp.shape[1] // 3
         p2_slice = comp[60:-20, panel_w + 60 : 2 * panel_w - 20]
+        p3_slice = comp[60:-20, 2 * panel_w + 60 : 3 * panel_w - 20]
         red_px = (p2_slice[:, :, 0].astype(np.int16) - p2_slice[:, :, 1].astype(np.int16)) >= 40
         assert int(np.sum(red_px)) >= 200, "1px vertical mask line must survive 2x downscaling!"
+        assert _count_blue_px(p2_slice) == 0, "Panel 2 must fall back to white original, NOT blue rendered output!"
+        assert _count_blue_px(p3_slice) >= 500
 
         seen_titles.clear()
         loupe_file, loupe_meta = generate_region_loupe_image(
@@ -425,7 +437,89 @@ def test_r2_visual_inspector_inpaint_fallback_label_and_1px_thin_mask_downscale(
         loupe_arr = open_rgb_image(loupe_file)
         lp_w = loupe_arr.shape[1] // 3
         lp2_slice = loupe_arr[60:-20, lp_w + 60 : 2 * lp_w - 20]
+        lp3_slice = loupe_arr[60:-20, 2 * lp_w + 60 : 3 * lp_w - 20]
         loupe_red = (lp2_slice[:, :, 0].astype(np.int16) - lp2_slice[:, :, 1].astype(np.int16)) >= 40
         assert int(np.sum(loupe_red)) >= 50, "1px vertical mask line must survive loupe crop downscaling!"
+        assert _count_blue_px(lp2_slice) == 0, "Loupe Panel 2 must fall back to white original, NOT blue rendered output!"
+        assert _count_blue_px(lp3_slice) >= 200
+    finally:
+        vis_mod._wrap_panel_with_world_rulers = orig_attr  # type: ignore[assignment]
+
+
+def test_r3_visual_inspector_mismatched_2x_mask_and_editor_base_fallback(tmp_path: Path) -> None:
+    import mtui_mcp.visual_inspector as vis_mod
+
+    folder = tmp_path / "vis_r3_ch"
+    folder.mkdir()
+    img_path = folder / "001.png"
+
+    raw_page = np.full((1000, 1000, 3), 255, dtype=np.uint8)
+    Image.fromarray(raw_page).save(img_path)
+    paths = resolve_page_paths(img_path)
+
+    # R3-F59: Upscaled/colorized `editor_base` fallback must report `editor_base_fallback` instead of `original_fallback`
+    editor_base_img = np.full((1000, 1000, 3), (235, 250, 235), dtype=np.uint8)
+    save_rgb_image_atomic(editor_base_img, paths.editor_base_path)
+
+    # R3-F58: 2000x2000 mask on a 1000x1000 page with a 1px vertical stroke at odd column x=1001
+    mask_2k = np.zeros((2000, 2000), dtype=np.uint8)
+    mask_2k[400:1600, 1001] = 255
+    save_page_json_atomic(
+        paths,
+        str(img_path.resolve()),
+        {
+            "upscale_ratio": 2,
+            "mask_raw": encode_mask_base64(mask_2k),
+            "regions": [
+                {
+                    "lines": [[[350.0, 180.0], [650.0, 180.0], [650.0, 820.0], [350.0, 820.0]]],
+                    "text": "テスト",
+                    "translation": "测试",
+                    "direction": "v",
+                }
+            ],
+        },
+        auto_initial_snapshot=False,
+    )
+    assert resolve_page_paths(img_path).editor_base_valid is True
+
+    seen_titles: list[str] = []
+    orig_wrap = vis_mod._wrap_panel_with_world_rulers
+
+    def _spy_wrap(crop_rgb, wx0, wy0, title, **kw):
+        seen_titles.append(title)
+        return orig_wrap(crop_rgb, wx0, wy0, title, **kw)
+
+    orig_attr = vis_mod._wrap_panel_with_world_rulers
+    try:
+        vis_mod._wrap_panel_with_world_rulers = _spy_wrap  # type: ignore[assignment]
+        insp_file, insp_meta = generate_page_inspection_image(
+            img_path, mode="inpaint_check", show_grid=False, max_edge=1716
+        )
+        assert insp_meta["inpainted_panel_source"] == "editor_base_fallback"
+        assert insp_meta["rendered_panel_source"] == "editor_base_fallback"
+        assert any("2. Inpainted + Mask (Red, fallback: editor_base)" in t for t in seen_titles)
+        assert any("3. Rendered (fallback: editor_base)" in t for t in seen_titles)
+
+        comp = open_rgb_image(insp_file)
+        panel_w = comp.shape[1] // 3
+        p2_slice = comp[60:-20, panel_w + 60 : 2 * panel_w - 20]
+        red_px = (p2_slice[:, :, 0].astype(np.int16) - p2_slice[:, :, 1].astype(np.int16)) >= 30
+        assert int(np.sum(red_px)) >= 200, "1px stroke at odd col 1001 of 2000x2000 mask must survive to 500x500!"
+
+        seen_titles.clear()
+        loupe_file, loupe_meta = generate_region_loupe_image(
+            img_path, region_indices=[0], padding_px=50, show_grid=False, max_edge=900
+        )
+        assert loupe_meta["inpainted_panel_source"] == "editor_base_fallback"
+        assert loupe_meta["rendered_panel_source"] == "editor_base_fallback"
+        assert any("Inpainted+Mask (fallback: editor_base)" in t for t in seen_titles)
+        assert any("Rendered (fallback: editor_base)" in t for t in seen_titles)
+
+        loupe_arr = open_rgb_image(loupe_file)
+        lp_w = loupe_arr.shape[1] // 3
+        lp2_slice = loupe_arr[60:-20, lp_w + 60 : 2 * lp_w - 20]
+        loupe_red = (lp2_slice[:, :, 0].astype(np.int16) - lp2_slice[:, :, 1].astype(np.int16)) >= 30
+        assert int(np.sum(loupe_red)) >= 50, "1px stroke at odd col 1001 of 2000x2000 mask must survive in loupe!"
     finally:
         vis_mod._wrap_panel_with_world_rulers = orig_attr  # type: ignore[assignment]

@@ -152,10 +152,12 @@ def _select_page_entry_from_raw_json(
 
     target_base = os.path.normcase(os.path.basename(abs_src))
     src_stem = os.path.normcase(os.path.splitext(os.path.basename(abs_src))[0])
-    src_parent_name = os.path.normcase(os.path.basename(os.path.dirname(abs_src)))
+    src_dir = os.path.dirname(abs_src)
+    src_parent_name = os.path.normcase(os.path.basename(src_dir))
 
     def _is_safe_migrated_or_relative_key(key_str: str, *, require_exact_basename: bool) -> bool:
-        key_base = os.path.normcase(os.path.basename(key_str))
+        key_norm_sep = key_str.replace("\\", "/")
+        key_base = os.path.normcase(os.path.basename(key_norm_sep))
         key_stem = os.path.normcase(os.path.splitext(key_base)[0])
         if require_exact_basename and key_base != target_base:
             return False
@@ -169,10 +171,44 @@ def _select_page_entry_from_raw_json(
             except OSError:
                 return False
             return True
-        key_dir = os.path.dirname(key_str)
+        key_dir = os.path.dirname(key_norm_sep)
         if not key_dir or key_dir in (".",):
+            for base_dir in (*rel_bases, src_dir):
+                try:
+                    cand = os.path.abspath(os.path.join(base_dir, key_norm_sep))
+                    if os.path.exists(cand) and os.path.normcase(os.path.realpath(cand)) != norm_real:
+                        return False
+                except OSError:
+                    return False
             return True
-        return os.path.normcase(os.path.basename(key_dir)) == src_parent_name
+        if os.path.normcase(os.path.basename(key_dir)) != src_parent_name:
+            return False
+        # R3-F17: Reject relative keys (e.g. `../../../other/ch2/001.png`) that resolve to another existing page on disk
+        rel_parts = [p for p in key_norm_sep.split("/") if p and p != "."]
+        candidate_bases: list[str] = list(rel_bases)
+        candidate_bases.extend([src_dir, os.path.dirname(src_dir), os.getcwd()])
+        if json_path is not None:
+            jp_parent = os.path.dirname(os.path.abspath(str(json_path)))
+            candidate_bases.append(os.path.dirname(jp_parent))
+            if ".." in rel_parts:
+                candidate_bases.extend(str(anc) for anc in Path(jp_parent).parents)
+        if ".." in rel_parts:
+            candidate_bases.extend(str(anc) for anc in Path(src_dir).parents)
+        seen_bases: set[str] = set()
+        for base_dir in candidate_bases:
+            if not base_dir:
+                continue
+            norm_base = os.path.normcase(os.path.abspath(base_dir))
+            if norm_base in seen_bases:
+                continue
+            seen_bases.add(norm_base)
+            try:
+                cand = os.path.abspath(os.path.join(base_dir, key_norm_sep))
+                if os.path.exists(cand) and os.path.normcase(os.path.realpath(cand)) != norm_real:
+                    return False
+            except OSError:
+                return False
+        return True
 
     base_matches = [
         k
@@ -535,15 +571,19 @@ class EngineRuntime:
         os.makedirs(out_dir, exist_ok=True)
         map_file = os.path.join(out_dir, "translation_map.json")
         with _TRANSLATION_MAP_LOCK:
-            mapping: dict[str, str] = {}
-            if os.path.isfile(map_file):
-                try:
-                    with open(map_file, "r", encoding="utf-8") as f:
-                        loaded = json.load(f)
-                    if isinstance(loaded, dict):
-                        mapping = loaded
-                except Exception:
-                    mapping = {}
+            # R3-F16: Start from empty mapping ONLY when `map_file` does not exist; never clobber an unreadable/invalid file
+            mapping: dict[str, str]
+            try:
+                with open(map_file, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+            except FileNotFoundError:
+                mapping = {}
+            else:
+                if not isinstance(loaded, dict):
+                    raise ValueError(
+                        f"Existing translation_map.json at {map_file} must be a JSON object, got {type(loaded).__name__}"
+                    )
+                mapping = loaded
             mapping[os.path.normpath(output_path)] = os.path.normpath(source_path)
             fd, tmp = tempfile.mkstemp(prefix=".translation_map.", suffix=".tmp", dir=out_dir)
             try:
@@ -559,11 +599,33 @@ class EngineRuntime:
                         pass
 
     @staticmethod
+    def _try_compute_page_revision(source_path: Optional[str], json_path: str) -> Optional[str]:
+        target = source_path or json_path
+        if not target:
+            return None
+        try:
+            from mtui_mcp.path_resolver import resolve_page_paths
+            from mtui_mcp.project_store import compute_page_revision
+
+            resolved = resolve_page_paths(target)
+            if os.path.normcase(os.path.abspath(str(resolved.json_path))) != os.path.normcase(
+                os.path.abspath(json_path)
+            ):
+                if os.path.isfile(json_path):
+                    with open(json_path, "rb") as jf:
+                        raw_bytes = jf.read()
+                    return compute_page_revision(resolved, json_bytes=raw_bytes)
+            return compute_page_revision(resolved)
+        except Exception:
+            return None
+
+    @staticmethod
     def _persist_last_export_dir(
         json_path: str,
         export_dir: str,
         output_path: Optional[str] = None,
         source_path: Optional[str] = None,
+        revisions_out: Optional[dict[str, str]] = None,
     ) -> bool:
         if not json_path or not os.path.isfile(json_path):
             return False
@@ -571,11 +633,18 @@ class EngineRuntime:
         with _acquire_page_edit_lock(lock_target):
             if not os.path.isfile(json_path):
                 return False
+            pre_rev: Optional[str] = None
+            if revisions_out is not None:
+                pre_rev = EngineRuntime._try_compute_page_revision(source_path, json_path)
+                if pre_rev is not None:
+                    revisions_out["pre_persist_revision"] = pre_rev
             tmp = ""
             try:
                 with open(json_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 if not isinstance(data, dict) or not data:
+                    if revisions_out is not None and pre_rev is not None:
+                        revisions_out["post_persist_revision"] = pre_rev
                     return False
 
                 target_keys: list[str] = []
@@ -604,6 +673,8 @@ class EngineRuntime:
                             target_keys = stem_matches
 
                 if not target_keys:
+                    if revisions_out is not None and pre_rev is not None:
+                        revisions_out["post_persist_revision"] = pre_rev
                     return False
 
                 changed = False
@@ -626,6 +697,8 @@ class EngineRuntime:
                         val["last_output_path"] = norm_out
                         changed = True
                 if not wrote_any:
+                    if revisions_out is not None and pre_rev is not None:
+                        revisions_out["post_persist_revision"] = pre_rev
                     return False
                 if changed:
                     fd, tmp = tempfile.mkstemp(
@@ -639,6 +712,12 @@ class EngineRuntime:
                         os.fsync(f.fileno())
                     _atomic_replace_file(tmp, json_path)
                     tmp = ""
+                    if revisions_out is not None:
+                        post_rev = EngineRuntime._try_compute_page_revision(source_path, json_path)
+                        if post_rev is not None:
+                            revisions_out["post_persist_revision"] = post_rev
+                elif revisions_out is not None and pre_rev is not None:
+                    revisions_out["post_persist_revision"] = pre_rev
                 return True
             finally:
                 if tmp and os.path.exists(tmp):
@@ -799,6 +878,7 @@ class EngineRuntime:
         # so global lock hierarchy stays strictly `page_edit_lock -> _runtime_lock` (R2-F01).
         metadata_saved = True
         metadata_error: Optional[str] = None
+        persist_revisions: dict[str, str] = {}
         if not bool(params.get("proof_only", False)):
             meta_errors: list[str] = []
             try:
@@ -811,6 +891,7 @@ class EngineRuntime:
                     os.path.dirname(output_path),
                     output_path=output_path,
                     source_path=source_path,
+                    revisions_out=persist_revisions,
                 )
                 if not persisted:
                     meta_errors.append(f"page_json: no matching writable page entry in {json_path}")
@@ -830,6 +911,10 @@ class EngineRuntime:
             "metadata_saved": metadata_saved,
             "elapsed_sec": round(time.perf_counter() - t0, 3),
         }
+        if "pre_persist_revision" in persist_revisions:
+            out_payload["pre_persist_revision"] = persist_revisions["pre_persist_revision"]
+        if "post_persist_revision" in persist_revisions:
+            out_payload["post_persist_revision"] = persist_revisions["post_persist_revision"]
         if metadata_error is not None:
             out_payload["metadata_error"] = metadata_error
         return out_payload
@@ -1139,8 +1224,8 @@ class EngineRuntime:
                             "orig_geom_unique": geom_key_counts[g_key] == 1,
                             "orig_text": str(reg.get("text", "")),
                             "orig_texts": copy.deepcopy(reg.get("texts")),
-                            "orig_translation": reg.get("translation"),
-                            "orig_translation_raw": reg.get("translation_raw"),
+                            "orig_translation": copy.deepcopy(reg.get("translation")),
+                            "orig_translation_raw": copy.deepcopy(reg.get("translation_raw")),
                             "orig_translation_rich": copy.deepcopy(reg.get("translation_rich")),
                             "pts": box_pts,
                             "text": str(reg.get("text", "")),
@@ -1366,17 +1451,12 @@ class EngineRuntime:
                                         continue
 
                                 if wants_tr:
+                                    # R3-F15: Always compare `translation_raw` since `wants_tr` unconditionally overwrites it
                                     cur_tr_matches = (
                                         target_reg.get("translation") == it.get("orig_translation")
+                                        and target_reg.get("translation_raw") == it.get("orig_translation_raw")
                                         and target_reg.get("translation_rich") == it.get("orig_translation_rich")
                                     )
-                                    if (
-                                        it.get("orig_translation") is None
-                                        and it.get("orig_translation_raw") is not None
-                                    ):
-                                        cur_tr_matches = cur_tr_matches and (
-                                            target_reg.get("translation_raw") == it.get("orig_translation_raw")
-                                        )
                                     if not (cur_src_matches and cur_tr_matches):
                                         it["committed"] = False
                                         it["conflict"] = True
@@ -1593,7 +1673,12 @@ class EngineRuntime:
                 mem_pct = float(params["memory_percent"])
                 if not math.isfinite(mem_pct) or not (0.0 < mem_pct <= 100.0):
                     raise ValueError(f"memory_percent must be in (0, 100], got {params['memory_percent']!r}")
-                cmd.extend(["--memory-percent", str(int(round(mem_pct)))])
+                mem_pct_int = int(round(mem_pct))
+                if mem_pct_int < 1:
+                    raise ValueError(
+                        f"memory_percent rounds to 0 and would disable the limit, got {params['memory_percent']!r}"
+                    )
+                cmd.extend(["--memory-percent", str(mem_pct_int)])
             if params.get("batch_per_restart") is not None:
                 bpr = int(params["batch_per_restart"])
                 if bpr < 0:

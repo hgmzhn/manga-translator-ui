@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import sys
+import threading
+import time
 import unicodedata
+from collections import OrderedDict
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -100,7 +104,7 @@ def _iter_font_files(base_dir: Path) -> list[tuple[Path, int, int]]:
 
         try:
             with os.scandir(cur_dir) as it:
-                entries = sorted(it, key=lambda e: e.name.lower())
+                entries = sorted(it, key=lambda e: (e.name.casefold(), e.name))
         except OSError:
             return
 
@@ -250,8 +254,23 @@ def _extract_face_from_ttfont(
     return entry, coverage
 
 
-_FontDirFileSig = tuple[str, str, int, int]
-_FontDirSig = tuple[str, tuple[_FontDirFileSig, ...]]
+_IndexedFontFile = tuple[str, int, int]
+_MAX_DIR_SNAPSHOT_TOKENS = 128
+
+
+@dataclass
+class _SharedFontDirIndexEntry:
+    root_dir: str
+    norm_dir_key: str
+    token: str
+    files: tuple[_IndexedFontFile, ...]
+    watched_dirs: tuple[tuple[str, int, tuple[str, ...]], ...]
+    verified_mono: float
+
+
+_FONT_DIR_INDEX_LOCK = threading.RLock()
+_FONT_DIR_INDEX_CACHE: dict[str, _SharedFontDirIndexEntry] = {}
+_FONT_DIR_SNAPSHOTS_BY_TOKEN: OrderedDict[str, tuple[_IndexedFontFile, ...]] = OrderedDict()
 
 
 @lru_cache(maxsize=4096)
@@ -325,20 +344,122 @@ def _inspect_font_file(
     return tuple(face_records)
 
 
-def _fonts_dirs_signature(dirs: Iterable[Path]) -> tuple[_FontDirSig, ...]:
-    sigs: list[_FontDirSig] = []
-    for d in dirs:
-        if d is None or not d.is_dir():
-            continue
-        files = _iter_font_files(d)
-        file_sigs = tuple(
-            sorted(
-                (os.path.normcase(os.path.abspath(str(fp))), str(fp), fsize, mtime_ns)
-                for fp, fsize, mtime_ns in files
-            )
+def _collect_watched_dirs_snapshot(base_dir: Path) -> tuple[tuple[str, int, tuple[str, ...]], ...]:
+    """Record ``(dir_path_str, dir_mtime_ns, sorted_entry_names)`` across ``base_dir`` and its subdirectories."""
+    out: list[tuple[str, int, tuple[str, ...]]] = []
+    visited_real: set[str] = set()
+
+    def _walk_dirs(cur: Path) -> None:
+        try:
+            real_key = os.path.normcase(os.path.realpath(cur))
+        except OSError:
+            return
+        if real_key in visited_real:
+            return
+        visited_real.add(real_key)
+        try:
+            st_d = os.stat(cur)
+            with os.scandir(cur) as it:
+                entries = sorted(it, key=lambda e: (e.name.casefold(), e.name))
+                names = tuple(e.name for e in entries)
+                subdirs = [Path(e.path) for e in entries if e.is_dir(follow_symlinks=True)]
+        except OSError:
+            return
+        out.append((str(cur), int(st_d.st_mtime_ns), names))
+        for sub in subdirs:
+            _walk_dirs(sub)
+
+    if base_dir.is_dir():
+        _walk_dirs(base_dir)
+    return tuple(out)
+
+
+def _is_shared_dir_index_fresh(entry: _SharedFontDirIndexEntry) -> bool:
+    if not os.path.isdir(entry.root_dir):
+        return False
+    now_ns = time.time_ns()
+    now_mono = time.monotonic()
+
+    # Fast path for large immutable system font directories (>128 files) whose directory mtime is safely
+    # outside the OS filesystem clock quantum (>100ms old) and was fully verified within the last 2 seconds.
+    if (
+        len(entry.files) > 128
+        and (now_mono - entry.verified_mono) < 2.0
+        and entry.watched_dirs
+        and all((now_ns - d_mtime_ns) > 100_000_000 for _, d_mtime_ns, _ in entry.watched_dirs)
+    ):
+        try:
+            for d_str, d_mtime_ns, _ in entry.watched_dirs:
+                if int(os.stat(d_str).st_mtime_ns) != d_mtime_ns:
+                    return False
+            return True
+        except OSError:
+            return False
+
+    try:
+        for d_str, d_mtime_ns, d_names in entry.watched_dirs:
+            if int(os.stat(d_str).st_mtime_ns) != d_mtime_ns:
+                return False
+            cur_names = tuple(sorted(os.listdir(d_str), key=lambda n: (n.casefold(), n)))
+            if cur_names != d_names:
+                return False
+        for fp_str, fsize, mtime_ns in entry.files:
+            st_f = os.stat(fp_str)
+            if int(st_f.st_size) != fsize or int(st_f.st_mtime_ns) != mtime_ns:
+                return False
+    except OSError:
+        return False
+
+    entry.verified_mono = now_mono
+    return True
+
+
+def _get_or_build_dir_index(base_dir: Path) -> Optional[_SharedFontDirIndexEntry]:
+    if base_dir is None or not base_dir.is_dir():
+        return None
+    norm_dir_key = os.path.normcase(os.path.abspath(str(base_dir)))
+    with _FONT_DIR_INDEX_LOCK:
+        cached = _FONT_DIR_INDEX_CACHE.get(norm_dir_key)
+        if cached is not None and _is_shared_dir_index_fresh(cached):
+            _FONT_DIR_SNAPSHOTS_BY_TOKEN[cached.token] = cached.files
+            _FONT_DIR_SNAPSHOTS_BY_TOKEN.move_to_end(cached.token)
+            return cached
+
+        raw_files = _iter_font_files(base_dir)
+        files = tuple((str(fp), int(fsize), int(mtime_ns)) for fp, fsize, mtime_ns in raw_files)
+        watched_dirs = _collect_watched_dirs_snapshot(base_dir)
+
+        hasher = hashlib.blake2b(digest_size=16)
+        hasher.update(norm_dir_key.encode("utf-8", errors="surrogatepass"))
+        hasher.update(b"\x00")
+        for fp_str, fsize, mtime_ns in files:
+            norm_fp = os.path.normcase(os.path.abspath(fp_str))
+            hasher.update(f"{norm_fp}|{fsize}|{mtime_ns}\n".encode("utf-8", errors="surrogatepass"))
+        token = hasher.hexdigest()
+
+        entry = _SharedFontDirIndexEntry(
+            root_dir=str(base_dir),
+            norm_dir_key=norm_dir_key,
+            token=token,
+            files=files,
+            watched_dirs=watched_dirs,
+            verified_mono=time.monotonic(),
         )
-        sigs.append((os.path.normcase(os.path.abspath(str(d))), file_sigs))
-    return tuple(sigs)
+        _FONT_DIR_INDEX_CACHE[norm_dir_key] = entry
+        _FONT_DIR_SNAPSHOTS_BY_TOKEN[token] = files
+        _FONT_DIR_SNAPSHOTS_BY_TOKEN.move_to_end(token)
+        while len(_FONT_DIR_SNAPSHOTS_BY_TOKEN) > _MAX_DIR_SNAPSHOT_TOKENS:
+            _FONT_DIR_SNAPSHOTS_BY_TOKEN.popitem(last=False)
+        return entry
+
+
+def _get_font_dirs_tokens(dirs: Iterable[Path]) -> tuple[str, ...]:
+    tokens: list[str] = []
+    for d in dirs:
+        entry = _get_or_build_dir_index(d)
+        if entry is not None:
+            tokens.append(entry.token)
+    return tuple(tokens)
 
 
 def _parse_font_spec(font_family_or_selector: str) -> tuple[str, Optional[str]]:
@@ -366,7 +487,7 @@ def _face_match_rank(
     source_rank: int,
     target_fam: str,
     explicit_style: Optional[str],
-) -> Optional[tuple[int, int, int]]:
+) -> Optional[tuple[int, int, int, int]]:
     if explicit_style is not None:
         full_sel = f"{target_fam}::{explicit_style}"
         if style_cf == explicit_style or sel_cf == full_sel:
@@ -387,61 +508,64 @@ def _face_match_rank(
     else:
         return None
 
-    return (name_tier, source_rank, style_rank)
+    exact_qt_rank = 0 if qt_cf == target_fam else 1
+    return (name_tier, source_rank, style_rank, exact_qt_rank)
 
 
 @lru_cache(maxsize=2048)
 def _resolve_target_font_codepoints(
-    project_sig: tuple[_FontDirSig, ...],
-    system_sig: tuple[_FontDirSig, ...],
-    include_system: bool,
+    dir_tokens: tuple[str, ...],
+    src_kind: str,
+    src_rank: int,
     target_fam: str,
     explicit_style: Optional[str],
-) -> Optional[frozenset[int]]:
-    if not target_fam:
+) -> Optional[tuple[tuple[int, int, int, int], Optional[frozenset[int]]]]:
+    if not target_fam or not dir_tokens:
         return None
 
-    candidates: list[tuple[tuple[int, int, int], int, str, int, int, str, int]] = []
+    candidates: list[tuple[tuple[int, int, int, int], int, str, int, int, int]] = []
     order_seq = 0
+    best_possible = (0, src_rank, 0, 0)
 
-    def _collect_from_dirs(dir_sigs: tuple[_FontDirSig, ...], src_kind: str, src_rank: int) -> bool:
-        nonlocal order_seq
-        for _, file_sigs in dir_sigs:
-            for _, fp_str, fsize, mtime_ns in file_sigs:
-                stem_cf = Path(fp_str).stem.casefold()
-                face_names = _match_font_names_only(fp_str, fsize, mtime_ns)
-                for face_idx, qt_cf, zh_cf, disp_cf, style_cf, sel_cf in face_names:
-                    rank = _face_match_rank(
-                        qt_cf=qt_cf,
-                        zh_cf=zh_cf,
-                        disp_cf=disp_cf,
-                        style_cf=style_cf,
-                        sel_cf=sel_cf,
-                        stem_cf=stem_cf,
-                        source_rank=src_rank,
-                        target_fam=target_fam,
-                        explicit_style=explicit_style,
-                    )
-                    if rank is not None:
-                        candidates.append((rank, order_seq, fp_str, fsize, mtime_ns, src_kind, face_idx))
-                        order_seq += 1
-                        if rank == (0, 0, 0):
-                            return True
-        return False
-
-    found_best_project = _collect_from_dirs(project_sig, "project", 0)
-    if include_system and not found_best_project:
-        _collect_from_dirs(system_sig, "system", 1)
+    for tok in dir_tokens:
+        with _FONT_DIR_INDEX_LOCK:
+            files = _FONT_DIR_SNAPSHOTS_BY_TOKEN.get(tok, ())
+        stop_early = False
+        for fp_str, fsize, mtime_ns in files:
+            stem_cf = Path(fp_str).stem.casefold()
+            face_names = _match_font_names_only(fp_str, fsize, mtime_ns)
+            for face_idx, qt_cf, zh_cf, disp_cf, style_cf, sel_cf in face_names:
+                rank = _face_match_rank(
+                    qt_cf=qt_cf,
+                    zh_cf=zh_cf,
+                    disp_cf=disp_cf,
+                    style_cf=style_cf,
+                    sel_cf=sel_cf,
+                    stem_cf=stem_cf,
+                    source_rank=src_rank,
+                    target_fam=target_fam,
+                    explicit_style=explicit_style,
+                )
+                if rank is not None:
+                    candidates.append((rank, order_seq, fp_str, fsize, mtime_ns, face_idx))
+                    order_seq += 1
+                    if rank == best_possible:
+                        stop_early = True
+                        break
+            if stop_early:
+                break
+        if stop_early:
+            break
 
     if not candidates:
         return None
 
     candidates.sort(key=lambda item: (item[0], item[1]))
-    _, _, best_fp_str, best_fsize, best_mtime_ns, best_src_kind, best_face_idx = candidates[0]
-    inspected_faces = _inspect_font_file(best_fp_str, best_fsize, best_mtime_ns, best_src_kind)
+    best_rank, _, best_fp_str, best_fsize, best_mtime_ns, best_face_idx = candidates[0]
+    inspected_faces = _inspect_font_file(best_fp_str, best_fsize, best_mtime_ns, src_kind)
     for f_idx, _, face_cps in inspected_faces:
         if f_idx == best_face_idx:
-            return face_cps
+            return (best_rank, face_cps)
     return None
 
 
@@ -459,16 +583,32 @@ def _lookup_font_codepoints(
 
     settings = get_runtime_settings()
     project_dirs = [settings.fonts_dir] if (settings.fonts_dir is not None and settings.fonts_dir.is_dir()) else []
-    project_sig = _fonts_dirs_signature(project_dirs)
-    system_sig = _fonts_dirs_signature(_system_font_dirs()) if include_system else ()
-
-    return _resolve_target_font_codepoints(
-        project_sig,
-        system_sig,
-        bool(include_system),
-        target_fam,
-        explicit_style,
+    project_tokens = _get_font_dirs_tokens(project_dirs)
+    proj_hit = (
+        _resolve_target_font_codepoints(project_tokens, "project", 0, target_fam, explicit_style)
+        if project_tokens
+        else None
     )
+    # R3-F61: Skip system font directory enumeration completely when project fonts already match the family!
+    if proj_hit is not None and proj_hit[0][0] == 0:
+        return proj_hit[1]
+
+    if not include_system:
+        return proj_hit[1] if proj_hit is not None else None
+
+    system_tokens = _get_font_dirs_tokens(_system_font_dirs())
+    sys_hit = (
+        _resolve_target_font_codepoints(system_tokens, "system", 1, target_fam, explicit_style)
+        if system_tokens
+        else None
+    )
+    if proj_hit is not None and sys_hit is not None:
+        return proj_hit[1] if proj_hit[0] <= sys_hit[0] else sys_hit[1]
+    if proj_hit is not None:
+        return proj_hit[1]
+    if sys_hit is not None:
+        return sys_hit[1]
+    return None
 
 
 def has_font(font_family: str, *, include_system: Optional[bool] = None) -> bool:
@@ -489,15 +629,19 @@ def list_available_fonts(
     q_norm = unicodedata.normalize("NFKC", query or "").casefold().strip()
 
     def _scan_dir(base_dir: Path, source_kind: str) -> None:
-        for fpath, fsize, mtime_ns in _iter_font_files(base_dir):
+        dir_entry = _get_or_build_dir_index(base_dir)
+        if dir_entry is None:
+            return
+        for fp_str, fsize, mtime_ns in dir_entry.files:
             if q_norm:
-                face_names = _match_font_names_only(str(fpath), fsize, mtime_ns)
+                fpath_name = Path(fp_str).name
+                face_names = _match_font_names_only(fp_str, fsize, mtime_ns)
                 if face_names and not any(
-                    q_norm in unicodedata.normalize("NFKC", f"{qt_cf} {disp_cf} {fpath.name}").casefold()
+                    q_norm in unicodedata.normalize("NFKC", f"{qt_cf} {disp_cf} {fpath_name}").casefold()
                     for _, qt_cf, _, disp_cf, _, _ in face_names
                 ):
                     continue
-            for _, entry, _ in _inspect_font_file(str(fpath), fsize, mtime_ns, source_kind):
+            for _, entry, _ in _inspect_font_file(fp_str, fsize, mtime_ns, source_kind):
                 results.append(entry)
 
     if settings.fonts_dir is not None and settings.fonts_dir.is_dir():

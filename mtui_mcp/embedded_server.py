@@ -198,6 +198,7 @@ class EmbeddedMcpHttpServer:
         self._auth_token: Optional[str] = auth_token
 
         self._lock = threading.RLock()
+        self._start_generation: int = 0
         self._bound_port: Optional[int] = None
         self._server: Optional[uvicorn.Server] = None
         self._thread: Optional[threading.Thread] = None
@@ -320,6 +321,21 @@ class EmbeddedMcpHttpServer:
             )
             return None
 
+    def _is_start_generation_active(
+        self,
+        expected_gen: int,
+        expected_server: uvicorn.Server,
+        expected_thread: threading.Thread,
+    ) -> bool:
+        with self._lock:
+            return bool(
+                self._start_generation == expected_gen
+                and self._server is expected_server
+                and not expected_server.should_exit
+                and self._thread is expected_thread
+                and expected_thread.is_alive()
+            )
+
     def start(self, timeout: float = 5.0) -> bool:
         with self._lock:
             if self.is_running:
@@ -376,6 +392,8 @@ class EmbeddedMcpHttpServer:
                 logger.warning("Failed to initialize embedded MCP HTTP server: %s", exc)
                 return False
 
+            self._start_generation += 1
+            my_gen = self._start_generation
             self._socket = sock
             self._bound_port = bound_port
             self._server = server
@@ -400,12 +418,34 @@ class EmbeddedMcpHttpServer:
 
         deadline = time.monotonic() + max(0.1, float(timeout))
         while time.monotonic() < deadline:
+            if not self._is_start_generation_active(my_gen, server, thread):
+                return False
             if server.started and not server.should_exit:
                 if self._warm_up and settings.is_engine_available:
+                    if not self._is_start_generation_active(my_gen, server, thread):
+                        return False
                     try:
                         get_worker_client().ensure_started()
                     except Exception as exc:
                         logger.warning("Initial worker warm-up failed during embedded start: %s", exc)
+                with self._lock:
+                    still_active = bool(
+                        self._start_generation == my_gen
+                        and self._server is server
+                        and server.started
+                        and not server.should_exit
+                        and self._thread is thread
+                        and thread.is_alive()
+                    )
+                    has_newer_active_server = bool(
+                        self._server is not None
+                        and self._server is not server
+                        and not self._server.should_exit
+                    )
+                if not still_active:
+                    if not has_newer_active_server:
+                        get_worker_client().shutdown()
+                    return False
                 logger.info(
                     "Embedded MCP HTTP server listening on %s (SSE: %s)",
                     self.streamable_http_url,
@@ -416,17 +456,23 @@ class EmbeddedMcpHttpServer:
                 break
             time.sleep(0.01)
 
-        logger.warning(
-            "Embedded MCP HTTP server on %s:%s did not become ready within %.1fs.",
-            self._host,
-            bound_port,
-            timeout,
-        )
-        self.stop(timeout=1.0)
+        with self._lock:
+            should_stop_this_gen = (
+                self._start_generation == my_gen and self._server is server
+            )
+        if should_stop_this_gen:
+            logger.warning(
+                "Embedded MCP HTTP server on %s:%s did not become ready within %.1fs.",
+                self._host,
+                bound_port,
+                timeout,
+            )
+            self.stop(timeout=1.0)
         return False
 
     def stop(self, timeout: float = 5.0) -> None:
         with self._lock:
+            self._start_generation += 1
             server = self._server
             thread = self._thread
             sock = self._socket

@@ -51,7 +51,7 @@ description: >-
 | 6 | **本身已经很粗的字库一律 `bold=False`**；原图是粗体时绝不能留在细字重 | 叠假粗会糊成一团，漏掉粗体则丢失语气 |
 | 7 | **修图只动文字本身**：气泡黑框和框外原画零误伤；框外无框字用 `tight_halo_rects` + `neural`，禁止大矩形、`solid_fill`、`telea` | 框外字底下就是原画，大面积遮罩会铲平网点和线条 |
 | 8 | **封面署名、页眉书名刊头、预告页框外宣传语不翻译**，用 `mtui_delete_regions(restore_artwork=True)` 还原原画 | 这些属于装帧，不是正文 |
-| 9 | **Gate B 改过的页必须回归验证**：`newly_introduced_error_count == 0`，且改动页 100% 重新出图逐张复核 | 防止越改越坏 |
+| 9 | **Gate B 改过的页必须回归验证**：`regression_diff.passed == True`（`newly_introduced_error_count == 0` 且 `unaudited_pages == []`），且改动页 100% 重新出图逐张复核 | 防止越改越坏或漏审基线页 |
 
 ---
 
@@ -106,7 +106,7 @@ aac translate-raw --chapter-dir "<CHAPTER>" --backup-before-dir "<QA>/before_res
    ```bash
    aac verify-crops --chapter-dir "<CHAPTER>" --out-dir "<QA>/verify_crops" [--pages 7,13 | --page-start X --page-end Y] [--cards-per-sheet 3]
    ```
-   先核对 `verify_crops_manifest.json`：`selected_pages` 必须 100% 覆盖本次负责的页码范围，`missing_artifact_pages` 必须为空（绝不允许因缺 JSON / `missing_inpainted` 修图底图 / 成图静默漏检或把框外字退化为双栏卡；`skipped_pages` 仅允许经原图核实确无正文的无字页），且已看过的 sheet 数必须等于 `verify_sheet_count`。每张 `verify_sheet_*.png` 都要 `read_file` 看过，一张不跳。气泡卡片是 `RAW | RENDERED` 双联图；框外无框字卡片是 `RAW | INPAINTED | RENDERED` 三联图，重点看中间栏的修图质量。按**五项必检**逐框核对：
+   先核对 `verify_crops_manifest.json`：`selected_pages` 必须 100% 覆盖本次负责的页码范围，`missing_artifact_pages` 必须为空（绝不允许因缺 JSON / `missing_inpainted` 修图底图 / `corrupt_mask` / 成图静默漏检或把框外字退化为双栏卡；`skipped_pages` 仅允许经原图核实确无正文的无字页），若 `skipped_regions` 非空则必须按其中记录的 `page` 与 `region_index` 逐个调用 `mtui_inspect_region_visual` 补查（绝不允许因裁剪尺寸不足 `<24px` 未生成卡片而漏检可见区域），且已看过的 sheet 数必须等于 `verify_sheet_count`。每张 `verify_sheet_*.png` 都要 `read_file` 看过，一张不跳。气泡卡片是 `RAW | RENDERED` 双联图；框外无框字卡片是 `RAW | INPAINTED | RENDERED` 三联图，重点看中间栏的修图质量。按**五项必检**逐框核对：
    1. 修图：黑框完整、残墨清干净、框外原画无误伤、无框字的遮罩影响降到最小、`[ORPHAN-MASK]` 已还原；**Gate B 擦除气泡内残墨后必须复核居中**：擦净大块残墨（如原图省略号/振假名）后，气泡有效空间已变化，必须只对该 `region_index` 重居中或手动微调 `center`（避免因未重居中导致偏心，或整页重居中顶偏同页已手动微调的区域；**注意：对卡片带 `[PERSP-QUAD]` 标记即 `has_perspective_quad=True` 的四点透视框，切勿在未同步保留 `white_frame_quad_local` 的情况下覆盖 `center` 或 `angle`，以免清掉透视变形**）；
    2. 字体与字重符合原图（遵守 `[LOCKED>=0.90]`）；
    3. 字号占空比：常规对白占气室内高 62%~75%；1~3 字的短吼放大到 55%~65%；
@@ -114,8 +114,8 @@ aac translate-raw --chapter-dir "<CHAPTER>" --backup-before-dir "<QA>/before_res
    5. 竖排齐顶：卡片顶栏 `align=left`，没有 `[!=left!]` 标记。
 4. **零倒退回归锁**：记录 Gate B 期间**所有**改过的页面 `modified_pages`（只改了字体、字重或对齐的页也算），将**重新出图**与**局部重居中**严格分开处理后执行回归检查：
    - **所有改动页必须重新出图**：对 `modified_pages` 中的每一页确保调用 `mtui_render_pages(target_path="<PAGE>")`（或编辑时传 `re_render=True`）刷新最终成图；**切勿对所有 `modified_pages` 无差别再次跑整页 `mtui_center_bubbles`**（以免把仅改字体/对齐页中已手工校准的气泡中心重新顶偏），只有当某个具体气泡改了断句/字号/遮罩空间确实需要重居中时，才按上文第 1 条对该目标框单独微调 `center`（仅在整页无手工微调框且全部白泡均需自动居中时，才对该页调用 `mtui_center_bubbles(target_path="<PAGE>")`）；
-   - `mtui_qa_audit(target_path="<CHAPTER>", save_json_path="<QA>/qa_after.json", diff_against_json="<QA>/qa_before.json", summary_only=True)`，要求 `regression_diff.newly_introduced_error_count == 0`；
-   - 对 `modified_pages` 再跑一次 `verify-crops --pages <modified_pages> --cards-per-sheet 2`（同样核对 `missing_artifact_pages == []`），并逐张复核。
+   - `mtui_qa_audit(target_path="<CHAPTER>", save_json_path="<QA>/qa_after.json", diff_against_json="<QA>/qa_before.json", summary_only=True)`，要求 `regression_diff.passed == True`（即 `regression_diff.newly_introduced_error_count == 0` 且 `regression_diff.unaudited_pages == []`，确保基线页全部纳入修改后的 QA，严禁存在未审页仍放行）；
+   - 对 `modified_pages` 再跑一次 `verify-crops --pages <modified_pages> --cards-per-sheet 2`（同样核对 `missing_artifact_pages == []`，并对任何非空 `skipped_regions` 逐个调用 `mtui_inspect_region_visual` 补查），并逐张复核。
    - 如果出现倒退：先分析是哪次修改引入的，针对性修复；修不好就优先传入本次记录的 `snapshot_id`（或 `mtui_snapshots(target_path="<PAGE>", action="restore", label="pre_gate_b")`）回退这一页，再用另一种方式重做这次修改，直到通过。
 
 ### Stage 7 · 三栏对比报告与临时快照清理
@@ -136,7 +136,7 @@ aac compare --raw-dir "<CHAPTER>" --before-dir "<QA>/before_result" --out-dir "<
 - **分片数按页数自动计算**：`ceil(总页数 / 12)`，每片最多 12 页（保证一个子 agent 看完自己负责的全部 sheet 时上下文装得下）。分片**只能修改自己负责的页**；需要改术语表时，交给主控统一修改。
 - **同时运行默认最多 8 个**（用户指定时以用户为准），多出的分片排队。所有分片共用一个 GPU worker，修图和渲染在里面是排队执行的，多开只能加快看图和改字。出现超时、显存不足或限流时，并发减半，稳定后再加回来。
 - **分片开工前置硬约束（防漏读手册）**：宿主只会自动加载 `SKILL.md`，不会自动注入 `references/`。每个分片子 agent **启动后的第一轮工具调用必须并行 `read_file` 读取 [style_and_pitfalls.md](references/style_and_pitfalls.md)（唯一字体映射表与排版/修图细则）和 [mistranslation_checklist.md](references/mistranslation_checklist.md)**，严禁没读字体映射表就开始改页。
-- **分片的交付内容**：已核对的页码范围、`selected_pages` 与 `skipped_pages`（必须与负责页集合对齐且 `missing_artifact_pages == []`）、`modified_pages`、本次新建的 `created_snapshot_ids`、已看过的 sheet 数量和 `verify_sheet_count` 总数（必须相等）、自动解决的问题、自主做出的判断、未解决项（附已尝试的方案）。
+- **分片的交付内容**：已核对的页码范围、`selected_pages` 与 `skipped_pages`（必须与负责页集合对齐且 `missing_artifact_pages == []`）、`skipped_regions`（若非空须附 `mtui_inspect_region_visual` 逐框补查结果）、`modified_pages`、本次新建的 `created_snapshot_ids`、已看过的 sheet 数量和 `verify_sheet_count` 总数（必须相等）、自动解决的问题、自主做出的判断、未解决项（附已尝试的方案）。
 - **同步点**：所有分片完成 Stage 3 后，主控执行 Stage 5（`mtui_center_bubbles`），再把 Gate B 分给各分片；所有分片完成 Gate B 后，主控再执行回归锁。分片执行期间，主控不要跑全局居中。
 - 详细的分片提示词模板见 [unattended_batch_ops.md](references/unattended_batch_ops.md)。
 

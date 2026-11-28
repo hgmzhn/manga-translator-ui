@@ -15,7 +15,7 @@ import types
 import urllib.error
 import urllib.request
 import uuid
-from multiprocessing.connection import Client, Listener
+from multiprocessing.connection import Client, Listener, answer_challenge, deliver_challenge
 from pathlib import Path
 from typing import Any
 
@@ -30,12 +30,14 @@ from PyQt6.QtWidgets import QApplication
 from app_logic import MainAppLogic
 from core.config_models import AppSection
 from desktop_qt_ui.main import dispatch_internal_subcommand, parse_desktop_mcp_args
+from editor.core.resource_manager import ResourceManager
 from editor.document_state import DocumentLoadFailure, DocumentSnapshot
 from editor.editor_model import EditorModel
 from mtui_mcp.__main__ import _run_mcp_transport
 from mtui_mcp.config import _discover_mtui_python, _discover_mtui_root, get_runtime_settings
 from mtui_mcp.embedded_server import EmbeddedMcpHttpServer, is_loopback_host
 from mtui_mcp.gui_bridge import (
+    MAX_GUI_REQUEST_BYTES,
     abort_ipc_connection,
     call_live_gui,
     gui_session_paths,
@@ -43,7 +45,7 @@ from mtui_mcp.gui_bridge import (
     wait_for_live_gui_translation,
 )
 from mtui_mcp.path_resolver import resolve_page_paths
-from mtui_mcp.project_store import save_page_json_atomic
+from mtui_mcp.project_store import page_edit_lock, save_page_json_atomic
 from mtui_mcp.server import mtui_live_gui_session
 from services import ServiceContainer, ServiceManager
 from services.config_service import ConfigService
@@ -456,7 +458,13 @@ def test_mcp_gui_bridge_server_qt_main_thread_roundtrip_and_cleanup(
     saved_paths: list[str] = []
     exported_flags: list[bool] = []
     auto_save_flag = {"enabled": True}
-    load_hook: dict[str, Any] = {"fail_path": None, "stall_path": None, "started": threading.Event(), "release": threading.Event()}
+    load_hook: dict[str, Any] = {
+        "fail_path": None,
+        "stall_path": None,
+        "started": threading.Event(),
+        "release": threading.Event(),
+        "finished": threading.Event(),
+    }
     aux_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 
     class _DocServiceStub:
@@ -529,21 +537,29 @@ def test_mcp_gui_bridge_server_qt_main_thread_roundtrip_and_cleanup(
 
     def _fake_doc_worker_load(worker_self):
         src = Path(worker_self.image_path).resolve()
-        if load_hook["stall_path"] and os.path.normcase(str(src)) == os.path.normcase(str(load_hook["stall_path"])):
-            load_hook["started"].set()
-            load_hook["release"].wait(timeout=5.0)
-        if load_hook["fail_path"] and os.path.normcase(str(src)) == os.path.normcase(str(load_hook["fail_path"])):
-            return DocumentLoadFailure("simulated decode failure")
-        arr = np.asarray(Image.open(src).convert("RGB"), dtype=np.uint8)
-        pp = resolve_page_paths(src)
-        raw = json.loads(pp.json_path.read_text(encoding="utf-8"))
-        img_data = next(iter(raw.values()))
-        return DocumentSnapshot(
-            source_path=str(src),
-            image=arr,
-            display_image_path=str(src),
-            regions=img_data.get("regions", []),
+        was_stalled = bool(
+            load_hook["stall_path"]
+            and os.path.normcase(str(src)) == os.path.normcase(str(load_hook["stall_path"]))
         )
+        try:
+            if was_stalled:
+                load_hook["started"].set()
+                load_hook["release"].wait(timeout=5.0)
+            if load_hook["fail_path"] and os.path.normcase(str(src)) == os.path.normcase(str(load_hook["fail_path"])):
+                return DocumentLoadFailure("simulated decode failure")
+            arr = np.asarray(Image.open(src).convert("RGB"), dtype=np.uint8)
+            pp = resolve_page_paths(src)
+            raw = json.loads(pp.json_path.read_text(encoding="utf-8"))
+            img_data = next(iter(raw.values()))
+            return DocumentSnapshot(
+                source_path=str(src),
+                image=arr,
+                display_image_path=str(src),
+                regions=img_data.get("regions", []),
+            )
+        finally:
+            if was_stalled:
+                load_hook["finished"].set()
 
     monkeypatch.setattr("editor.document_load_worker.DocumentLoadWorker.load", _fake_doc_worker_load)
 
@@ -634,39 +650,46 @@ def test_mcp_gui_bridge_server_qt_main_thread_roundtrip_and_cleanup(
                         pass
                 bridge.handshake_timeout = 0.4
 
-        # R2-F50: Post-auth partial frame read stalls are aborted within request_read_timeout
+        # R2-F50 & R3-F41: Post-auth stalled request read is genuinely blocked and aborted within request_read_timeout
         bridge.request_read_timeout = 0.18
+        post_auth_entered = threading.Event()
+        orig_auth_conn = bridge._authenticate_connection
+
+        def _spy_auth_conn(*a: Any, **kw: Any) -> bool:
+            ok = orig_auth_conn(*a, **kw)
+            if ok:
+                post_auth_entered.set()
+            return ok
+
         partial_peer = Client(expected_addr, authkey=None)
-        try:
-            auth_bytes = expected_key.read_bytes()
-            from multiprocessing.connection import answer_challenge, deliver_challenge
-
-            answer_challenge(partial_peer, auth_bytes)
-            deliver_challenge(partial_peer, auth_bytes)
-            if os.name == "nt":
-                import _winapi
-
-                _winapi.WriteFile(partial_peer.fileno(), b"{")
-            else:
-                os.write(partial_peer.fileno(), b"\x00\x00")
-            # Wait slightly past request_read_timeout and verify bridge aborted the stalled connection handler
-            deadline_partial = time.monotonic() + 1.5
-            while time.monotonic() < deadline_partial:
-                time.sleep(0.05)
-                conn_threads = [
-                    t for t in threading.enumerate() if t.name == "mtui-gui-bridge-conn" and t.is_alive()
-                ]
-                if not conn_threads:
-                    break
-            assert [
-                t for t in threading.enumerate() if t.name == "mtui-gui-bridge-conn" and t.is_alive()
-            ] == []
-        finally:
-            bridge.request_read_timeout = 5.0
+        with monkeypatch.context() as mp_read:
+            mp_read.setattr(bridge, "_authenticate_connection", _spy_auth_conn)
             try:
-                partial_peer.close()
-            except Exception:
-                pass
+                auth_bytes = expected_key.read_bytes()
+                answer_challenge(partial_peer, auth_bytes)
+                deliver_challenge(partial_peer, auth_bytes)
+                assert post_auth_entered.wait(timeout=2.0) is True
+                if os.name != "nt":
+                    os.write(partial_peer.fileno(), b"\x00\x00")
+                # On Windows Named Pipes, keep partial_peer open with zero request bytes sent so poll/read genuinely blocks;
+                # verify request_read_timeout aborts the blocked handler thread cleanly.
+                deadline_partial = time.monotonic() + 1.5
+                while time.monotonic() < deadline_partial:
+                    time.sleep(0.05)
+                    conn_threads = [
+                        t for t in threading.enumerate() if t.name == "mtui-gui-bridge-conn" and t.is_alive()
+                    ]
+                    if not conn_threads:
+                        break
+                assert [
+                    t for t in threading.enumerate() if t.name == "mtui-gui-bridge-conn" and t.is_alive()
+                ] == []
+            finally:
+                bridge.request_read_timeout = 5.0
+                try:
+                    partial_peer.close()
+                except Exception:
+                    pass
 
         # 2. `wait_for_translation` polls until `translation_running` flips False
         def _finish_translation_soon() -> None:
@@ -770,10 +793,11 @@ def test_mcp_gui_bridge_server_qt_main_thread_roundtrip_and_cleanup(
         assert os.path.normcase(editor_model.get_source_image_path()) == os.path.normcase(str(p2.resolve()))
         assert editor_model.get_regions()[0]["translation"] == "最新P2编辑不可被覆盖"
 
-        # 6b. R2-F09: Timed-out `open_page(p1)` must NEVER switch pages late after background load finishes!
+        # 6b. R2-F09 & R3-F40: Timed-out `open_page(p1)` must NEVER switch pages late after background load & server handler finish!
         load_hook["stall_path"] = p1.resolve()
         load_hook["started"].clear()
         load_hook["release"].clear()
+        load_hook["finished"].clear()
         try:
             with pytest.raises(TimeoutError):
                 _run_in_worker_pumping_qt(
@@ -786,13 +810,23 @@ def test_mcp_gui_bridge_server_qt_main_thread_roundtrip_and_cleanup(
                     )
                 )
             assert load_hook["started"].is_set()
-            # Release worker AFTER client deadline expired and pump Qt events: page must remain p2!
+            # Release worker AFTER client deadline expired, then wait for background decode + server handler to finish
             load_hook["stall_path"] = None
             load_hook["release"].set()
-            pump_end = time.monotonic() + 0.25
-            while time.monotonic() < pump_end:
+            wait_deadline = time.monotonic() + 3.0
+            while time.monotonic() < wait_deadline:
                 _QAPP.processEvents()
+                active_conn_threads = [
+                    t for t in threading.enumerate() if t.name == "mtui-gui-bridge-conn" and t.is_alive()
+                ]
+                if load_hook["finished"].is_set() and not active_conn_threads:
+                    break
                 time.sleep(0.01)
+            assert load_hook["finished"].is_set() is True
+            assert [
+                t for t in threading.enumerate() if t.name == "mtui-gui-bridge-conn" and t.is_alive()
+            ] == []
+            _QAPP.processEvents()
             assert os.path.normcase(editor_model.get_source_image_path()) == os.path.normcase(str(p2.resolve()))
             assert editor_model.get_regions()[0]["translation"] == "最新P2编辑不可被覆盖"
         finally:
@@ -929,6 +963,7 @@ def test_mcp_gui_bridge_server_qt_main_thread_roundtrip_and_cleanup(
 
 
 def test_gui_bridge_client_handshake_timeout_and_dispatcher_thread_safety(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """F10, F11, F12, F71: Client IPC timeout covers handshake, wait_for_translation passes remaining budget, and dispatcher never runs Qt calls on worker threads."""
@@ -1051,15 +1086,19 @@ def test_gui_bridge_client_handshake_timeout_and_dispatcher_thread_safety(
     finally:
         bridge.stop()
 
-    # 4. R2-F34: abort_ipc_connection skips already-closed connections without touching fileno()
+    # 4. R2-F34 & R3-F39: abort_ipc_connection skips already-closed connections without touching fileno()
+    fileno_calls: list[bool] = []
+
     class _ClosedConnSpy:
         closed = True
 
         @staticmethod
         def fileno() -> int:
-            raise AssertionError("fileno() must not be read on an already-closed connection")
+            fileno_calls.append(True)
+            return 999
 
     abort_ipc_connection(_ClosedConnSpy())
+    assert fileno_calls == []
 
     # 5. R2-F72: On Windows, busy Named Pipe connection waits respect caller's deadline without accumulating 20s threads
     if os.name == "nt":
@@ -1109,50 +1148,44 @@ def test_gui_bridge_client_handshake_timeout_and_dispatcher_thread_safety(
             _winapi.CloseHandle(srv_pipe)
             busy_key.unlink(missing_ok=True)
 
-    # 6. R2-F10: Lock directory failure cleans up _ACTIVE_BRIDGE_ADDRESSES and does NOT abort independent HTTP startup
+    # 6. R2-F10 & R3-F18: Lock directory failure cleans up _ACTIVE_BRIDGE_ADDRESSES inside tmp_path and does NOT abort independent HTTP startup
     lockfail_sess = f"pytest-lockfail-{os.getpid()}-{uuid.uuid4().hex[:8]}"
     lockfail_addr = (
         f"\\\\.\\pipe\\{lockfail_sess}"
         if os.name == "nt"
-        else str(Path(os.environ.get("TMPDIR", "/tmp")) / f"{lockfail_sess}.sock")
+        else str(tmp_path / f"{lockfail_sess}.sock")
     )
-    blocked_parent = Path(ROOT) / ".pytest_tmp_lockfail_file"
+    blocked_parent = tmp_path / "lockfail_blocked_file"
     blocked_parent.write_bytes(b"not-a-dir")
     bad_key_path = blocked_parent / "sub" / "bridge.key"
-    try:
-        assert _acquire_session_lockfile(bad_key_path.with_suffix(".lock")) is None
-        with monkeypatch.context() as mp_lf:
-            mp_lf.setattr(
-                "services.mcp_service.gui_session_paths",
-                lambda _s=None: (lockfail_addr, bad_key_path),
-            )
-            lf_svc = McpService(str(ROOT), session_name=lockfail_sess)
-            try:
-                assert lf_svc.start(host="127.0.0.1", port=0) is True
-                assert lf_svc.http_running is True
-                assert lf_svc.gui_bridge_running is False
-            finally:
-                lf_svc.shutdown()
-
-        # Once the parent directory is writable again, the same bridge address binds cleanly in the same process
-        repaired_dir = Path(ROOT) / ".pytest_tmp_lockfail_dir"
-        repaired_dir.mkdir(exist_ok=True)
-        good_key_path = repaired_dir / "bridge.key"
+    assert _acquire_session_lockfile(bad_key_path.with_suffix(".lock")) is None
+    with monkeypatch.context() as mp_lf:
+        mp_lf.setattr(
+            "services.mcp_service.gui_session_paths",
+            lambda _s=None: (lockfail_addr, bad_key_path),
+        )
+        lf_svc = McpService(str(ROOT), session_name=lockfail_sess)
         try:
-            with monkeypatch.context() as mp_ok:
-                mp_ok.setattr(
-                    "services.mcp_service.gui_session_paths",
-                    lambda _s=None: (lockfail_addr, good_key_path),
-                )
-                recovered_bridge = McpGuiBridgeServer(session_name=lockfail_sess)
-                try:
-                    assert recovered_bridge.start() is True
-                finally:
-                    recovered_bridge.stop()
+            assert lf_svc.start(host="127.0.0.1", port=0) is True
+            assert lf_svc.http_running is True
+            assert lf_svc.gui_bridge_running is False
         finally:
-            shutil.rmtree(repaired_dir, ignore_errors=True)
-    finally:
-        blocked_parent.unlink(missing_ok=True)
+            lf_svc.shutdown()
+
+    # Once the parent directory is writable again, the exact same lockfail_addr binds cleanly in the same process
+    repaired_dir = tmp_path / "lockfail_repaired_dir"
+    repaired_dir.mkdir(parents=True, exist_ok=True)
+    good_key_path = repaired_dir / "bridge.key"
+    with monkeypatch.context() as mp_ok:
+        mp_ok.setattr(
+            "services.mcp_service.gui_session_paths",
+            lambda _s=None: (lockfail_addr, good_key_path),
+        )
+        recovered_bridge = McpGuiBridgeServer(session_name=lockfail_sess)
+        try:
+            assert recovered_bridge.start() is True
+        finally:
+            recovered_bridge.stop()
 
 
 def test_mcp_service_config_defaults_locales_cli_args_and_live_toggle(
@@ -1569,3 +1602,616 @@ def test_cli_entry_points_help_smoke() -> None:
         check=True,
     )
     assert "mcp" in res_mt_root.stdout
+
+
+def test_r3_round3_desktop_and_transport_regressions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cover R3-F04, R3-F09, R3-F10, R3-F13, R3-F14, R3-F35, R3-F36, and R3-F37."""
+    # ------------------------------------------------------------------
+    # 1. R3-F04: Empty mcp_server_host normalizes to 127.0.0.1 in both update_single_config and _on_config_changed
+    # ------------------------------------------------------------------
+    f04_root = tmp_path / "f04_cfg"
+    (f04_root / "config").mkdir(parents=True)
+    shutil.copy2(ROOT / "config" / "config-example.json", f04_root / "config" / "config-example.json")
+    f04_cfg_svc = ConfigService(str(f04_root))
+    f04_svc = McpService(str(ROOT), session_name=f"pytest-f04-{os.getpid()}-{uuid.uuid4().hex[:6]}")
+    f04_starts: list[tuple[str, int]] = []
+    monkeypatch.setattr(
+        f04_svc,
+        "start",
+        lambda host="127.0.0.1", port=8765, **_kw: (
+            setattr(f04_svc, "_host", host),
+            setattr(f04_svc, "_port", int(port)),
+            f04_starts.append((host, int(port))),
+        )
+        and True,
+    )
+    monkeypatch.setattr(f04_svc, "shutdown", lambda **_kw: None)
+    with monkeypatch.context() as mp_f04:
+        mp_f04.setenv("MTUI_MCP_FORCE_AUTOSTART", "1")
+        mp_f04.delenv("MTUI_MCP_HOST", raising=False)
+        mp_f04.delenv("MTUI_MCP_PORT", raising=False)
+        mp_f04.delenv("MTUI_MCP_ENABLED", raising=False)
+        mp_f04.setattr("services.get_config_service", lambda: f04_cfg_svc)
+        mp_f04.setattr("app_logic.get_config_service", lambda: f04_cfg_svc)
+        mp_f04.setattr(
+            "app_logic.get_state_manager",
+            lambda: types.SimpleNamespace(set_translating=lambda *_: None),
+        )
+        mp_f04.setattr("services.get_mcp_service", lambda: f04_svc)
+        f04_logic = MainAppLogic()
+        try:
+            # Start service on 0.0.0.0 first, then save empty host via update_single_config -> must normalize to 127.0.0.1!
+            f04_logic.update_single_config("app.mcp_server_host", "0.0.0.0")
+            assert f04_starts[-1][0] == "0.0.0.0"
+
+            f04_logic.update_single_config("app.mcp_server_host", "")
+            assert f04_starts[-1][0] == "127.0.0.1"
+
+            # Also verify _on_config_changed fallback branch (non-dict payload reads cfg_obj.app.mcp_server_host == "")
+            f04_svc._host = "0.0.0.0"
+            f04_logic._on_config_changed({})
+            assert f04_starts[-1][0] == "127.0.0.1"
+        finally:
+            f04_logic.shutdown()
+            f04_cfg_svc.shutdown()
+
+    # ------------------------------------------------------------------
+    # 2. R3-F10: accept_thread.start() failure rolls back key_file, lock_fd, and ownership so stop() cannot clobber takeover
+    # ------------------------------------------------------------------
+    f10_sess = f"pytest-f10-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+    f10_addr, f10_key = gui_session_paths(f10_sess)
+    bridge_a = McpGuiBridgeServer(session_name=f10_sess)
+    orig_thread_start = threading.Thread.start
+
+    def _fail_accept_thread_start(self_thread: threading.Thread) -> None:
+        if self_thread.name == "mtui-gui-bridge-accept":
+            raise RuntimeError("simulated accept_thread.start failure")
+        orig_thread_start(self_thread)
+
+    with monkeypatch.context() as mp_f10:
+        mp_f10.setattr(threading.Thread, "start", _fail_accept_thread_start)
+        with pytest.raises(RuntimeError, match="simulated accept_thread.start failure"):
+            bridge_a.start()
+
+    assert bridge_a.is_running is False
+    assert bridge_a.address is None
+    assert bridge_a.key_file is None
+    assert bridge_a._lock_fd is None
+    assert bridge_a._owns_key_file is False
+    assert not f10_key.exists()
+
+    # Another instance takes over the same session cleanly, and calling bridge_a.stop() afterward does NOT disturb bridge_b!
+    f10_model = EditorModel()
+    bridge_b = McpGuiBridgeServer(
+        app_logic=types.SimpleNamespace(
+            source_files=[],
+            state_manager=types.SimpleNamespace(is_translating=lambda: False),
+            current_worker=None,
+        ),
+        editor_model=f10_model,
+        session_name=f10_sess,
+    )
+    try:
+        assert bridge_b.start() is True
+        b_key_bytes = f10_key.read_bytes()
+        assert len(b_key_bytes) == 32
+        bridge_a.stop()
+        assert bridge_b.is_running is True
+        assert f10_key.is_file() and f10_key.read_bytes() == b_key_bytes
+        if os.name != "nt":
+            assert os.path.exists(f10_addr)
+        pages_res = _run_in_worker_pumping_qt(
+            lambda: call_live_gui("list_pages", session_name=f10_sess, timeout_sec=2.0)
+        )
+        assert pages_res["status"] == "ok"
+    finally:
+        bridge_b.stop()
+
+    # ------------------------------------------------------------------
+    # 3. R3-F35, R3-F09, R3-F13, R3-F36, R3-F37: IPC framing, deadlines, image freshness, and page_edit_lock
+    # ------------------------------------------------------------------
+    r3_sess = f"pytest-r3-ipc-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+    monkeypatch.setenv("MTUI_MCP_SESSION", r3_sess)
+    ch_dir = tmp_path / "r3_ch"
+    ch_dir.mkdir(parents=True)
+    p1 = ch_dir / "001.png"
+    p2 = ch_dir / "002.png"
+    Image.fromarray(np.full((64, 64, 3), 240, dtype=np.uint8)).save(p1)
+    Image.fromarray(np.full((64, 64, 3), 200, dtype=np.uint8)).save(p2)
+    for page_p, txt in ((p1, "P1初版"), (p2, "P2初版")):
+        pp = resolve_page_paths(page_p)
+        save_page_json_atomic(
+            pp,
+            str(page_p.resolve()),
+            {
+                "regions": [
+                    {
+                        "lines": [[[8.0, 8.0], [56.0, 8.0], [56.0, 56.0], [8.0, 56.0]]],
+                        "center": [32.0, 32.0],
+                        "text": "原文",
+                        "translation": txt,
+                        "font_family": "FZHei-B01",
+                        "font_size": 20,
+                        "direction": "v",
+                    }
+                ]
+            },
+            auto_initial_snapshot=False,
+        )
+
+    r3_model = EditorModel()
+    r3_model.apply_document_snapshot(
+        DocumentSnapshot(
+            source_path=str(p2.resolve()),
+            image=np.full((64, 64, 3), 200, dtype=np.uint8),
+            display_image_path=str(p2.resolve()),
+            regions=[{"text": "原文", "translation": "P2初版"}],
+        )
+    )
+    r3_hist = _GuiHistoryStub(r3_model)
+    r3_hist.record_edit([{"text": "原文", "translation": "P2旧版"}])
+    r3_model.replace_regions([{"text": "原文", "translation": "P2已编辑"}])
+
+    save_calls: list[str] = []
+    slow_save_delay = {"sec": 0.0, "started": threading.Event(), "finished": threading.Event()}
+    res_mgr = ResourceManager()
+    aux_exec = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+
+    class _R3DocService:
+        def __init__(self) -> None:
+            self.controller = None
+            self._aux_load_executor = aux_exec
+            self._load_generation = 0
+            self.resource_manager = res_mgr
+            self.invalidated_prefetch: list[str] = []
+
+        def _cancel_pending_load(self) -> int:
+            self._load_generation += 1
+            return self._load_generation
+
+        def invalidate_prefetched_document(self, source_path: str) -> None:
+            self.invalidated_prefetch.append(source_path)
+
+        @staticmethod
+        def resolve_editor_image_paths(candidate_path: str) -> tuple[str, str]:
+            norm = str(Path(candidate_path).resolve())
+            return norm, norm
+
+        @staticmethod
+        def _auto_save_on_switch_enabled() -> bool:
+            return False
+
+        @staticmethod
+        def _auto_export_on_switch_enabled() -> bool:
+            return False
+
+        def clear_editor_state(self) -> None:
+            self._cancel_pending_load()
+            r3_model.clear_document()
+            r3_hist.clear()
+
+        def apply_load_result(self, payload: tuple[int, Any]) -> None:
+            gen, snap = payload
+            if gen == self._load_generation and isinstance(snap, DocumentSnapshot):
+                r3_model.apply_document_snapshot(snap)
+                r3_hist.mark_clean()
+
+    r3_doc_service = _R3DocService()
+
+    class _R3Controller:
+        history_service = r3_hist
+        export_service = types.SimpleNamespace(
+            unfinished_count=lambda: 0,
+            has_unsaved_changes=lambda: not r3_hist.is_clean(),
+        )
+        document_service = r3_doc_service
+
+        @staticmethod
+        def commit_pending_edits() -> None:
+            pass
+
+        @staticmethod
+        def undo() -> None:
+            r3_hist.step_undo()
+
+        @staticmethod
+        def redo() -> None:
+            r3_hist.step_redo()
+
+        @staticmethod
+        def save_editor_state() -> bool:
+            slow_save_delay["started"].set()
+            if slow_save_delay["sec"] > 0:
+                time.sleep(slow_save_delay["sec"])
+            save_calls.append(str(r3_model.get_source_image_path()))
+            r3_hist.mark_clean()
+            slow_save_delay["finished"].set()
+            return True
+
+    r3_load_gate: dict[str, Any] = {
+        "stall": False,
+        "started": threading.Event(),
+        "release": threading.Event(),
+        "post_load_sleep": 0.0,
+    }
+
+    def _r3_worker_load(worker_self):
+        src = Path(worker_self.image_path).resolve()
+        img_res = worker_self.service.resource_manager.load_image(str(src))
+        if r3_load_gate["stall"]:
+            r3_load_gate["started"].set()
+            r3_load_gate["release"].wait(timeout=5.0)
+        if r3_load_gate["post_load_sleep"] > 0:
+            time.sleep(r3_load_gate["post_load_sleep"])
+        arr = np.asarray(img_res.image.convert("RGB"), dtype=np.uint8)
+        pp = resolve_page_paths(src)
+        raw = json.loads(pp.json_path.read_text(encoding="utf-8"))
+        img_data = next(iter(raw.values()))
+        return DocumentSnapshot(
+            source_path=str(src),
+            image=arr,
+            display_image_path=str(src),
+            regions=img_data.get("regions", []),
+        )
+
+    monkeypatch.setattr("editor.document_load_worker.DocumentLoadWorker.load", _r3_worker_load)
+
+    r3_bridge = McpGuiBridgeServer(
+        editor_controller=_R3Controller(),
+        editor_model=r3_model,
+        session_name=r3_sess,
+        dispatch_timeout=25.0,
+    )
+    r3_addr, r3_key = gui_session_paths(r3_sess)
+    try:
+        assert r3_bridge.start() is True
+        auth_bytes = r3_key.read_bytes()
+
+        # 3a. R3-F35: Oversized frame over real Connection triggers OSError("bad message length") -> sends explicit 256 KiB error reply
+        # Step 1: Fit within 8 KiB Windows Named Pipe buffer so client send_bytes returns and reads the full JSON error reply end-to-end
+        r3_bridge.max_request_bytes = 2048
+        oversize_peer = Client(r3_addr, authkey=None)
+        try:
+            answer_challenge(oversize_peer, auth_bytes)
+            deliver_challenge(oversize_peer, auth_bytes)
+            oversize_peer.send_bytes(b"x" * 4096)
+            assert oversize_peer.poll(2.0) is True
+            oversize_reply = json.loads(oversize_peer.recv_bytes().decode("utf-8"))
+            assert "exceeds 256 KiB" in oversize_reply["error"]
+        finally:
+            r3_bridge.max_request_bytes = MAX_GUI_REQUEST_BYTES
+            oversize_peer.close()
+
+        # Step 2: Also verify default 256 KiB threshold (`MAX_GUI_REQUEST_BYTES + 128`) triggers _send_reply({"error": "...exceeds 256 KiB"})
+        sent_replies_f35: list[dict[str, Any]] = []
+        orig_send_reply = r3_bridge._send_reply
+        with monkeypatch.context() as mp_f35:
+            mp_f35.setattr(
+                r3_bridge,
+                "_send_reply",
+                lambda conn_obj, payload: (sent_replies_f35.append(dict(payload)), orig_send_reply(conn_obj, payload)),
+            )
+            oversize_peer2 = Client(r3_addr, authkey=None)
+            try:
+                answer_challenge(oversize_peer2, auth_bytes)
+                deliver_challenge(oversize_peer2, auth_bytes)
+                try:
+                    oversize_peer2.send_bytes(b"x" * (MAX_GUI_REQUEST_BYTES + 128))
+                except BrokenPipeError:
+                    # Expected on Windows Named Pipes (8 KiB kernel buffer aborts 256 KiB+ WriteFile once server rejects & closes)
+                    pass
+                else:
+                    assert oversize_peer2.poll(2.0) is True
+                    reply2 = json.loads(oversize_peer2.recv_bytes().decode("utf-8"))
+                    assert "exceeds 256 KiB" in reply2["error"]
+                dl_f35 = time.monotonic() + 2.0
+                while not sent_replies_f35 and time.monotonic() < dl_f35:
+                    time.sleep(0.01)
+                assert sent_replies_f35 and "exceeds 256 KiB" in sent_replies_f35[-1]["error"]
+            finally:
+                oversize_peer2.close()
+
+        # 3b. R3-F09: Expired queued `history_step` (undo) and unstarted `save_page` NEVER execute after blocked Qt main thread unblocks
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as blocked_pool:
+            fut_undo = blocked_pool.submit(
+                call_live_gui,
+                "history_step",
+                session_name=r3_sess,
+                action="undo",
+                timeout_sec=0.08,
+            )
+            fut_save = blocked_pool.submit(
+                call_live_gui,
+                "save_page",
+                session_name=r3_sess,
+                timeout_sec=0.08,
+            )
+            time.sleep(0.20)  # Intentionally keep Qt main thread blocked past both 80ms deadlines!
+            with pytest.raises((TimeoutError, RuntimeError)):
+                fut_undo.result(timeout=1.5)
+            with pytest.raises((TimeoutError, RuntimeError)):
+                fut_save.result(timeout=1.5)
+
+        # Now pump Qt events: neither queued undo nor unstarted save_page may execute!
+        for _ in range(10):
+            _QAPP.processEvents()
+            time.sleep(0.01)
+        assert r3_model.get_regions()[0]["translation"] == "P2已编辑"
+        assert save_calls == []
+
+        # Meanwhile, an already-RUNNING `save_page` that exceeds request_deadline still returns `"in_progress"` and finishes saving!
+        slow_save_delay["sec"] = 0.25
+        slow_save_delay["started"].clear()
+        slow_save_delay["finished"].clear()
+        try:
+            def _raw_save_with_short_deadline() -> dict[str, Any]:
+                peer = Client(r3_addr, authkey=None)
+                try:
+                    answer_challenge(peer, auth_bytes)
+                    deliver_challenge(peer, auth_bytes)
+                    pkt = json.dumps(
+                        {
+                            "method": "save_page",
+                            "args": {},
+                            "timeout_sec": 0.08,
+                            "deadline_monotonic": time.monotonic() + 0.08,
+                        }
+                    ).encode("utf-8")
+                    peer.send_bytes(pkt)
+                    assert peer.poll(2.0) is True
+                    return json.loads(peer.recv_bytes().decode("utf-8"))
+                finally:
+                    peer.close()
+
+            in_prog_reply = _run_in_worker_pumping_qt(_raw_save_with_short_deadline)
+            assert in_prog_reply["result"]["status"] == "in_progress"
+            assert in_prog_reply["result"]["save_in_progress"] is True
+            assert slow_save_delay["finished"].wait(timeout=1.0) is True
+            assert len(save_calls) == 1
+        finally:
+            slow_save_delay["sec"] = 0.0
+
+        # 3c. R3-F13: IPC transit delay must NOT extend caller's fixed monotonic deadline on `open_page`
+        orig_execute_rpc = r3_bridge._execute_rpc
+        observed_deadlines: list[float] = []
+
+        def _delayed_transit_execute_rpc(
+            method: str,
+            args: dict[str, Any],
+            *,
+            bridge_generation: Any = None,
+            request_deadline: Any = None,
+        ) -> dict[str, Any]:
+            if request_deadline is not None:
+                observed_deadlines.append(float(request_deadline))
+            return orig_execute_rpc(
+                method,
+                args,
+                bridge_generation=bridge_generation,
+                request_deadline=request_deadline,
+            )
+
+        # Delay server post-WELCOME transit by 120ms so client sends timeout_sec≈0.17 while only ~50ms remain before deadline_monotonic!
+        orig_auth_f13 = r3_bridge._authenticate_connection
+
+        def _auth_then_transit_lag(*a: Any, **kw: Any) -> bool:
+            ok = orig_auth_f13(*a, **kw)
+            if ok:
+                time.sleep(0.12)
+            return ok
+
+        r3_load_gate["post_load_sleep"] = 0.09
+        try:
+            with monkeypatch.context() as mp_f13:
+                mp_f13.setattr(r3_bridge, "_execute_rpc", _delayed_transit_execute_rpc)
+                mp_f13.setattr(r3_bridge, "_authenticate_connection", _auth_then_transit_lag)
+                t_f13 = time.monotonic()
+                with pytest.raises((TimeoutError, RuntimeError)):
+                    _run_in_worker_pumping_qt(
+                        lambda: call_live_gui(
+                            "open_page",
+                            session_name=r3_sess,
+                            path=str(p1),
+                            force=True,
+                            timeout_sec=0.18,
+                        )
+                    )
+                # Wait for server handler thread to finish and pump Qt events: page MUST remain p2!
+                dl_f13 = time.monotonic() + 2.0
+                while time.monotonic() < dl_f13:
+                    _QAPP.processEvents()
+                    if not [t for t in threading.enumerate() if t.name == "mtui-gui-bridge-conn" and t.is_alive()]:
+                        break
+                    time.sleep(0.01)
+                _QAPP.processEvents()
+                assert observed_deadlines and observed_deadlines[-1] <= t_f13 + 0.22
+                assert os.path.normcase(r3_model.get_source_image_path()) == os.path.normcase(str(p2.resolve()))
+
+            # Also verify near-256 KiB payload in call_live_gui preserves deadline_monotonic and oversized >256 KiB raises ValueError
+            with pytest.raises(ValueError, match="exceeds 256 KiB"):
+                call_live_gui("list_pages", session_name=r3_sess, pad="a" * (MAX_GUI_REQUEST_BYTES + 10))
+            near_limit_pad = "b" * (MAX_GUI_REQUEST_BYTES - 140)
+            t_near_start = time.monotonic()
+            near_res = _run_in_worker_pumping_qt(
+                lambda: call_live_gui(
+                    "list_pages",
+                    session_name=r3_sess,
+                    timeout_sec=1.0,
+                    pad=near_limit_pad,
+                )
+            )
+            assert near_res["status"] == "ok"
+            assert time.monotonic() - t_near_start < 2.0
+        finally:
+            r3_load_gate["post_load_sleep"] = 0.0
+
+        # 3d. R3-F36: Source-image replacement during background decode is rejected, and subsequent reload evicts ResourceManager cache
+        opened_p1 = _run_in_worker_pumping_qt(
+            lambda: call_live_gui("open_page", session_name=r3_sess, path=str(p1), force=True)
+        )
+        assert opened_p1["page_name"] == "001.png"
+        assert int(np.asarray(r3_model.get_image())[0, 0, 0]) == 240
+
+        r3_load_gate["stall"] = True
+        r3_load_gate["started"].clear()
+        r3_load_gate["release"].clear()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as img_race_pool:
+            img_race_fut = img_race_pool.submit(
+                call_live_gui,
+                "open_page",
+                session_name=r3_sess,
+                path=str(p1),
+                reload=True,
+                force=True,
+            )
+            deadline_ir = time.monotonic() + 5.0
+            while not r3_load_gate["started"].is_set() and time.monotonic() < deadline_ir:
+                _QAPP.processEvents()
+                time.sleep(0.005)
+            assert r3_load_gate["started"].is_set()
+
+            # Replace ONLY source image pixels on disk (JSON untouched!) while worker is mid-load
+            Image.fromarray(np.full((64, 64, 3), 95, dtype=np.uint8)).save(p1)
+            r3_load_gate["stall"] = False
+            r3_load_gate["release"].set()
+            with pytest.raises(RuntimeError, match="changed while loading"):
+                _run_in_worker_pumping_qt(img_race_fut.result)
+
+        # Retry reload: ResourceManager cache must be invalidated so fresh 95-valued pixels are installed!
+        reloaded_p1 = _run_in_worker_pumping_qt(
+            lambda: call_live_gui("open_page", session_name=r3_sess, path=str(p1), reload=True, force=True)
+        )
+        assert reloaded_p1["page_name"] == "001.png"
+        assert int(np.asarray(r3_model.get_image())[0, 0, 0]) == 95
+
+        # 3e. R3-F37: `_install_on_main` synchronizes with `page_edit_lock` so an external MCP writer holding the lock cannot race between check and install
+        writer_entered_lock = threading.Event()
+        release_writer_lock = threading.Event()
+        writer_finished = threading.Event()
+
+        def _external_locked_writer() -> None:
+            with page_edit_lock(p1, timeout_sec=5.0):
+                writer_entered_lock.set()
+                release_writer_lock.wait(timeout=5.0)
+                pp_w = resolve_page_paths(p1)
+                save_page_json_atomic(
+                    pp_w,
+                    str(p1.resolve()),
+                    {
+                        "regions": [
+                            {
+                                "lines": [[[8.0, 8.0], [56.0, 8.0], [56.0, 56.0], [8.0, 56.0]]],
+                                "center": [32.0, 32.0],
+                                "text": "原文",
+                                "translation": "锁内原子新写入",
+                                "font_family": "FZHei-B01",
+                                "font_size": 20,
+                                "direction": "v",
+                            }
+                        ]
+                    },
+                    auto_initial_snapshot=False,
+                )
+            writer_finished.set()
+
+        r3_load_gate["stall"] = True
+        r3_load_gate["started"].clear()
+        r3_load_gate["release"].clear()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as lock_race_pool:
+            open_fut = lock_race_pool.submit(
+                call_live_gui,
+                "open_page",
+                session_name=r3_sess,
+                path=str(p1),
+                reload=True,
+                force=True,
+            )
+            deadline_lr = time.monotonic() + 5.0
+            while not r3_load_gate["started"].is_set() and time.monotonic() < deadline_lr:
+                _QAPP.processEvents()
+                time.sleep(0.005)
+            assert r3_load_gate["started"].is_set()
+
+            # Start external writer holding page_edit_lock(p1), release decode so _install_on_main reaches page_edit_lock
+            writer_fut = lock_race_pool.submit(_external_locked_writer)
+            assert writer_entered_lock.wait(timeout=2.0) is True
+            r3_load_gate["stall"] = False
+            r3_load_gate["release"].set()
+            time.sleep(0.04)
+            release_writer_lock.set()
+            writer_fut.result(timeout=2.0)
+            assert writer_finished.is_set() is True
+
+            with pytest.raises(RuntimeError, match="changed while loading"):
+                _run_in_worker_pumping_qt(open_fut.result)
+
+        assert r3_model.get_regions()[0]["translation"] == "P1初版"
+    finally:
+        r3_load_gate["stall"] = False
+        r3_load_gate["release"].set()
+        r3_bridge.stop()
+        res_mgr.cleanup_all()
+        aux_exec.shutdown(wait=True)
+
+    # ------------------------------------------------------------------
+    # 4. R3-F14: EmbeddedMcpHttpServer(warm_up=True) cancels/cleans up warm-up if stop() races with start()
+    # ------------------------------------------------------------------
+    for proxy_key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+        monkeypatch.delenv(proxy_key, raising=False)
+
+    warmup_entered = threading.Event()
+    release_warmup = threading.Event()
+    worker_events: list[str] = []
+
+    def _racing_ensure_started() -> None:
+        worker_events.append("ensure_started")
+        warmup_entered.set()
+        release_warmup.wait(timeout=5.0)
+
+    def _racing_shutdown() -> None:
+        worker_events.append("shutdown")
+
+    rt_settings = get_runtime_settings()
+    with monkeypatch.context() as mp_f14:
+        mp_f14.setattr(rt_settings, "mtui_root", ROOT)
+        mp_f14.setattr(
+            "mtui_mcp.embedded_server.get_worker_client",
+            lambda: types.SimpleNamespace(
+                ensure_started=_racing_ensure_started,
+                is_running=False,
+                shutdown=_racing_shutdown,
+            ),
+        )
+        race_srv = EmbeddedMcpHttpServer(host="127.0.0.1", port=0, mtui_root=ROOT, warm_up=True)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as srv_pool:
+            start_fut = srv_pool.submit(race_srv.start, 5.0)
+            assert warmup_entered.wait(timeout=5.0) is True
+            # Call stop() while start() is inside ensure_started()!
+            race_srv.stop(timeout=2.0)
+            assert race_srv.is_running is False
+            release_warmup.set()
+            assert start_fut.result(timeout=3.0) is False
+        assert race_srv.is_running is False
+        # Both stop() and post-warmup rollback shutdown() ran so no orphan worker remains
+        assert worker_events[-1] == "shutdown"
+        assert worker_events.count("shutdown") >= 2
+
+        # Sub-case B: stop() completes right as server.started flips True BEFORE ensure_started() runs -> skips warm-up altogether
+        worker_events.clear()
+        race_srv2 = EmbeddedMcpHttpServer(host="127.0.0.1", port=0, mtui_root=ROOT, warm_up=True)
+        orig_gen_check = race_srv2._is_start_generation_active
+        stopped_before_warmup = {"done": False}
+
+        def _stop_right_before_warmup(gen: int, srv_obj: Any, thr_obj: Any) -> bool:
+            if srv_obj.started and not stopped_before_warmup["done"]:
+                stopped_before_warmup["done"] = True
+                race_srv2.stop(timeout=2.0)
+            return orig_gen_check(gen, srv_obj, thr_obj)
+
+        mp_f14.setattr(race_srv2, "_is_start_generation_active", _stop_right_before_warmup)
+        assert race_srv2.start(timeout=5.0) is False
+        assert race_srv2.is_running is False
+        assert "ensure_started" not in worker_events

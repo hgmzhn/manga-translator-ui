@@ -13,7 +13,12 @@ from PIL import Image
 
 from mtui_mcp.config import get_runtime_settings
 from mtui_mcp.path_resolver import resolve_page_paths
-from mtui_mcp.project_store import encode_mask_base64, open_rgb_image, save_page_json_atomic
+from mtui_mcp.project_store import (
+    compute_page_revision,
+    encode_mask_base64,
+    open_rgb_image,
+    save_page_json_atomic,
+)
 from mtui_mcp.server import (
     mtui_edit_mask_and_inpaint,
     mtui_inspect_page_visual,
@@ -185,6 +190,7 @@ def test_live_mtui_gpu_inpaint_richtext_layout_and_render(
             )
         )
         assert style_res["render_result"]["status"] == "ok"
+        assert style_res["revision"] == compute_page_revision(resolve_page_paths(page_path))
 
         final_paths = resolve_page_paths(page_path)
         assert final_paths.rendered_output_exists
@@ -199,6 +205,14 @@ def test_live_mtui_gpu_inpaint_richtext_layout_and_render(
         right_new_dark_px = (right_darkening >= 60) & (np.min(right_post, axis=2) < 150)
         assert int(np.sum(right_new_dark_px)) >= 50, (
             "Expected newly rendered vertical rich text inside right bubble interior"
+        )
+        # R3-F64: Verify rich-text span color `#d92d20` actually rendered red-tinted glyph pixels (rejecting plain black text)
+        right_r = right_post[:, :, 0].astype(np.int16)
+        right_g = right_post[:, :, 1].astype(np.int16)
+        right_b = right_post[:, :, 2].astype(np.int16)
+        right_red_glyph_px = (right_r >= 140) & ((right_r - right_g) >= 60) & ((right_r - right_b) >= 60)
+        assert int(np.sum(right_red_glyph_px)) >= 15, (
+            "Expected red-tinted rich-text glyph pixels (#d92d20) inside right bubble interior"
         )
 
         left_pre = repaired_inp[520:600, 130:310]

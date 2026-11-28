@@ -31,7 +31,11 @@ from .local_inpaint import (
     extract_tight_halo_glyph_mask,
     pair_divided_by_bubble_cusps,
 )
-from .path_resolver import PagePaths, list_manga_pages_in_path
+from .path_resolver import (
+    SUPPORTED_IMAGE_EXTENSIONS,
+    PagePaths,
+    list_manga_pages_in_path,
+)
 from .project_store import (
     decode_mask_base64,
     load_page_json,
@@ -2946,8 +2950,11 @@ def _audit_single_page_with_context(
         issues.extend(cv_findings)
         if yuzumarker_page_cache is None:
             w_cache = load_font_detection_cache(paths.work_dir)
-            if _parse_ym_cache_version(w_cache) >= CACHE_VERSION:
-                yuzumarker_page_cache = (w_cache.get("pages") or {}).get(paths.source_path.stem)
+            w_pages = w_cache.get("pages") if isinstance(w_cache, dict) else None
+            if _parse_ym_cache_version(w_cache) >= CACHE_VERSION and isinstance(w_pages, dict):
+                cand_page_cache = w_pages.get(paths.source_path.stem)
+                if isinstance(cand_page_cache, dict):
+                    yuzumarker_page_cache = cand_page_cache
         struct_findings = _detect_structural_and_border_cv_issues(
             base_rgb,
             inpainted_rgb,
@@ -2997,6 +3004,48 @@ def audit_single_page(
     return rep
 
 
+def _norm_audit_page_path(path_val: str | Path) -> str:
+    return os.path.normcase(os.path.abspath(str(path_val)))
+
+
+def _page_ym_cache_needs_scan(p: PagePaths, w_cache: Any) -> bool:
+    if not p.json_exists:
+        return False
+    if not isinstance(w_cache, dict) or _parse_ym_cache_version(w_cache) < CACHE_VERSION:
+        return True
+    pages_map = w_cache.get("pages")
+    if not isinstance(pages_map, dict):
+        return True
+    p_entry = pages_map.get(p.source_path.stem)
+    if not isinstance(p_entry, dict):
+        return True
+
+    has_worker_meta = any(
+        k in p_entry for k in ("region_count", "total_regions", "base_image_sig", "regions_state_sig")
+    )
+    has_any_preds = bool(p_entry.get("by_ridx")) or bool(p_entry.get("by_bbox_sig"))
+    if not has_worker_meta and not has_any_preds:
+        return False
+
+    try:
+        _, img_data = load_page_json(p)
+    except Exception:
+        return False
+    regs = img_data.get("regions")
+    if not isinstance(regs, list) or not regs:
+        return False
+    total_regs = len(regs)
+    for r_idx, reg in enumerate(regs):
+        if not isinstance(reg, dict):
+            continue
+        bb = region_bbox_xyxy(reg)
+        if (bb[2] - bb[0]) < 4.0 or (bb[3] - bb[1]) < 4.0:
+            continue
+        if lookup_cached_region_prediction(p_entry, reg, r_idx, total_regions=total_regs) is None:
+            return True
+    return False
+
+
 def run_qa_audit(
     target_path: str | Path,
     *,
@@ -3022,14 +3071,7 @@ def run_qa_audit(
         for p in pages:
             if p.work_dir not in ym_caches_by_work:
                 ym_caches_by_work[p.work_dir] = load_font_detection_cache(p.work_dir)
-        needs_scan = any(
-            p.json_exists
-            and (
-                _parse_ym_cache_version(ym_caches_by_work[p.work_dir]) < CACHE_VERSION
-                or p.source_path.stem not in (ym_caches_by_work[p.work_dir].get("pages") or {})
-            )
-            for p in pages
-        )
+        needs_scan = any(_page_ym_cache_needs_scan(p, ym_caches_by_work[p.work_dir]) for p in pages)
         if force_yuzumarker or (needs_scan and "PYTEST_CURRENT_TEST" not in os.environ):
             try:
                 from .worker.client import get_worker_client
@@ -3055,8 +3097,10 @@ def run_qa_audit(
     for p in pages:
         w_ym_cache = ym_caches_by_work.get(p.work_dir)
         if w_ym_cache is not None:
-            if _parse_ym_cache_version(w_ym_cache) >= CACHE_VERSION:
-                p_ym_cache = (w_ym_cache.get("pages") or {}).get(p.source_path.stem) or {}
+            w_pages_map = w_ym_cache.get("pages") if isinstance(w_ym_cache, dict) else None
+            if _parse_ym_cache_version(w_ym_cache) >= CACHE_VERSION and isinstance(w_pages_map, dict):
+                cand_p_ym = w_pages_map.get(p.source_path.stem)
+                p_ym_cache = cand_p_ym if isinstance(cand_p_ym, dict) else {}
             else:
                 p_ym_cache = {}
         else:
@@ -3143,6 +3187,7 @@ def run_qa_audit(
     out_report: dict[str, Any] = {
         "audited_pages": len(pages),
         "audited_page_names": [p.source_path.name for p in pages],
+        "audited_page_paths": [_norm_audit_page_path(p.source_path) for p in pages],
         "total_issues": total_issues,
         "error_count": error_count,
         "warning_count": warning_count,
@@ -3306,12 +3351,95 @@ def _same_report_issue_dedup(
         if m0 and m1:
             e_uids = int(pa[1] is not None) + int(pb[1] is not None)
             n_uids = int(qa[1] is not None) + int(qb[1] is not None)
-            if e_uids != n_uids and ((pa[1] is None and qa[1] is not None) and (pb[1] is not None and qb[1] is None)):
-                return (False, False)
-            if e_uids != n_uids and ((pa[1] is not None and qa[1] is None) and (pb[1] is None and qb[1] is not None)):
-                return (False, False)
+            if (pa[1] is None and qa[1] is not None) and (pb[1] is not None and qb[1] is None) and pb[1] != qa[1]:
+                continue
+            if (pa[1] is not None and qa[1] is None) and (pb[1] is None and qb[1] is not None) and pa[1] != qb[1]:
+                continue
             return (True, n_uids > e_uids)
     return (False, False)
+
+
+def _canonical_single_reg_key(
+    r: tuple[bool, Optional[str], Optional[str], Optional[str], Optional[int], Optional[tuple[int, ...]]],
+) -> tuple[int, str, str, str, int, tuple[int, ...]]:
+    is_page, uid, sig, txt, idx, box = r
+    return (
+        1 if is_page else 0,
+        uid or "",
+        sig or "",
+        txt or "",
+        -1 if idx is None else int(idx),
+        box or (),
+    )
+
+
+def _canonical_target_spec_key(spec: tuple[bool, Any]) -> tuple[int, Any]:
+    is_pair, val = spec
+    if is_pair:
+        k0 = _canonical_single_reg_key(val[0])
+        k1 = _canonical_single_reg_key(val[1])
+        return (1, (k0, k1) if k0 <= k1 else (k1, k0))
+    return (0, _canonical_single_reg_key(val))
+
+
+def _fallback_edge_preference(spec_b: tuple[bool, Any], spec_a: tuple[bool, Any]) -> int:
+    """Lower rank means higher affinity among valid fallback matches (input-order-independent)."""
+    is_pair_b, val_b = spec_b
+    _, val_a = spec_a
+    if not is_pair_b:
+        same_uid_presence = int((val_b[1] is None) == (val_a[1] is None))
+        same_idx = int(val_b[4] is not None and val_b[4] == val_a[4])
+        same_sig = int(val_b[2] is not None and val_b[2] == val_a[2])
+        return -(same_uid_presence * 4 + same_sig * 2 + same_idx)
+    b0, b1 = val_b
+    a0, a1 = val_a
+    best = 0
+    for qa, qb in ((a0, a1), (a1, a0)):
+        if _same_single_reg_id(b0, qa) and _same_single_reg_id(b1, qb):
+            score = (
+                int((b0[1] is None) == (qa[1] is None)) * 2
+                + int((b1[1] is None) == (qb[1] is None)) * 2
+                + int(b0[4] is not None and b0[4] == qa[4])
+                + int(b1[4] is not None and b1[4] == qb[4])
+            )
+            best = max(best, score)
+    return -best
+
+
+def _matches_page_filter_token(
+    req_tok: str,
+    page_name: str,
+    page_norm_path: Optional[str],
+) -> bool:
+    tok = req_tok.strip()
+    if not tok or not page_name:
+        return False
+    is_path_tok = ("/" in tok) or ("\\" in tok) or os.path.isabs(tok)
+    tok_path = Path(tok)
+    has_img_ext = tok_path.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
+    if is_path_tok:
+        if page_norm_path is not None:
+            if has_img_ext:
+                return page_norm_path == _norm_audit_page_path(tok)
+            tok_parent_norm = _norm_audit_page_path(tok_path.parent)
+            p_parent_norm = _norm_audit_page_path(Path(page_norm_path).parent)
+            return p_parent_norm == tok_parent_norm and (
+                page_name == tok_path.name or Path(page_name).stem == tok_path.name
+            )
+        tok_name = tok_path.name
+        return (page_name == tok_name) if has_img_ext else (page_name == tok_name or Path(page_name).stem == tok_name)
+    if has_img_ext:
+        return page_name == tok
+    return page_name == tok or Path(page_name).stem == tok
+
+
+def _report_has_path_metadata(report: dict[str, Any]) -> bool:
+    if isinstance(report.get("audited_page_paths"), list):
+        return True
+    for p_rep in report.get("pages") or []:
+        if isinstance(p_rep, dict) and str(p_rep.get("source_path") or "").strip():
+            return True
+    return False
 
 
 def diff_qa_audits(
@@ -3328,79 +3456,166 @@ def diff_qa_audits(
     identity rather than list index, distinguishing multiple overlap pairs per region, and verifying that all
     in-scope baseline pages were actually audited in `after_report`.
     """
+    use_path_identity = _report_has_path_metadata(before_report) and _report_has_path_metadata(after_report)
+    normalized_filter_tokens = (
+        tuple(sorted({str(p).strip() for p in pages if str(p).strip()})) if pages is not None else None
+    )
 
-    def _page_in_scope(pname: str) -> bool:
+    def _page_in_scope(pname: str, pnorm: Optional[str]) -> bool:
         if not pname:
             return False
-        if pages is None:
+        if normalized_filter_tokens is None:
             return True
-        return pname in pages or Path(pname).stem in pages
+        return any(_matches_page_filter_token(tok, pname, pnorm) for tok in normalized_filter_tokens)
 
-    def _extract_audited_names(report: dict[str, Any], *, allow_pages_fallback: bool) -> list[str]:
+    def _extract_report_page_roster(report: dict[str, Any]) -> list[tuple[str, str, Optional[str]]]:
+        """Return ordered unique ``(page_id, page_name, norm_path)`` entries for all audited pages in ``report``."""
+        raw_paths = report.get("audited_page_paths")
         raw_names = report.get("audited_page_names")
-        if isinstance(raw_names, list):
-            seen: dict[str, None] = {}
-            for item in raw_names:
-                s = str(item or "").strip()
-                if s:
-                    seen.setdefault(s, None)
-            return list(seen.keys())
-        if not allow_pages_fallback:
-            return []
-        seen_fb: dict[str, None] = {}
+
+        # Map unambiguous page_name -> norm_path from both `audited_page_paths` and `pages[*]["source_path"]`
+        paths_by_name: dict[str, set[str]] = {}
+        if isinstance(raw_paths, list):
+            for idx, rp in enumerate(raw_paths):
+                sp = str(rp or "").strip()
+                if not sp:
+                    continue
+                np_s = _norm_audit_page_path(sp)
+                nm = (
+                    str(raw_names[idx]).strip()
+                    if isinstance(raw_names, list) and idx < len(raw_names) and str(raw_names[idx] or "").strip()
+                    else Path(sp).name
+                )
+                if nm:
+                    paths_by_name.setdefault(nm, set()).add(np_s)
+        for p_rep in report.get("pages") or []:
+            if not isinstance(p_rep, dict):
+                continue
+            sp = str(p_rep.get("source_path") or "").strip()
+            nm = str(p_rep.get("page_name") or "").strip() or (Path(sp).name if sp else "")
+            if sp and nm:
+                paths_by_name.setdefault(nm, set()).add(_norm_audit_page_path(sp))
+
+        unique_path_for_name = {nm: next(iter(pset)) for nm, pset in paths_by_name.items() if len(pset) == 1}
+        seen_by_id: dict[str, tuple[str, str, Optional[str]]] = {}
+
+        def _add_page(nm: str, np_opt: Optional[str]) -> None:
+            if not nm and np_opt:
+                nm = Path(np_opt).name
+            if not nm:
+                return
+            eff_np = np_opt or unique_path_for_name.get(nm)
+            pid = (eff_np or nm) if use_path_identity else nm
+            if pid not in seen_by_id:
+                seen_by_id[pid] = (pid, nm, eff_np)
+
+        if isinstance(raw_paths, list):
+            for idx, rp in enumerate(raw_paths):
+                sp = str(rp or "").strip()
+                if not sp:
+                    continue
+                np_s = _norm_audit_page_path(sp)
+                nm = (
+                    str(raw_names[idx]).strip()
+                    if isinstance(raw_names, list) and idx < len(raw_names) and str(raw_names[idx] or "").strip()
+                    else Path(sp).name
+                )
+                _add_page(nm, np_s)
+        elif isinstance(raw_names, list):
+            for rn in raw_names:
+                nm = str(rn or "").strip()
+                if nm:
+                    _add_page(nm, unique_path_for_name.get(nm))
+
         for p_rep in report.get("pages") or []:
             if isinstance(p_rep, dict):
-                s = str(p_rep.get("page_name") or "").strip()
-                if s:
-                    seen_fb.setdefault(s, None)
-        return list(seen_fb.keys())
+                sp = str(p_rep.get("source_path") or "").strip()
+                nm = str(p_rep.get("page_name") or "").strip()
+                _add_page(nm, _norm_audit_page_path(sp) if sp else None)
 
-    after_audited_list = _extract_audited_names(after_report, allow_pages_fallback=True)
-    after_audited_set = set(after_audited_list)
-    after_audited_stems = {Path(n).stem for n in after_audited_set}
+        return list(seen_by_id.values())
 
-    baseline_scope_pages: dict[str, None] = {}
-    for b_name in _extract_audited_names(before_report, allow_pages_fallback=True):
-        if _page_in_scope(b_name):
-            baseline_scope_pages.setdefault(b_name, None)
-    for p_rep in before_report.get("pages") or []:
-        if isinstance(p_rep, dict):
-            b_name = str(p_rep.get("page_name") or "").strip()
-            if _page_in_scope(b_name):
-                baseline_scope_pages.setdefault(b_name, None)
+    before_roster = _extract_report_page_roster(before_report)
+    after_roster = _extract_report_page_roster(after_report)
+    after_audited_ids = {pid for pid, _, _ in after_roster}
 
-    unaudited_dict: dict[str, None] = {}
-    for b_name in baseline_scope_pages:
-        if b_name not in after_audited_set:
-            unaudited_dict.setdefault(b_name, None)
-    if pages is not None:
-        for req_p in sorted(str(p).strip() for p in pages if str(p).strip()):
-            has_ext = "." in Path(req_p).name
-            covered = (req_p in after_audited_set) if has_ext else (req_p in after_audited_set or req_p in after_audited_stems)
+    all_paths_by_name: dict[str, set[str]] = {}
+    for _, nm, np_opt in (*before_roster, *after_roster):
+        if nm and np_opt:
+            all_paths_by_name.setdefault(nm, set()).add(np_opt)
+
+    def _display_label_for_page(nm: str, np_opt: Optional[str]) -> str:
+        if use_path_identity and np_opt and len(all_paths_by_name.get(nm, set())) > 1:
+            return np_opt
+        return nm or (np_opt or "")
+
+    baseline_scope_pages: dict[str, tuple[str, Optional[str]]] = {}
+    for pid, b_name, b_np in before_roster:
+        if _page_in_scope(b_name, b_np):
+            baseline_scope_pages.setdefault(pid, (b_name, b_np))
+
+    unaudited_dict: dict[str, tuple[str, Optional[str]]] = {}
+    for b_pid, (b_name, b_np) in baseline_scope_pages.items():
+        if b_pid not in after_audited_ids:
+            disp = _display_label_for_page(b_name, b_np)
+            unaudited_dict.setdefault(disp, (b_name, b_np))
+
+    if normalized_filter_tokens is not None:
+        for req_p in normalized_filter_tokens:
+            covered = any(_matches_page_filter_token(req_p, a_name, a_np) for _, a_name, a_np in after_roster)
             if not covered and req_p not in unaudited_dict:
-                # Avoid duplicating stem if `002.png` was already recorded from baseline_scope_pages
-                if not any(Path(existing).stem == Path(req_p).stem for existing in unaudited_dict):
-                    unaudited_dict.setdefault(req_p, None)
+                if not any(
+                    _matches_page_filter_token(req_p, u_name, u_np)
+                    for u_name, u_np in unaudited_dict.values()
+                ):
+                    unaudited_dict.setdefault(req_p, (Path(req_p).name, None))
     unaudited_pages = list(unaudited_dict.keys())
 
-    def _collect_errors(report: dict[str, Any]) -> list[tuple[tuple[str, str, str], tuple[bool, Any], dict[str, Any]]]:
-        collected: list[tuple[tuple[str, str, str], tuple[bool, Any], dict[str, Any]]] = []
+    def _resolve_page_rep_identity(
+        p_rep: dict[str, Any],
+        roster_lookup: dict[str, list[tuple[str, str, Optional[str]]]],
+    ) -> tuple[str, str, Optional[str]]:
+        raw_sp = str(p_rep.get("source_path") or "").strip()
+        np_opt = _norm_audit_page_path(raw_sp) if raw_sp else None
+        pname = str(p_rep.get("page_name") or "").strip() or (Path(raw_sp).name if raw_sp else "")
+        if np_opt is None and pname and len(roster_lookup.get(pname, ())) == 1:
+            np_opt = roster_lookup[pname][0][2]
+        pid = (np_opt or pname) if use_path_identity else pname
+        return pid, pname, np_opt
+
+    before_by_name: dict[str, list[tuple[str, str, Optional[str]]]] = {}
+    for item in before_roster:
+        before_by_name.setdefault(item[1], []).append(item)
+    after_by_name: dict[str, list[tuple[str, str, Optional[str]]]] = {}
+    for item in after_roster:
+        after_by_name.setdefault(item[1], []).append(item)
+
+    def _collect_errors(
+        report: dict[str, Any],
+        roster_lookup: dict[str, list[tuple[str, str, Optional[str]]]],
+    ) -> list[tuple[tuple[str, str, str], tuple[bool, Any], dict[str, Any], str]]:
+        collected: list[tuple[tuple[str, str, str], tuple[bool, Any], dict[str, Any], str]] = []
         for p_rep in report.get("pages") or []:
-            pname = str(p_rep.get("page_name") or "")
-            if not _page_in_scope(pname):
+            if not isinstance(p_rep, dict):
+                continue
+            page_id, pname, pnorm = _resolve_page_rep_identity(p_rep, roster_lookup)
+            if not _page_in_scope(pname, pnorm):
                 continue
             for iss in p_rep.get("issues") or []:
-                if str(iss.get("severity") or "").lower() != "error":
+                if not isinstance(iss, dict) or str(iss.get("severity") or "").lower() != "error":
                     continue
                 cat = str(iss.get("category") or "")
                 extra_disc = str(iss.get("font_family") or "") if cat == "missing_font_glyphs" else ""
-                bucket_key = (pname, cat, extra_disc)
+                bucket_key = (page_id, cat, extra_disc)
                 target_spec = _extract_issue_target_spec(iss)
                 entry = dict(iss)
                 entry["page_name"] = pname
+                raw_sp = str(p_rep.get("source_path") or "").strip()
+                if raw_sp:
+                    entry.setdefault("source_path", raw_sp)
                 dup_idx: Optional[int] = None
                 prefer_new = False
-                for c_idx, (bk, ts, _) in enumerate(collected):
+                for c_idx, (bk, ts, _, _) in enumerate(collected):
                     if bk != bucket_key:
                         continue
                     is_dup, pref_n = _same_report_issue_dedup(ts, target_spec)
@@ -3410,20 +3625,30 @@ def diff_qa_audits(
                         break
                 if dup_idx is not None:
                     if prefer_new:
-                        collected[dup_idx] = (bucket_key, target_spec, entry)
+                        collected[dup_idx] = (bucket_key, target_spec, entry, page_id)
                     continue
-                collected.append((bucket_key, target_spec, entry))
+                collected.append((bucket_key, target_spec, entry, page_id))
         return collected
 
-    before_items = _collect_errors(before_report)
-    after_items = _collect_errors(after_report)
+    before_items = _collect_errors(before_report, before_by_name)
+    after_items = _collect_errors(after_report, after_by_name)
 
     matched_before: set[int] = set()
     matched_after: set[int] = set()
 
-    # Pass 1: exact UID matches within the same (page_name, category, extra_disc) bucket
-    for a_i, (a_bk, a_spec, _) in enumerate(after_items):
-        for b_i, (b_bk, b_spec, _) in enumerate(before_items):
+    # Pass 1: exact UID matches within the same (page_id, category, extra_disc) bucket
+    after_order_p1 = sorted(
+        range(len(after_items)),
+        key=lambda i: (after_items[i][0], _canonical_target_spec_key(after_items[i][1])),
+    )
+    before_order_p1 = sorted(
+        range(len(before_items)),
+        key=lambda i: (before_items[i][0], _canonical_target_spec_key(before_items[i][1])),
+    )
+    for a_i in after_order_p1:
+        a_bk, a_spec, _, _ = after_items[a_i]
+        for b_i in before_order_p1:
+            b_bk, b_spec, _, _ = before_items[b_i]
             if b_i in matched_before or b_bk != a_bk:
                 continue
             if _same_issue_target_spec(b_spec, a_spec, exact_uid_only=True):
@@ -3431,23 +3656,66 @@ def diff_qa_audits(
                 matched_after.add(a_i)
                 break
 
-    # Pass 2: verified fallback matches (e.g. pre-UID baseline matched by bbox_sig + source_text)
-    for a_i, (a_bk, a_spec, _) in enumerate(after_items):
-        if a_i in matched_after:
-            continue
-        for b_i, (b_bk, b_spec, _) in enumerate(before_items):
-            if b_i in matched_before or b_bk != a_bk:
-                continue
-            if _same_issue_target_spec(b_spec, a_spec, exact_uid_only=False):
-                matched_before.add(b_i)
-                matched_after.add(a_i)
-                break
+    # Pass 2 (`R3-F07`): deterministic, input-order-invariant maximum 1-to-1 bipartite matching per bucket
+    unmatched_by_bucket: dict[tuple[str, str, str], tuple[list[int], list[int]]] = {}
+    for a_i in range(len(after_items)):
+        if a_i not in matched_after:
+            unmatched_by_bucket.setdefault(after_items[a_i][0], ([], []))[0].append(a_i)
+    for b_i in range(len(before_items)):
+        if b_i not in matched_before:
+            unmatched_by_bucket.setdefault(before_items[b_i][0], ([], []))[1].append(b_i)
 
-    def _entry_sort_key(e: dict[str, Any]) -> tuple[str, int, int, str, str]:
+    for _, (a_bucket, b_bucket) in sorted(unmatched_by_bucket.items(), key=lambda kv: kv[0]):
+        if not a_bucket or not b_bucket:
+            continue
+        b_sorted = sorted(b_bucket, key=lambda bi: _canonical_target_spec_key(before_items[bi][1]))
+        adj: dict[int, list[int]] = {}
+        for ai in a_bucket:
+            a_spec = after_items[ai][1]
+            cands = [
+                bi
+                for bi in b_sorted
+                if _same_issue_target_spec(before_items[bi][1], a_spec, exact_uid_only=False)
+            ]
+            cands.sort(
+                key=lambda bi: (
+                    _fallback_edge_preference(before_items[bi][1], a_spec),
+                    _canonical_target_spec_key(before_items[bi][1]),
+                )
+            )
+            if cands:
+                adj[ai] = cands
+
+        a_sorted = sorted(
+            (ai for ai in a_bucket if ai in adj),
+            key=lambda ai: (len(adj[ai]), _canonical_target_spec_key(after_items[ai][1])),
+        )
+        match_b_to_a: dict[int, int] = {}
+
+        def _try_augment(ai: int, visited_b: set[int]) -> bool:
+            for bi in adj.get(ai, ()):
+                if bi in visited_b:
+                    continue
+                visited_b.add(bi)
+                prev_ai = match_b_to_a.get(bi)
+                if prev_ai is None or _try_augment(prev_ai, visited_b):
+                    match_b_to_a[bi] = ai
+                    return True
+            return False
+
+        for ai in a_sorted:
+            _try_augment(ai, set())
+
+        for bi, ai in match_b_to_a.items():
+            matched_before.add(bi)
+            matched_after.add(ai)
+
+    def _entry_sort_key(e: dict[str, Any]) -> tuple[str, str, int, int, str, str]:
         r_idx = e.get("region_index")
         o_idx = e.get("other_region_index")
         return (
             str(e.get("page_name") or ""),
+            str(e.get("source_path") or ""),
             -1 if r_idx is None else int(r_idx),
             -1 if o_idx is None else int(o_idx),
             str(e.get("category") or ""),
@@ -3462,7 +3730,7 @@ def diff_qa_audits(
         [
             before_items[i][2]
             for i in range(len(before_items))
-            if i not in matched_before and str(before_items[i][2].get("page_name") or "") in after_audited_set
+            if i not in matched_before and before_items[i][3] in after_audited_ids
         ],
         key=_entry_sort_key,
     )

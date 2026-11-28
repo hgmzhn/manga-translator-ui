@@ -488,3 +488,179 @@ def test_r2_diff_qa_audits_scope_coverage_and_uid_dedup_preservation(
     assert diff_up_vs_a["passed"] is False
     assert diff_up_vs_a["newly_introduced_error_count"] == 1
     assert diff_up_vs_a["newly_introduced_errors"][0]["region_uid"] == "uid-B"
+
+
+def test_r3_diff_qa_audits_bipartite_order_invariance_path_identity_dedup_and_dotted_stems(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        get_runtime_settings(),
+        "load_mtui_config_dict",
+        lambda: {"render": {"alignment": "left"}},
+    )
+
+    # R3-F07: Order-independent 1-to-1 bipartite fallback matching (UID-less item never starves constrained UID item)
+    b_uidless = {
+        "severity": "error",
+        "category": "vertical_alignment_mismatch",
+        "region_index": 0,
+        "region_bbox_sig": "sig-shared",
+        "region_source_text": "同じ台詞",
+    }
+    b_uid_a = {
+        "severity": "error",
+        "category": "vertical_alignment_mismatch",
+        "region_index": 1,
+        "region_uid": "uid-A",
+        "region_bbox_sig": "sig-shared",
+        "region_source_text": "同じ台詞",
+    }
+    a_uidless = {
+        "severity": "error",
+        "category": "vertical_alignment_mismatch",
+        "region_index": 0,
+        "region_bbox_sig": "sig-shared",
+        "region_source_text": "同じ台詞",
+    }
+    a_uid_b = {
+        "severity": "error",
+        "category": "vertical_alignment_mismatch",
+        "region_index": 1,
+        "region_uid": "uid-B",
+        "region_bbox_sig": "sig-shared",
+        "region_source_text": "同じ台詞",
+    }
+    for b_issues in ([b_uidless, b_uid_a], [b_uid_a, b_uidless]):
+        for a_issues in ([a_uidless, a_uid_b], [a_uid_b, a_uidless]):
+            d_perm = diff_qa_audits(
+                {"audited_page_names": ["p.png"], "pages": [{"page_name": "p.png", "issues": b_issues}]},
+                {"audited_page_names": ["p.png"], "pages": [{"page_name": "p.png", "issues": a_issues}]},
+            )
+            assert d_perm["passed"] is True
+            assert d_perm["newly_introduced_error_count"] == 0
+            assert d_perm["resolved_error_count"] == 0
+
+    # R3-F29: Complementary 1-UID overlap pairs `(A, None)` and `(None, B)` on same indices/sig/text are NOT merged
+    pair_a_none = {
+        "severity": "error",
+        "category": "overlapping_regions",
+        "region_index": 0,
+        "other_region_index": 1,
+        "overlap_pair_indices": [0, 1],
+        "overlap_pair_uids": ["uid-A", None],
+        "overlap_pair_bbox_sigs": ["sig-0", "sig-1"],
+        "overlap_pair_source_texts": ["あ", "い"],
+    }
+    pair_none_b = {
+        "severity": "error",
+        "category": "overlapping_regions",
+        "region_index": 0,
+        "other_region_index": 1,
+        "overlap_pair_indices": [0, 1],
+        "overlap_pair_uids": [None, "uid-B"],
+        "overlap_pair_bbox_sigs": ["sig-0", "sig-1"],
+        "overlap_pair_source_texts": ["あ", "い"],
+    }
+    pair_none_a = {
+        **pair_none_b,
+        "overlap_pair_uids": [None, "uid-A"],
+    }
+    d_comp_diff = diff_qa_audits(
+        {"audited_page_names": ["p.png"], "pages": [{"page_name": "p.png", "issues": [pair_a_none]}]},
+        {"audited_page_names": ["p.png"], "pages": [{"page_name": "p.png", "issues": [pair_a_none, pair_none_b]}]},
+    )
+    assert d_comp_diff["after_error_count"] == 2
+    assert d_comp_diff["newly_introduced_error_count"] == 1
+    assert d_comp_diff["passed"] is False
+
+    d_comp_same = diff_qa_audits(
+        {"audited_page_names": ["p.png"], "pages": [{"page_name": "p.png", "issues": [pair_a_none]}]},
+        {"audited_page_names": ["p.png"], "pages": [{"page_name": "p.png", "issues": [pair_a_none, pair_none_a]}]},
+    )
+    assert d_comp_same["after_error_count"] == 1
+    assert d_comp_same["passed"] is True
+
+    # R3-F28: Canonical page path identity distinguishes `ch01/001.png` from `ch02/001.png`
+    page_arr = np.full((320, 320, 3), 255, dtype=np.uint8)
+    ch1 = tmp_path / "ch01"
+    ch2 = tmp_path / "ch02"
+    ch1.mkdir()
+    ch2.mkdir()
+    p_ch1 = ch1 / "001.png"
+    p_ch2 = ch2 / "001.png"
+    Image.fromarray(page_arr).save(p_ch1)
+    Image.fromarray(page_arr).save(p_ch2)
+    paths_ch1 = resolve_page_paths(p_ch1)
+    paths_ch2 = resolve_page_paths(p_ch2)
+    save_rgb_image_atomic(page_arr, paths_ch1.inpainted_path)
+    save_rgb_image_atomic(page_arr, paths_ch2.inpainted_path)
+    save_page_json_atomic(
+        paths_ch1,
+        str(p_ch1.resolve()),
+        {
+            "regions": [
+                {
+                    "lines": [[[40.0, 40.0], [160.0, 40.0], [160.0, 240.0], [40.0, 240.0]]],
+                    "text": "行くぞ",
+                    "translation": "走吧[BR]快跟上",
+                    "font_family": "FZHei-B01",
+                    "font_size": 26,
+                    "direction": "v",
+                    "alignment": "center",
+                }
+            ]
+        },
+        auto_initial_snapshot=False,
+    )
+    save_page_json_atomic(
+        paths_ch2,
+        str(p_ch2.resolve()),
+        {
+            "regions": [
+                {
+                    "lines": [[[40.0, 40.0], [160.0, 40.0], [160.0, 240.0], [40.0, 240.0]]],
+                    "text": "大丈夫だ",
+                    "translation": "没问题[BR]放心吧",
+                    "font_family": "FZHei-B01",
+                    "font_size": 26,
+                    "direction": "v",
+                    "alignment": "left",
+                }
+            ]
+        },
+        auto_initial_snapshot=False,
+    )
+
+    rep_ch1 = run_qa_audit(ch1, check_inpaint_cv=False, check_font_glyphs=False)
+    rep_ch2 = run_qa_audit(ch2, check_inpaint_cv=False, check_font_glyphs=False, only_pages_with_issues=True)
+    assert rep_ch1["audited_page_names"] == ["001.png"]
+    assert rep_ch2["audited_page_names"] == ["001.png"]
+    assert len(rep_ch1["audited_page_paths"]) == 1 and len(rep_ch2["audited_page_paths"]) == 1
+    assert rep_ch1["audited_page_paths"] != rep_ch2["audited_page_paths"]
+
+    diff_wrong_ch = diff_qa_audits(rep_ch1, rep_ch2)
+    assert diff_wrong_ch["passed"] is False
+    assert diff_wrong_ch["scope_complete"] is False
+    assert diff_wrong_ch["resolved_error_count"] == 0
+    assert len(diff_wrong_ch["unaudited_pages"]) == 1
+    assert "ch01" in diff_wrong_ch["unaudited_pages"][0].lower()
+
+    # R3-F60: Dotted stems like `pages={"001.final"}` satisfy scope coverage on `001.final.png`,
+    # while explicit mismatched image extensions like `001.final.jpg` do NOT.
+    dotted_dir = tmp_path / "dotted_ch"
+    dotted_dir.mkdir()
+    p_dot = dotted_dir / "001.final.png"
+    Image.fromarray(page_arr).save(p_dot)
+    paths_dot = resolve_page_paths(p_dot)
+    save_rgb_image_atomic(page_arr, paths_dot.inpainted_path)
+    save_page_json_atomic(paths_dot, str(p_dot.resolve()), {"regions": []}, auto_initial_snapshot=False)
+
+    rep_dot_b = run_qa_audit(dotted_dir, check_inpaint_cv=False, check_font_glyphs=False)
+    rep_dot_a = run_qa_audit(dotted_dir, check_inpaint_cv=False, check_font_glyphs=False)
+    diff_dot_ok = diff_qa_audits(rep_dot_b, rep_dot_a, pages={"001.final"})
+    assert diff_dot_ok["unaudited_pages"] == []
+    assert diff_dot_ok["passed"] is True
+
+    diff_dot_wrong_ext = diff_qa_audits(rep_dot_b, rep_dot_a, pages={"001.final.jpg"})
+    assert diff_dot_wrong_ext["unaudited_pages"] == ["001.final.jpg"]
+    assert diff_dot_wrong_ext["passed"] is False

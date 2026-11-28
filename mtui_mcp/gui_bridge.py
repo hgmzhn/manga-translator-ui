@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import threading
 import time
@@ -165,13 +166,29 @@ def call_live_gui(
     timeout_sec: float = 30.0,
     **kwargs: Any,
 ) -> Any:
-    budget = max(0.05, float(timeout_sec))
-    initial_packet = json.dumps(
-        {"method": method, "args": kwargs, "timeout_sec": round(budget, 6)},
+    raw_budget = float(timeout_sec)
+    if not math.isfinite(raw_budget):
+        raise ValueError("timeout_sec must be a finite number")
+    budget = max(0.05, raw_budget)
+    deadline = time.monotonic() + budget
+    fixed_deadline = math.floor(deadline * 1_000_000) / 1_000_000
+
+    probe_remaining = round(budget, 6)
+    if probe_remaining == int(probe_remaining):
+        probe_remaining = round(probe_remaining + 0.123456, 6)
+    probe_packet = json.dumps(
+        {
+            "method": method,
+            "args": kwargs,
+            "timeout_sec": probe_remaining,
+            "deadline_monotonic": fixed_deadline,
+        },
         ensure_ascii=False,
+        separators=(",", ":"),
     ).encode("utf-8")
-    if len(initial_packet) > MAX_GUI_REQUEST_BYTES:
+    if len(probe_packet) > MAX_GUI_REQUEST_BYTES:
         raise ValueError("Live GUI IPC request exceeds 256 KiB")
+
     address, key_file = gui_session_paths(session_name)
     if not key_file.is_file():
         raise RuntimeError(
@@ -184,7 +201,6 @@ def call_live_gui(
     if not auth:
         raise RuntimeError("Live GUI session key file is empty")
 
-    deadline = time.monotonic() + budget
     done = threading.Event()
     state_lock = threading.Lock()
     state: dict[str, Any] = {
@@ -213,12 +229,21 @@ def call_live_gui(
             send_remaining = deadline - time.monotonic()
             if send_remaining <= 0:
                 raise TimeoutError("Timed out waiting for live manga-translator-ui GUI")
-            wire_packet = json.dumps(
-                {"method": method, "args": kwargs, "timeout_sec": round(send_remaining, 6)},
-                ensure_ascii=False,
-            ).encode("utf-8")
+            wire_payload = {
+                "method": method,
+                "args": kwargs,
+                "timeout_sec": round(send_remaining, 6),
+                "deadline_monotonic": fixed_deadline,
+            }
+            wire_packet = json.dumps(wire_payload, ensure_ascii=False).encode("utf-8")
             if len(wire_packet) > MAX_GUI_REQUEST_BYTES:
-                wire_packet = initial_packet
+                wire_packet = json.dumps(
+                    wire_payload,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            if len(wire_packet) > MAX_GUI_REQUEST_BYTES:
+                raise ValueError("Live GUI IPC request exceeds 256 KiB")
             peer.send_bytes(wire_packet)
 
             remaining = deadline - time.monotonic()
